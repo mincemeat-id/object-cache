@@ -1,0 +1,95 @@
+name: Scheduled
+
+on:
+  schedule:
+    - cron: '0 2 * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+
+
+jobs:
+  integration:
+    name: Integration (PHP ${{ matrix.php }}, ${{ matrix.backend }}, multisite=${{ matrix.multisite }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        php:
+          - '7.4'
+          - '8.1'
+          - '8.2'
+          - '8.3'
+        backend:
+          - redis8
+          - valkey9
+        multisite:
+          - false
+          - true
+    services:
+      redis:
+        image: redis:8-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+      valkey:
+        image: valkey/valkey:9-alpine
+        ports:
+          - 6380:6379
+        options: >-
+          --health-cmd "valkey-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ matrix.php }}
+          coverage: xdebug
+          ini-values: zend.assertions=1, error_reporting=-1
+
+      - name: Select backend endpoint
+        run: echo "MINCEMEAT_TEST_REDIS_PORT=${{ matrix.backend == 'redis8' && '6379' || '6380' }}" >> "$GITHUB_ENV"
+
+      - name: Set multisite env
+        if: ${{ matrix.multisite }}
+        run: echo "WP_MULTISITE=1" >> "$GITHUB_ENV"
+
+      - name: Get composer cache key
+        id: composer-cache
+        run: echo "key=$(php -r 'echo PHP_VERSION;')-$(sha256sum composer.lock 2>/dev/null || echo no-lock)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache composer dependencies
+        uses: actions/cache@v4
+        with:
+          path: vendor
+          key: ${{ steps.composer-cache.outputs.key }}
+
+      - name: Composer install
+        run: composer install --prefer-dist --no-interaction
+
+      - name: PHPUnit extended tests
+        env:
+          MINCEMEAT_TEST_REDIS_HOST: 127.0.0.1
+        run: vendor/bin/phpunit --group integration,contract,concurrency,failure --coverage-text
+
+  compatibility-smoke:
+    name: Compatibility Smoke (placeholder)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Notice
+        run: echo "WooCommerce/Yoast/EDD smoke scheduled in Phase 9"

@@ -1,0 +1,10 @@
+parameters:
+    level: 1
+    paths:
+        - src
+    excludePaths:
+        - src/functions.php
+    treatPhpDocTypesAsCertain: false
+    reportUnmatchedIgnoredErrors: false
+    scanFiles:
+        - tests/bootstrap.php

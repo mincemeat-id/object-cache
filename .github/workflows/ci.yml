@@ -1,0 +1,207 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - master
+      - develop
+  pull_request:
+    branches:
+      - master
+      - develop
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+
+
+jobs:
+  lint-and-unit:
+    name: Lint and Unit Tests (PHP 7.4)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '7.4'
+          coverage: xdebug
+          ini-values: zend.assertions=1, error_reporting=-1
+
+      - name: Composer self-update
+        run: composer self-update --2
+
+      - name: Composer validate
+        run: composer validate --strict --no-check-lock
+
+      - name: Get composer cache key
+        id: composer-cache
+        run: echo "key=$(php -r 'echo PHP_VERSION;')-$(sha256sum composer.lock 2>/dev/null || echo no-lock)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache composer dependencies
+        uses: actions/cache@v4
+        with:
+          path: vendor
+          key: ${{ steps.composer-cache.outputs.key }}
+
+      - name: Composer install
+        run: composer install --prefer-dist --no-interaction
+
+      - name: PHP Lint
+        run: find src stubs tools mincemeat-object-cache.php -name '*.php' -print0 | xargs -0 -n1 php -l
+
+      - name: PHPCS
+        run: composer lint
+
+      - name: PHPStan
+        run: composer stan -- --error-format=github
+
+      - name: PHPUnit unit tests
+        run: vendor/bin/phpunit --group unit --coverage-text
+
+  compatibility:
+    name: PHP Compatibility (7.4)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '7.4'
+          coverage: none
+
+      - name: Get composer cache key
+        id: composer-cache
+        run: echo "key=$(php -r 'echo PHP_VERSION;')-$(sha256sum composer.lock 2>/dev/null || echo no-lock)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache composer dependencies
+        uses: actions/cache@v4
+        with:
+          path: vendor
+          key: ${{ steps.composer-cache.outputs.key }}
+
+      - name: Composer install
+        run: composer install --prefer-dist --no-interaction
+
+      - name: PHPCompatibility
+        run: vendor/bin/phpcs --standard=PHPCompatibility -p src stubs tools mincemeat-object-cache.php --runtime-set test_version 7.4
+
+  integration:
+    name: Integration (PHP ${{ matrix.php }}, ${{ matrix.backend }}, multisite=${{ matrix.multisite }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        php:
+          - '7.4'
+          - '8.3'
+        backend:
+          - redis8
+          - valkey9
+        multisite:
+          - false
+          - true
+    services:
+      redis:
+        image: redis:8-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+      valkey:
+        image: valkey/valkey:9-alpine
+        ports:
+          - 6380:6379
+        options: >-
+          --health-cmd "valkey-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ matrix.php }}
+          coverage: xdebug
+          ini-values: zend.assertions=1, error_reporting=-1
+
+      - name: Select backend endpoint
+        run: echo "MINCEMEAT_TEST_REDIS_PORT=${{ matrix.backend == 'redis8' && '6379' || '6380' }}" >> "$GITHUB_ENV"
+
+      - name: Set multisite env
+        if: ${{ matrix.multisite }}
+        run: echo "WP_MULTISITE=1" >> "$GITHUB_ENV"
+
+      - name: Get composer cache key
+        id: composer-cache
+        run: echo "key=$(php -r 'echo PHP_VERSION;')-$(sha256sum composer.lock 2>/dev/null || echo no-lock)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache composer dependencies
+        uses: actions/cache@v4
+        with:
+          path: vendor
+          key: ${{ steps.composer-cache.outputs.key }}
+
+      - name: Composer install
+        run: composer install --prefer-dist --no-interaction
+
+      - name: PHPUnit contract and integration tests
+        env:
+          MINCEMEAT_TEST_REDIS_HOST: 127.0.0.1
+        run: vendor/bin/phpunit --group contract,integration --coverage-text
+
+  artifact-parity:
+    name: Artifact Parity (drop-in)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '7.4'
+          coverage: none
+
+      - name: Get composer cache key
+        id: composer-cache
+        run: echo "key=$(php -r 'echo PHP_VERSION;')-$(sha256sum composer.lock 2>/dev/null || echo no-lock)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache composer dependencies
+        uses: actions/cache@v4
+        with:
+          path: vendor
+          key: ${{ steps.composer-cache.outputs.key }}
+
+      - name: Composer install
+        run: composer install --prefer-dist --no-interaction
+
+      - name: Build drop-in
+        run: |
+          if [ -f tools/build-dropin.php ]; then
+            php tools/build-dropin.php
+          else
+            echo "tools/build-dropin.php not found; skipping build."
+          fi
+
+      - name: Verify parity
+        run: |
+          if [ -f stubs/object-cache.php ]; then
+            git diff --exit-code stubs/object-cache.php
+          else
+            echo "stubs/object-cache.php not found; nothing to verify."
+          fi

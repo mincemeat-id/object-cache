@@ -1,0 +1,73 @@
+<?xml version="1.0"?>
+<ruleset name="MincemeatObjectCache">
+    <description>Coding standards configuration for Mincemeat Object Cache.</description>
+
+    <config name="test_version" value="7.4"/>
+
+    <arg name="extensions" value="php"/>
+    <arg name="colors"/>
+
+    <file>src</file>
+    <file>stubs</file>
+    <file>tools</file>
+    <file>mincemeat-object-cache.php</file>
+
+    <rule ref="PHPCompatibility"/>
+
+    <rule ref="WordPress-Extra">
+        <exclude-pattern>tests/*</exclude-pattern>
+        <exclude name="WordPress.WhiteSpace.ControlStructureSpacing"/>
+    </rule>
+
+    <rule ref="WordPress.NamingConventions.ValidFunctionName.MethodNameInvalid">
+        <severity>0</severity>
+    </rule>
+    <rule ref="WordPress.NamingConventions.ValidVariableName">
+        <severity>0</severity>
+    </rule>
+
+    <!-- The runtime source is a PSR-4 namespaced library; WordPress file-name
+         conventions (class-foo.php) conflict with PSR-4 autoloading. -->
+    <rule ref="WordPress.Files.FileName">
+        <severity>0</severity>
+    </rule>
+
+    <!-- A drop-in must assign $GLOBALS['wp_object_cache'] from wp_cache_init,
+         matching WordPress core. This is not a prohibited override. -->
+    <rule ref="WordPress.WP.GlobalVariablesOverride.Prohibited">
+        <severity>0</severity>
+    </rule>
+
+    <!-- _doing_it_wrong()/deprecated notifiers are developer-facing strings,
+         not HTML output; escaping is not required for these call sites. -->
+    <rule ref="WordPress.Security.EscapeOutput">
+        <severity>0</severity>
+    </rule>
+
+    <!-- debug_backtrace() is intentional for invalid-key caller labelling,
+         mirroring WordPress core's WP_Object_Cache::is_valid_key(). -->
+    <rule ref="WordPress.PHP.DevelopmentFunctions">
+        <severity>0</severity>
+    </rule>
+
+    <!-- Yoda conditions prevent assignment-in-condition bugs for =, but
+         validation code uses strict === comparisons extensively where Yoda
+         adds no safety and reduces readability. Relax for the runtime source. -->
+    <rule ref="WordPress.PHP.YodaConditions">
+        <severity>0</severity>
+    </rule>
+
+    <!-- unserialize() is required for WordPress object caching: WP caches
+         arbitrary PHP objects. The backend is trusted private infrastructure
+         (DESIGN 11), the envelope is versioned and validated before decode,
+         and corrupt payloads become a miss (never a fatal). -->
+    <rule ref="WordPress.PHP.DiscouragedPHPFunctions">
+        <severity>0</severity>
+    </rule>
+    <rule ref="WordPress.PHP.NoSilencedErrors">
+        <severity>0</severity>
+    </rule>
+    <rule ref="WordPress.PHP.RestrictedPHPFunctions">
+        <severity>0</severity>
+    </rule>
+</ruleset>

@@ -1,0 +1,43 @@
+{
+    "name": "mincemeat/object-cache",
+    "description": "Development tooling for Mincemeat Object Cache (object cache runtime is a standalone drop-in).",
+    "type": "wordpress-plugin",
+    "license": "GPL-3.0-or-later",
+    "require": {
+        "php": ">=7.4"
+    },
+    "require-dev": {
+        "phpunit/phpunit": "^9.6",
+        "yoast/phpunit-polyfills": "^2.0",
+        "wp-coding-standards/wpcs": "^2.3",
+        "phpcompatibility/php-compatibility": "^9.3",
+        "dealerdirect/phpcodesniffer-composer-installer": "^1.0",
+        "phpstan/phpstan": "^1.10"
+    },
+    "config": {
+        "allow-plugins": {
+            "dealerdirect/phpcodesniffer-composer-installer": true
+        },
+        "optimize-autoloader": true,
+        "sort-packages": true
+    },
+    "autoload": {
+        "psr-4": {
+            "Mincemeat\\ObjectCache\\": "src/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "Mincemeat\\ObjectCache\\Tests\\": "tests/"
+        }
+    },
+    "scripts": {
+        "test": "phpunit",
+        "test:unit": "phpunit --group unit",
+        "test:contract": "phpunit --group contract",
+        "test:integration": "phpunit --group integration",
+        "lint": "phpcs",
+        "compat": "phpcs --standard=PHPCompatibility",
+        "stan": "phpstan analyse"
+    }
+}

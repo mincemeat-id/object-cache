@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<phpunit xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:noNamespaceSchemaLocation="https://schema.phpunit.de/9.5/phpunit.xsd"
+         bootstrap="tests/bootstrap.php"
+         colors="true"
+         convertDeprecationsToExceptions="false"
+         failOnRisky="true"
+         failOnWarning="true"
+         stopOnFailure="false"
+         beStrictAboutTestsThatDoNotTestAnything="true"
+         beStrictAboutOutputDuringTests="true">
+    <php>
+        <ini name="error_reporting" value="E_ALL"/>
+    </php>
+
+    <testsuites>
+        <testsuite name="tests">
+            <directory>tests/</directory>
+        </testsuite>
+    </testsuites>
+
+    <coverage>
+        <include>
+            <directory>src</directory>
+        </include>
+        <report>
+            <text outputFile="php://stdout"/>
+            <clover outputFile="build/logs/clover.xml"/>
+        </report>
+    </coverage>
+</phpunit>

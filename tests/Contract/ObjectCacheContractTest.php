@@ -1,0 +1,402 @@
+<?php
+/**
+ * Contract tests: adapt the authoritative WordPress 6.9 core cache tests
+ * against the Mincemeat runtime ObjectCache and the wp_cache_* facade.
+ *
+ * These mirror the behavior assertions in
+ * tests/phpunit/tests/cache.php of the WordPress 6.9 tag. Runtime-only here;
+ * the same suite is run against Redis 8 and Valkey 9 in the Integration phase.
+ *
+ * @package Mincemeat\ObjectCache
+ * @group contract
+ */
+
+declare(strict_types=1);
+
+namespace Mincemeat\ObjectCache\Tests\Contract;
+
+use Mincemeat\ObjectCache\ObjectCache;
+use PHPUnit\Framework\TestCase;
+
+/**
+ * Adapts the WordPress 6.9 core cache contract tests.
+ */
+class ObjectCacheContractTest extends TestCase
+{
+    /**
+     * @var ObjectCache
+     */
+    private $cache;
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+
+        // Reset recorded _doing_it_wrong / deprecation notices between tests.
+        $GLOBALS['__mincemeat_doing_it_wrong'] = array();
+        $GLOBALS['__mincemeat_deprecated']     = array();
+
+        $this->cache = new ObjectCache();
+        $this->cache->add_global_groups(array('global-cache-test'));
+    }
+
+    protected function tearDown(): void
+    {
+        $this->cache->flush();
+        // Restore the addition-suspend flag default state.
+        if (function_exists('wp_suspend_cache_addition')) {
+            wp_suspend_cache_addition(false);
+        }
+        parent::tearDown();
+    }
+
+    /**
+     * Resets the recorded _doing_it_wrong notices helper for assertions.
+     */
+    private function doingItWrongCount(): int
+    {
+        return isset($GLOBALS['__mincemeat_doing_it_wrong']) ? count($GLOBALS['__mincemeat_doing_it_wrong']) : 0;
+    }
+
+    /**
+     * @dataProvider data_is_valid_key
+     */
+    public function test_is_valid_key($key, bool $valid)
+    {
+        $before = $this->doingItWrongCount();
+
+        if ($valid) {
+            $this->assertTrue($this->cache->add($key, 'val'));
+            $this->assertSame('val', $this->cache->get($key));
+        } else {
+            $this->assertFalse($this->cache->add($key, 'val'));
+            $this->assertGreaterThan($before, $this->doingItWrongCount());
+        }
+    }
+
+    public function data_is_valid_key(): array
+    {
+        return array(
+            'false'          => array(false, false),
+            'null'           => array(null, false),
+            'line break'     => array("\n", false),
+            'null character' => array("\0", false),
+            'empty string'   => array('', false),
+            'single space'   => array(' ', false),
+            'two spaces'     => array('  ', false),
+            'float 0'        => array(0.0, false),
+            'int 0'          => array(0, true),
+            'int 1'          => array(1, true),
+            'string 0'       => array('0', true),
+            'string'         => array('key', true),
+        );
+    }
+
+    public function test_miss()
+    {
+        $this->assertFalse($this->cache->get('test_miss'));
+    }
+
+    public function test_add_get()
+    {
+        $key = __FUNCTION__;
+        $val = 'val';
+
+        $this->cache->add($key, $val);
+        $this->assertSame($val, $this->cache->get($key));
+    }
+
+    public function test_add_get_0()
+    {
+        $key = __FUNCTION__;
+        $val = 0;
+
+        $this->assertTrue($this->cache->add($key, $val));
+        $this->assertSame($val, $this->cache->get($key));
+    }
+
+    public function test_add_get_null()
+    {
+        $key = __FUNCTION__;
+        $val = null;
+
+        $this->assertTrue($this->cache->add($key, $val));
+        $this->assertSame($val, $this->cache->get($key));
+    }
+
+    public function test_add_get_false()
+    {
+        $key = __FUNCTION__;
+        $val = false;
+
+        $this->assertTrue($this->cache->add($key, $val));
+        $this->assertSame($val, $this->cache->get($key));
+    }
+
+    public function test_add_get_found_disambiguates_false_from_miss()
+    {
+        $found = null;
+
+        $this->cache->set('k-false', false);
+        $this->assertSame(false, $this->cache->get('k-false', '', false, $found));
+        $this->assertTrue($found);
+
+        $found = null;
+        $this->assertSame(false, $this->cache->get('k-miss', '', false, $found));
+        $this->assertFalse($found);
+    }
+
+    public function test_add()
+    {
+        $key  = __FUNCTION__;
+        $val1 = 'val1';
+        $val2 = 'val2';
+
+        $this->assertTrue($this->cache->add($key, $val1));
+        $this->assertSame($val1, $this->cache->get($key));
+        $this->assertFalse($this->cache->add($key, $val2));
+        $this->assertSame($val1, $this->cache->get($key));
+    }
+
+    public function test_replace()
+    {
+        $key  = __FUNCTION__;
+        $val  = 'val1';
+        $val2 = 'val2';
+
+        $this->assertFalse($this->cache->replace($key, $val));
+        $this->assertFalse($this->cache->get($key));
+        $this->assertTrue($this->cache->add($key, $val));
+        $this->assertSame($val, $this->cache->get($key));
+        $this->assertTrue($this->cache->replace($key, $val2));
+        $this->assertSame($val2, $this->cache->get($key));
+    }
+
+    public function test_set()
+    {
+        $key  = __FUNCTION__;
+        $val1 = 'val1';
+        $val2 = 'val2';
+
+        $this->assertTrue($this->cache->set($key, $val1));
+        $this->assertSame($val1, $this->cache->get($key));
+        $this->assertTrue($this->cache->set($key, $val2));
+        $this->assertSame($val2, $this->cache->get($key));
+    }
+
+    public function test_flush()
+    {
+        $key = __FUNCTION__;
+        $val = 'val';
+
+        $this->cache->add($key, $val);
+        $this->assertSame($val, $this->cache->get($key));
+        $this->cache->flush();
+        $this->assertFalse($this->cache->get($key));
+    }
+
+    public function test_flush_group()
+    {
+        $key = 'my-key';
+        $val = 'my-val';
+
+        $this->cache->set($key, $val, 'group-test');
+        $this->cache->set($key, $val, 'group-kept');
+
+        $this->assertSame($val, $this->cache->get($key, 'group-test'));
+
+        $this->assertTrue($this->cache->flush_group('group-test'));
+        $this->assertFalse($this->cache->get($key, 'group-test'));
+        $this->assertSame($val, $this->cache->get($key, 'group-kept'));
+    }
+
+    public function test_flush_group_is_case_sensitive()
+    {
+        $this->cache->set('k', 'v', 'Group');
+        $this->cache->set('k', 'v', 'group');
+
+        $this->assertTrue($this->cache->flush_group('group'));
+        $this->assertSame('v', $this->cache->get('k', 'Group'));
+        $this->assertFalse($this->cache->get('k', 'group'));
+    }
+
+    public function test_flush_runtime_only_affects_memory()
+    {
+        $this->cache->set('k', 'v');
+        $this->assertTrue($this->cache->flush_runtime());
+        $this->assertFalse($this->cache->get('k'));
+    }
+
+    public function test_object_refs()
+    {
+        $key           = __FUNCTION__ . '_1';
+        $object_a      = new \stdClass();
+        $object_a->foo = 'alpha';
+        $this->cache->set($key, $object_a);
+        $object_a->foo = 'bravo';
+        $object_b      = $this->cache->get($key);
+        $this->assertSame('alpha', $object_b->foo);
+        $object_b->foo = 'charlie';
+        $this->assertSame('bravo', $object_a->foo);
+
+        $key           = __FUNCTION__ . '_2';
+        $object_a      = new \stdClass();
+        $object_a->foo = 'alpha';
+        $this->cache->add($key, $object_a);
+        $object_a->foo = 'bravo';
+        $object_b      = $this->cache->get($key);
+        $this->assertSame('alpha', $object_b->foo);
+        $object_b->foo = 'charlie';
+        $this->assertSame('bravo', $object_a->foo);
+    }
+
+    public function test_incr()
+    {
+        $key = __FUNCTION__;
+
+        $this->assertFalse($this->cache->incr($key));
+
+        $this->cache->set($key, 0);
+        $this->cache->incr($key);
+        $this->assertSame(1, $this->cache->get($key));
+
+        $this->cache->incr($key, 2);
+        $this->assertSame(3, $this->cache->get($key));
+    }
+
+    public function test_decr()
+    {
+        $key = __FUNCTION__;
+
+        $this->assertFalse($this->cache->decr($key));
+
+        $this->cache->set($key, 0);
+        $this->cache->decr($key);
+        $this->assertSame(0, $this->cache->get($key));
+
+        $this->cache->set($key, 3);
+        $this->cache->decr($key);
+        $this->assertSame(2, $this->cache->get($key));
+
+        $this->cache->decr($key, 2);
+        $this->assertSame(0, $this->cache->get($key));
+    }
+
+    public function test_incr_decr_non_numeric_normalizes_to_zero()
+    {
+        $key = __FUNCTION__;
+        $this->cache->set($key, 'not-a-number');
+        $this->assertSame(1, $this->cache->incr($key));
+        $this->assertSame(0, $this->cache->decr($key, 5));
+    }
+
+    public function test_delete()
+    {
+        $key = __FUNCTION__;
+        $val = 'val';
+
+        $this->assertTrue($this->cache->set($key, $val));
+        $this->assertSame($val, $this->cache->get($key));
+
+        $this->assertTrue($this->cache->delete($key));
+        $this->assertFalse($this->cache->get($key));
+
+        $this->assertFalse($this->cache->delete($key, 'default'));
+    }
+
+    public function test_switch_to_blog_single_site_is_global()
+    {
+        // Single-site: switch_to_blog is a no-op; data is shared.
+        $this->assertTrue($this->cache->set('k', 'v1'));
+        $this->assertSame('v1', $this->cache->get('k'));
+        $this->cache->switch_to_blog(999);
+        $this->assertSame('v1', $this->cache->get('k'));
+        $this->assertTrue($this->cache->set('k', 'v2'));
+        $this->assertSame('v2', $this->cache->get('k'));
+        $this->cache->switch_to_blog(1);
+        $this->assertSame('v2', $this->cache->get('k'));
+
+        // Global group remains visible across the switch.
+        $this->assertTrue($this->cache->set('k', 'g1', 'global-cache-test'));
+        $this->assertSame('g1', $this->cache->get('k', 'global-cache-test'));
+        $this->cache->switch_to_blog(999);
+        $this->assertSame('g1', $this->cache->get('k', 'global-cache-test'));
+        $this->cache->switch_to_blog(1);
+    }
+
+    public function test_add_multiple()
+    {
+        $found = $this->cache->add_multiple(
+            array(
+                'foo1' => 'bar',
+                'foo2' => 'bar',
+                'foo3' => 'bar',
+            ),
+            'group1'
+        );
+
+        $this->assertSame(array('foo1' => true, 'foo2' => true, 'foo3' => true), $found);
+    }
+
+    public function test_set_multiple()
+    {
+        $found = $this->cache->set_multiple(
+            array(
+                'foo1' => 'bar',
+                'foo2' => 'bar',
+                'foo3' => 'bar',
+            ),
+            'group1'
+        );
+
+        $this->assertSame(array('foo1' => true, 'foo2' => true, 'foo3' => true), $found);
+    }
+
+    public function test_get_multiple()
+    {
+        $this->cache->set('foo1', 'bar', 'group1');
+        $this->cache->set('foo2', 'bar', 'group1');
+        $this->cache->set('foo1', 'bar', 'group2');
+
+        $found = $this->cache->get_multiple(array('foo1', 'foo2', 'foo3'), 'group1');
+
+        $this->assertSame(array('foo1' => 'bar', 'foo2' => 'bar', 'foo3' => false), $found);
+    }
+
+    public function test_delete_multiple()
+    {
+        $this->cache->set('foo1', 'bar', 'group1');
+        $this->cache->set('foo2', 'bar', 'group1');
+        $this->cache->set('foo3', 'bar', 'group2');
+
+        $found = $this->cache->delete_multiple(array('foo1', 'foo2', 'foo3'), 'group1');
+
+        $this->assertSame(array('foo1' => true, 'foo2' => true, 'foo3' => false), $found);
+    }
+
+    public function test_add_multiple_respects_suspend_addition()
+    {
+        wp_suspend_cache_addition(true);
+
+        $found = $this->cache->add_multiple(
+            array('a' => 1, 'b' => 2),
+            'group1'
+        );
+
+        $this->assertSame(array('a' => false, 'b' => false), $found);
+
+        // set is not affected by suspend.
+        $this->assertSame(array('a' => true, 'b' => true), $this->cache->set_multiple(array('a' => 1, 'b' => 2), 'group1'));
+    }
+
+    public function test_capabilities_reports_six_features()
+    {
+        $this->assertTrue(wp_cache_supports('add_multiple'));
+        $this->assertTrue(wp_cache_supports('set_multiple'));
+        $this->assertTrue(wp_cache_supports('get_multiple'));
+        $this->assertTrue(wp_cache_supports('delete_multiple'));
+        $this->assertTrue(wp_cache_supports('flush_runtime'));
+        $this->assertTrue(wp_cache_supports('flush_group'));
+        $this->assertFalse(wp_cache_supports('nonexistent_feature'));
+    }
+}
