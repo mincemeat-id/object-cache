@@ -138,7 +138,9 @@ final class ObjectCache {
 	 * @param int    $expire Optional. TTL in seconds.
 	 * @return bool True on success, false if it already exists or addition is suspended.
 	 */
-	public function add( $key, $data, string $group = '', int $expire = 0): bool {
+	public function add( $key, $data, $group = '', $expire = 0): bool {
+		$group  = (string) $group;
+		$expire = (int) $expire;
 		if ($this->is_addition_suspended()) {
 			return false;
 		}
@@ -169,14 +171,116 @@ final class ObjectCache {
 	 * @param int    $expire Optional. TTL in seconds.
 	 * @return bool[] Per-key results.
 	 */
-	public function add_multiple( array $data, string $group = '', int $expire = 0): array {
-		$values = array();
+	public function add_multiple( array $data, $group = '', $expire = 0): array {
+		$group  = (string) $group;
+		$expire = (int) $expire;
+		$group  = $this->key_space->normalize_group( $group );
 
-		foreach ($data as $key => $value) {
-			$values[ $key ] = $this->add( $key, $value, $group, $expire );
+		if ($this->is_addition_suspended()) {
+			return array_fill_keys( array_keys( $data ), false );
 		}
 
-		return $values;
+		if ( ! $this->is_persistent_group( $group )) {
+			$values = array();
+			foreach ($data as $key => $value) {
+				$values[ $key ] = $this->add( $key, $value, $group, $expire );
+			}
+			return $values;
+		}
+
+		// Persistent add pipeline.
+		$valid_keys = array();
+		$storage_ids = array();
+		$entries = array();
+		$out = array();
+
+		$ns_tok  = $this->backend->namespace_token();
+		$grp_tok = $this->backend->group_token( $group );
+		$ttl_ms  = $this->resolve_ttl_ms( $expire );
+
+		foreach ($data as $key => $value) {
+			if ( ! $this->key_space->is_valid_key( $key )) {
+				$out[ $key ] = false;
+				continue;
+			}
+
+			$storage_id = $this->key_space->storage_id( $key, $group );
+
+			if ($this->exists( $storage_id, $group )) {
+				$out[ $key ] = false;
+				continue;
+			}
+
+			try {
+				$encoded = ValueCodec::encode( $value );
+			} catch (ValueCodecException $e) {
+				$out[ $key ] = false;
+				continue;
+			}
+
+			$storage_ids[ $key ] = $storage_id;
+			$valid_keys[] = $key;
+			$backend_key = $this->key_space->item_key( $ns_tok, $grp_tok, $group, $key );
+			$entries[] = array( $backend_key, $encoded, $ttl_ms, true, false );
+		}
+
+		if (count( $valid_keys ) === 0) {
+			return $out;
+		}
+
+		$this->backend_calls += 1;
+		$start = microtime( true );
+		$pipeline_results = $this->backend->set_conditional_pipeline( $entries );
+		$this->backend_time += ( microtime( true ) - $start ) * 1000000;
+
+		if ( ! $this->sync_state()) {
+			foreach ($valid_keys as $key) {
+				$storage_id = $storage_ids[ $key ];
+				if ( ! $this->exists( $storage_id, $group )) {
+					$out[ $key ] = $this->set_in_memory( $storage_id, $group, $data[ $key ] );
+				} else {
+					$out[ $key ] = false;
+				}
+			}
+			return $out;
+		}
+
+		$failed_keys = array();
+		$failed_backend_keys = array();
+
+		foreach ($valid_keys as $idx => $key) {
+			$storage_id = $storage_ids[ $key ];
+			if ($pipeline_results[ $idx ]) {
+				$this->set_in_memory( $storage_id, $group, $data[ $key ] );
+				$out[ $key ] = true;
+			} else {
+				$out[ $key ] = false;
+				$failed_keys[] = $key;
+				$failed_backend_keys[] = $this->key_space->item_key( $ns_tok, $grp_tok, $group, $key );
+			}
+		}
+
+		if (count( $failed_backend_keys ) > 0) {
+			$this->backend_calls += 1;
+			$start = microtime( true );
+			$raw_values = $this->backend->mget( $failed_backend_keys );
+			$this->backend_time += ( microtime( true ) - $start ) * 1000000;
+
+			if ($this->sync_state() && is_array( $raw_values )) {
+				foreach ($failed_keys as $idx => $key) {
+					$raw = $raw_values[ $idx ] ?? null;
+					if (is_string( $raw ) && $raw !== '') {
+						list($ok2, $val) = ValueCodec::decode( $raw );
+						if ($ok2) {
+							$storage_id = $storage_ids[ $key ];
+							$this->set_in_memory( $storage_id, $group, $val );
+						}
+					}
+				}
+			}
+		}
+
+		return $out;
 	}
 
 	/**
@@ -188,7 +292,9 @@ final class ObjectCache {
 	 * @param int    $expire Optional. TTL in seconds.
 	 * @return bool True on success, false if the item does not exist.
 	 */
-	public function replace( $key, $data, string $group = '', int $expire = 0): bool {
+	public function replace( $key, $data, $group = '', $expire = 0): bool {
+		$group  = (string) $group;
+		$expire = (int) $expire;
 		if ( ! $this->key_space->is_valid_key( $key )) {
 			return false;
 		}
@@ -216,7 +322,9 @@ final class ObjectCache {
 	 * @param int    $expire Optional. TTL in seconds.
 	 * @return bool True on success, false if the key is invalid.
 	 */
-	public function set( $key, $data, string $group = '', int $expire = 0): bool {
+	public function set( $key, $data, $group = '', $expire = 0): bool {
+		$group  = (string) $group;
+		$expire = (int) $expire;
 		if ( ! $this->key_space->is_valid_key( $key )) {
 			return false;
 		}
@@ -239,14 +347,77 @@ final class ObjectCache {
 	 * @param int    $expire Optional. TTL in seconds.
 	 * @return bool[] Per-key results.
 	 */
-	public function set_multiple( array $data, string $group = '', int $expire = 0): array {
-		$values = array();
+	public function set_multiple( array $data, $group = '', $expire = 0): array {
+		$group  = (string) $group;
+		$expire = (int) $expire;
+		$group  = $this->key_space->normalize_group( $group );
 
-		foreach ($data as $key => $value) {
-			$values[ $key ] = $this->set( $key, $value, $group, $expire );
+		if ( ! $this->is_persistent_group( $group )) {
+			$values = array();
+			foreach ($data as $key => $value) {
+				$values[ $key ] = $this->set( $key, $value, $group, $expire );
+			}
+			return $values;
 		}
 
-		return $values;
+		// Persistent set pipeline.
+		$valid_keys = array();
+		$storage_ids = array();
+		$entries = array();
+		$out = array();
+
+		$ns_tok  = $this->backend->namespace_token();
+		$grp_tok = $this->backend->group_token( $group );
+		$ttl_ms  = $this->resolve_ttl_ms( $expire );
+
+		foreach ($data as $key => $value) {
+			if ( ! $this->key_space->is_valid_key( $key )) {
+				$out[ $key ] = false;
+				continue;
+			}
+
+			try {
+				$encoded = ValueCodec::encode( $value );
+			} catch (ValueCodecException $e) {
+				$out[ $key ] = false;
+				continue;
+			}
+
+			$storage_id = $this->key_space->storage_id( $key, $group );
+			$storage_ids[ $key ] = $storage_id;
+			$valid_keys[] = $key;
+			$backend_key = $this->key_space->item_key( $ns_tok, $grp_tok, $group, $key );
+			$entries[] = array( $backend_key, $encoded, $ttl_ms );
+		}
+
+		if (count( $valid_keys ) === 0) {
+			return $out;
+		}
+
+		$this->backend_calls += 1;
+		$start = microtime( true );
+		$pipeline_results = $this->backend->set_pipeline( $entries );
+		$this->backend_time += ( microtime( true ) - $start ) * 1000000;
+
+		if ( ! $this->sync_state()) {
+			foreach ($valid_keys as $key) {
+				$storage_id = $storage_ids[ $key ];
+				$out[ $key ] = $this->set_in_memory( $storage_id, $group, $data[ $key ] );
+			}
+			return $out;
+		}
+
+		foreach ($valid_keys as $idx => $key) {
+			$storage_id = $storage_ids[ $key ];
+			if ($pipeline_results[ $idx ]) {
+				$this->set_in_memory( $storage_id, $group, $data[ $key ] );
+				$out[ $key ] = true;
+			} else {
+				$out[ $key ] = false;
+			}
+		}
+
+		return $out;
 	}
 
 	/**
@@ -258,7 +429,8 @@ final class ObjectCache {
 	 * @param bool|null   $found Optional. Whether the key was found (reference).
 	 * @return mixed|false The cached value on hit, false on miss or invalid key.
 	 */
-	public function get( $key, string $group = '', bool $force = false, &$found = null) {
+	public function get( $key, $group = '', bool $force = false, &$found = null) {
+		$group = (string) $group;
 		if ( ! $this->key_space->is_valid_key( $key )) {
 			return false;
 		}
@@ -294,7 +466,8 @@ final class ObjectCache {
 	 * @param bool   $force Optional. Force reads past the runtime tier.
 	 * @return array<string,mixed> Per-key values; misses are false.
 	 */
-	public function get_multiple( array $keys, string $group = '', bool $force = false): array {
+	public function get_multiple( array $keys, $group = '', bool $force = false): array {
+		$group = (string) $group;
 		$group = $this->key_space->normalize_group( $group );
 
 		if ($this->is_persistent_group( $group )) {
@@ -317,7 +490,8 @@ final class ObjectCache {
 	 * @param string $group Optional. The cache group. Default empty.
 	 * @return bool True on success, false if absent or invalid key.
 	 */
-	public function delete( $key, string $group = ''): bool {
+	public function delete( $key, $group = ''): bool {
+		$group = (string) $group;
 		if ( ! $this->key_space->is_valid_key( $key )) {
 			return false;
 		}
@@ -345,14 +519,69 @@ final class ObjectCache {
 	 * @param string $group Optional. The cache group. Default empty.
 	 * @return bool[] Per-key results.
 	 */
-	public function delete_multiple( array $keys, string $group = ''): array {
-		$values = array();
+	public function delete_multiple( array $keys, $group = ''): array {
+		$group  = (string) $group;
+		$group  = $this->key_space->normalize_group( $group );
 
-		foreach ($keys as $key) {
-			$values[ $key ] = $this->delete( $key, $group );
+		if ( ! $this->is_persistent_group( $group )) {
+			$values = array();
+			foreach ($keys as $key) {
+				$values[ $key ] = $this->delete( $key, $group );
+			}
+			return $values;
 		}
 
-		return $values;
+		// Persistent delete pipeline.
+		$valid_keys = array();
+		$storage_ids = array();
+		$was_in_memory = array();
+		$backend_keys = array();
+		$out = array();
+
+		$ns_tok  = $this->backend->namespace_token();
+		$grp_tok = $this->backend->group_token( $group );
+
+		foreach ($keys as $key) {
+			if ( ! $this->key_space->is_valid_key( $key )) {
+				$out[ $key ] = false;
+				continue;
+			}
+			$storage_id = $this->key_space->storage_id( $key, $group );
+			$storage_ids[ $key ] = $storage_id;
+			$was_in_memory[ $key ] = $this->exists( $storage_id, $group );
+			$valid_keys[] = $key;
+			$backend_keys[] = $this->key_space->item_key( $ns_tok, $grp_tok, $group, $key );
+		}
+
+		if (count( $valid_keys ) === 0) {
+			return $out;
+		}
+
+		$this->backend_calls += 1;
+		$start = microtime( true );
+		$pipeline_results = $this->backend->del_pipeline( $backend_keys );
+		$this->backend_time += ( microtime( true ) - $start ) * 1000000;
+
+		if ( ! $this->sync_state()) {
+			foreach ($valid_keys as $key) {
+				$storage_id = $storage_ids[ $key ];
+				if ($was_in_memory[ $key ]) {
+					unset( $this->cache[ $group ][ $storage_id ] );
+					$out[ $key ] = true;
+				} else {
+					$out[ $key ] = false;
+				}
+			}
+			return $out;
+		}
+
+		foreach ($valid_keys as $idx => $key) {
+			$storage_id = $storage_ids[ $key ];
+			unset( $this->cache[ $group ][ $storage_id ] );
+			$out[ $key ] = $pipeline_results[ $idx ] || $was_in_memory[ $key ];
+		}
+
+		return $out;
 	}
 
 	/**
@@ -363,7 +592,9 @@ final class ObjectCache {
 	 * @param string $group  Optional. The cache group. Default empty.
 	 * @return int|false The new value on success, false on miss or invalid key.
 	 */
-	public function incr( $key, int $offset = 1, string $group = '') {
+	public function incr( $key, $offset = 1, $group = '') {
+		$offset = (int) $offset;
+		$group  = (string) $group;
 		return $this->delta( $key, $offset, $group );
 	}
 
@@ -375,7 +606,9 @@ final class ObjectCache {
 	 * @param string $group  Optional. The cache group. Default empty.
 	 * @return int|false The new value on success, false on miss or invalid key.
 	 */
-	public function decr( $key, int $offset = 1, string $group = '') {
+	public function decr( $key, $offset = 1, $group = '') {
+		$offset = (int) $offset;
+		$group  = (string) $group;
 		return $this->delta( $key, -$offset, $group );
 	}
 
@@ -424,7 +657,8 @@ final class ObjectCache {
 	 * @param string $group The group name to flush.
 	 * @return bool True on success.
 	 */
-	public function flush_group( string $group): bool {
+	public function flush_group( $group): bool {
+		$group = (string) $group;
 		if ('' === $group) {
 			$group = 'default';
 		}
@@ -479,7 +713,8 @@ final class ObjectCache {
 	 * @param string $group Normalized group name.
 	 * @return bool
 	 */
-	public function is_non_persistent_group( string $group): bool {
+	public function is_non_persistent_group( $group): bool {
+		$group = (string) $group;
 		return isset( $this->non_persistent_groups[ $group ] );
 	}
 

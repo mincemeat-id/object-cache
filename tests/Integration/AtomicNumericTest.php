@@ -93,21 +93,44 @@ class AtomicNumericTest extends IntegrationTestCase
     public function test_incr_nonnumeric_normalizes_to_zero()
     {
         $this->cache->set('k', 'not-a-number', 'options');
-        $this->assertFalse($this->cache->incr('k', 1, 'options'));
+        $this->assertSame(1, $this->cache->incr('k', 1, 'options'));
+        $this->assertSame(1, $this->cache->get('k', 'options'));
     }
 
-    public function test_incr_string_numeric_value_returns_false()
+    public function test_incr_string_numeric_value_succeeds()
     {
-        // The Lua script only accepts TAG_INT envelopes. A string '42' is
-        // TAG_STRING, so the script returns INVALID and incr returns false.
         $this->cache->set('k', '42', 'options');
-        $this->assertFalse($this->cache->incr('k', 1, 'options'));
+        $this->assertSame(43, $this->cache->incr('k', 1, 'options'));
+        $this->assertSame(43, $this->cache->get('k', 'options'));
     }
 
-    public function test_incr_float_value_returns_false()
+    public function test_incr_float_value_succeeds()
     {
         $this->cache->set('k', 3.14, 'options');
-        $this->assertFalse($this->cache->incr('k', 1, 'options'));
+        $this->assertEqualsWithDelta(4.14, $this->cache->incr('k', 1, 'options'), 0.000001);
+        $this->assertEqualsWithDelta(4.14, $this->cache->get('k', 'options'), 0.000001);
+    }
+
+    public function test_incr_decr_extra_coercion_and_boundaries()
+    {
+        // 1. String/fractional offsets and negative offsets
+        $this->cache->set('k-offset', 10, 'options');
+        $this->assertSame(12, $this->cache->incr('k-offset', '2', 'options'));
+        $this->assertSame(13, $this->cache->incr('k-offset', 1.5, 'options'));
+        $this->assertSame(11, $this->cache->incr('k-offset', -2, 'options'));
+
+        // 2. Group '0'
+        $this->cache->set('k-group-0', 100, 0);
+        $this->assertSame(101, $this->cache->incr('k-group-0', 1, 0));
+        $this->assertSame(101, $this->cache->get('k-group-0', 0));
+
+        // 3. Large integer boundaries (2^53 + 1)
+        $this->cache->set('k-large-53', 9007199254740993, 'options');
+        $this->assertEqualsWithDelta(9007199254740994, $this->cache->incr('k-large-53', 1, 'options'), 8);
+
+        // 4. PHP_INT_MAX, PHP_INT_MIN, and boundary-crossing
+        $this->cache->set('k-int-max', PHP_INT_MAX, 'options');
+        $this->assertEqualsWithDelta((float)PHP_INT_MAX + 1, $this->cache->incr('k-int-max', 1, 'options'), 1e13);
     }
 
     public function test_incr_preserves_finite_ttl()
@@ -234,7 +257,7 @@ class AtomicNumericTest extends IntegrationTestCase
         $this->assertNull($value);
     }
 
-    public function test_lua_eval_incr_invalid_type()
+    public function test_lua_eval_incr_non_numeric_coerces_to_zero()
     {
         $this->cache->set('k', 'string-not-int', 'options');
 
@@ -244,7 +267,7 @@ class AtomicNumericTest extends IntegrationTestCase
 
         list($code, $value) = $this->backend->eval_incr($item_key, 1);
 
-        $this->assertSame(LuaScripts::RESULT_INVALID, $code);
-        $this->assertNull($value);
+        $this->assertSame(LuaScripts::RESULT_OK, $code);
+        $this->assertSame(1, $value);
     }
 }

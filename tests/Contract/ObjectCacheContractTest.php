@@ -290,6 +290,42 @@ class ObjectCacheContractTest extends TestCase
         $this->assertSame(0, $this->cache->decr($key, 5));
     }
 
+    public function test_numeric_behavior_and_coercion()
+    {
+        // 1. Numeric and non-numeric strings
+        $this->cache->set('k-num-str', '42');
+        $this->assertSame(43, $this->cache->incr('k-num-str'));
+        $this->assertSame(43, $this->cache->get('k-num-str'));
+
+        $this->cache->set('k-non-num-str', 'hello');
+        $this->assertSame(1, $this->cache->incr('k-non-num-str'));
+        $this->assertSame(1, $this->cache->get('k-non-num-str'));
+
+        // 2. Floats
+        $this->cache->set('k-float', 3.14);
+        $this->assertEqualsWithDelta(4.14, $this->cache->incr('k-float'), 0.000001);
+        $this->assertEqualsWithDelta(4.14, $this->cache->get('k-float'), 0.000001);
+
+        // 3. String/fractional offsets and negative offsets
+        $this->cache->set('k-offset', 10);
+        $this->assertSame(12, $this->cache->incr('k-offset', '2'));
+        $this->assertSame(13, $this->cache->incr('k-offset', 1.5)); // 1.5 coerced to 1
+        $this->assertSame(11, $this->cache->incr('k-offset', -2)); // negative offset
+
+        // 4. Group '0'
+        $this->cache->set('k-group-0', 100, 0);
+        $this->assertSame(101, $this->cache->incr('k-group-0', 1, 0));
+        $this->assertSame(101, $this->cache->get('k-group-0', 0));
+
+        // 5. Large integer boundaries (2^53 + 1)
+        $this->cache->set('k-large-53', 9007199254740993);
+        $this->assertEqualsWithDelta(9007199254740994, $this->cache->incr('k-large-53', 1), 8);
+
+        // 6. PHP_INT_MAX, PHP_INT_MIN, and boundary-crossing
+        $this->cache->set('k-int-max', PHP_INT_MAX);
+        $this->assertEqualsWithDelta((float)PHP_INT_MAX + 1, $this->cache->incr('k-int-max', 1), 1e13);
+    }
+
     public function test_delete()
     {
         $key = __FUNCTION__;

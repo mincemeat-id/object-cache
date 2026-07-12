@@ -35,9 +35,19 @@ if (is_readable($vendor_autoload)) {
     });
 }
 
-// Load the global wp_cache_* facade so contract/unit tests exercise the real
-// WordPress entry points. The facade is guarded against redeclaration.
-require_once __DIR__ . '/../src/functions.php';
+if (getenv('MINCEMEAT_TEST_USE_DROPIN')) {
+    $dropin = __DIR__ . '/../stubs/object-cache.php';
+    if (file_exists($dropin)) {
+        require_once $dropin;
+    } else {
+        fwrite(STDERR, "Error: stubs/object-cache.php not found. Run php tools/build-dropin.php first.\n");
+        exit(1);
+    }
+} else {
+    // Load the global wp_cache_* facade so contract/unit tests exercise the real
+    // WordPress entry points. The facade is guarded against redeclaration.
+    require_once __DIR__ . '/../src/functions.php';
+}
 
 if (!function_exists('_doing_it_wrong')) {
     /**

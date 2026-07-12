@@ -534,7 +534,7 @@ final class Backend {
 
 		$out = array();
 		foreach ($results as $i => $r) {
-			$out[] = $r !== false && (int) $r >= 0;
+			$out[] = $r !== false && (int) $r > 0;
 		}
 
 		// If UNLINK produced an error result (false), fall back to DEL.
@@ -554,7 +554,7 @@ final class Backend {
 
 			$out = array();
 			foreach ($results as $i => $r) {
-				$out[] = $r !== false && (int) $r >= 0;
+				$out[] = $r !== false && (int) $r > 0;
 			}
 		}
 
@@ -680,7 +680,8 @@ final class Backend {
 		$code = (string) $result[0];
 
 		if ($code === LuaScripts::RESULT_OK && isset( $result[1] )) {
-			return array( LuaScripts::RESULT_OK, (int) $result[1] );
+			$val = $result[1];
+			return array( LuaScripts::RESULT_OK, is_numeric( $val ) ? $val + 0 : (int) $val );
 		}
 
 		return array( $code, null );

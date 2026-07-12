@@ -7,7 +7,7 @@
  * Version: 1.0.0-dev
  * Drop-in Version: 1.0.0-dev
  * Schema Version: 1
- * Build Hash: aca15e992d128c19ae272403d8b5b8c0b4439b719f22eec56867d1aff7920bda
+ * Build Hash: 8da4975bce2b34629e9a156f2cca3c047d724336939e742dd9823cfa8818ebd0
  *
  * @package Mincemeat\ObjectCache
  */
@@ -710,7 +710,7 @@ namespace Mincemeat\ObjectCache {
 
 			$out = array();
 			foreach ($results as $i => $r) {
-				$out[] = $r !== false && (int) $r >= 0;
+				$out[] = $r !== false && (int) $r > 0;
 			}
 
 			// If UNLINK produced an error result (false), fall back to DEL.
@@ -730,7 +730,7 @@ namespace Mincemeat\ObjectCache {
 
 				$out = array();
 				foreach ($results as $i => $r) {
-					$out[] = $r !== false && (int) $r >= 0;
+					$out[] = $r !== false && (int) $r > 0;
 				}
 			}
 
@@ -856,7 +856,8 @@ namespace Mincemeat\ObjectCache {
 			$code = (string) $result[0];
 
 			if ($code === LuaScripts::RESULT_OK && isset( $result[1] )) {
-				return array( LuaScripts::RESULT_OK, (int) $result[1] );
+				$val = $result[1];
+				return array( LuaScripts::RESULT_OK, is_numeric( $val ) ? $val + 0 : (int) $val );
 			}
 
 			return array( $code, null );
@@ -2006,6 +2007,76 @@ namespace Mincemeat\ObjectCache {
 		 * and never resets it.
 		 */
 		public const INCR_DECR = <<<'LUA'
+	local function decode_double(str)
+	    local b1, b2, b3, b4, b5, b6, b7, b8 = string.byte(str, 1, 8)
+	    local sign = 1
+	    if b8 >= 128 then
+	        sign = -1
+	        b8 = b8 - 128
+	    end
+	    local exponent = b8 * 16 + math.floor(b7 / 16)
+	    if exponent == 2047 then
+	        return 0
+	    end
+	    local mantissa = (b7 % 16) * 2^48
+	        + b6 * 2^40
+	        + b5 * 2^32
+	        + b4 * 2^24
+	        + b3 * 2^16
+	        + b2 * 2^8
+	        + b1
+	    if exponent == 0 then
+	        if mantissa == 0 then
+	            return 0
+	        else
+	            return sign * mantissa * 2^(-1022 - 52)
+	        end
+	    else
+	        return sign * (1 + mantissa / 2^52) * 2^(exponent - 1023)
+	    end
+	end
+
+	local function encode_double(value)
+	    if value == 0 then
+	        return string.char(0, 0, 0, 0, 0, 0, 0, 0)
+	    end
+	    local sign = 0
+	    if value < 0 then
+	        sign = 1
+	        value = -value
+	    end
+	    local exponent = math.floor(math.log(value) / math.log(2))
+	    local mantissa = value / 2^exponent
+	    if mantissa < 1 then
+	        mantissa = mantissa * 2
+	        exponent = exponent - 1
+	    elseif mantissa >= 2 then
+	        mantissa = mantissa / 2
+	        exponent = exponent + 1
+	    end
+	    exponent = exponent + 1023
+	    if exponent >= 2047 then
+	        if sign == 1 then
+	            return string.char(0, 0, 0, 0, 0, 0, 240, 255)
+	        else
+	            return string.char(0, 0, 0, 0, 0, 0, 240, 127)
+	        end
+	    elseif exponent <= 0 then
+	        return string.char(0, 0, 0, 0, 0, 0, 0, 0)
+	    end
+	    mantissa = (mantissa - 1) * 2^52
+	    local m_part = mantissa
+	    local bytes = {}
+	    for i = 1, 6 do
+	        local b = m_part % 256
+	        bytes[i] = math.floor(b)
+	        m_part = (m_part - b) / 256
+	    end
+	    local b7 = math.floor(m_part % 16) + (exponent % 16) * 16
+	    local b8 = math.floor(exponent / 16) + sign * 128
+	    return string.char(bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], b7, b8)
+	end
+
 	local key = KEYS[1]
 	local offset = tonumber(ARGV[1])
 
@@ -2014,90 +2085,87 @@ namespace Mincemeat\ObjectCache {
 	    return {'MISSING'}
 	end
 
-	-- Validate minimum length (4 magic + 1 version + 1 tag + 4 length = 10).
 	if string.len(raw) < 10 then
 	    return {'CORRUPT'}
 	end
 
-	-- Validate magic.
 	if string.sub(raw, 1, 4) ~= 'MCOC' then
 	    return {'CORRUPT'}
 	end
 
-	-- Validate version.
 	local ver = string.byte(raw, 5)
 	if ver ~= 1 then
 	    return {'CORRUPT'}
 	end
 
-	-- Validate tag is integer (tag 1).
 	local tag = string.byte(raw, 6)
-	if tag ~= 1 then
-	    return {'INVALID'}
-	end
 
-	-- Read the 4-byte big-endian length.
 	local b1 = string.byte(raw, 7)
 	local b2 = string.byte(raw, 8)
 	local b3 = string.byte(raw, 9)
 	local b4 = string.byte(raw, 10)
 	local length = b1 * 16777216 + b2 * 65536 + b3 * 256 + b4
 
-	-- Extract and validate the payload.
 	local payload = string.sub(raw, 11)
 	if string.len(payload) ~= length then
 	    return {'CORRUPT'}
 	end
 
-	if length == 0 then
-	    return {'CORRUPT'}
-	end
+	local current = 0
 
-	-- Validate the payload is a decimal integer string.
-	local abs_str = payload
-	if string.sub(payload, 1, 1) == '-' then
-	    abs_str = string.sub(payload, 2)
-	end
-
-	if abs_str == '' then
-	    return {'CORRUPT'}
-	end
-
-	-- Check every byte of abs_str is a digit.
-	local valid = true
-	for i = 1, string.len(abs_str) do
-	    local c = string.byte(abs_str, i)
-	    if c < 48 or c > 57 then
-	        valid = false
-	        break
+	if tag == 1 then
+	    current = tonumber(payload)
+	    if current == nil then
+	        return {'CORRUPT'}
 	    end
-	end
-	if not valid then
-	    return {'CORRUPT'}
+	elseif tag == 2 then
+	    if string.len(payload) ~= 8 then
+	        return {'CORRUPT'}
+	    end
+	    current = decode_double(payload)
+	elseif tag == 3 then
+	    current = tonumber(payload)
+	    if current == nil then
+	        current = 0
+	    end
+	elseif tag == 4 then
+	    if payload == string.char(1) then
+	        current = 1
+	    else
+	        current = 0
+	    end
+	elseif tag == 5 then
+	    current = 0
+	else
+	    current = 0
 	end
 
-	-- Apply the offset.
-	local current = tonumber(payload)
 	local new_value = current + offset
-
-	-- Clamp at zero for decrements (WordPress behavior).
 	if new_value < 0 then
 	    new_value = 0
 	end
 
-	-- Re-encode the integer envelope: magic + version + tag + length + payload.
-	local new_payload = tostring(new_value)
+	local new_tag = 1
+	local new_payload = ''
+
+	if new_value % 1 == 0 then
+	    new_tag = 1
+	    new_payload = string.format('%.0f', new_value)
+	else
+	    new_tag = 2
+	    new_payload = encode_double(new_value)
+	end
+
 	local new_len = string.len(new_payload)
 	local new_raw = 'MCOC'
 	    .. string.char(1)
-	    .. string.char(1)
+	    .. string.char(new_tag)
 	    .. string.char(math.floor(new_len / 16777216) % 256)
 	    .. string.char(math.floor(new_len / 65536) % 256)
 	    .. string.char(math.floor(new_len / 256) % 256)
 	    .. string.char(new_len % 256)
 	    .. new_payload
 
-	-- Preserve the existing PTTL (including no-expiry = -1).
 	local pttl = redis.call('PTTL', key)
 	if pttl == -1 then
 	    redis.call('SET', key, new_raw)
@@ -2240,7 +2308,9 @@ namespace Mincemeat\ObjectCache {
 		 * @param int    $expire Optional. TTL in seconds.
 		 * @return bool True on success, false if it already exists or addition is suspended.
 		 */
-		public function add( $key, $data, string $group = '', int $expire = 0): bool {
+		public function add( $key, $data, $group = '', $expire = 0): bool {
+			$group  = (string) $group;
+			$expire = (int) $expire;
 			if ($this->is_addition_suspended()) {
 				return false;
 			}
@@ -2271,14 +2341,116 @@ namespace Mincemeat\ObjectCache {
 		 * @param int    $expire Optional. TTL in seconds.
 		 * @return bool[] Per-key results.
 		 */
-		public function add_multiple( array $data, string $group = '', int $expire = 0): array {
-			$values = array();
+		public function add_multiple( array $data, $group = '', $expire = 0): array {
+			$group  = (string) $group;
+			$expire = (int) $expire;
+			$group  = $this->key_space->normalize_group( $group );
 
-			foreach ($data as $key => $value) {
-				$values[ $key ] = $this->add( $key, $value, $group, $expire );
+			if ($this->is_addition_suspended()) {
+				return array_fill_keys( array_keys( $data ), false );
 			}
 
-			return $values;
+			if ( ! $this->is_persistent_group( $group )) {
+				$values = array();
+				foreach ($data as $key => $value) {
+					$values[ $key ] = $this->add( $key, $value, $group, $expire );
+				}
+				return $values;
+			}
+
+			// Persistent add pipeline.
+			$valid_keys = array();
+			$storage_ids = array();
+			$entries = array();
+			$out = array();
+
+			$ns_tok  = $this->backend->namespace_token();
+			$grp_tok = $this->backend->group_token( $group );
+			$ttl_ms  = $this->resolve_ttl_ms( $expire );
+
+			foreach ($data as $key => $value) {
+				if ( ! $this->key_space->is_valid_key( $key )) {
+					$out[ $key ] = false;
+					continue;
+				}
+
+				$storage_id = $this->key_space->storage_id( $key, $group );
+
+				if ($this->exists( $storage_id, $group )) {
+					$out[ $key ] = false;
+					continue;
+				}
+
+				try {
+					$encoded = ValueCodec::encode( $value );
+				} catch (ValueCodecException $e) {
+					$out[ $key ] = false;
+					continue;
+				}
+
+				$storage_ids[ $key ] = $storage_id;
+				$valid_keys[] = $key;
+				$backend_key = $this->key_space->item_key( $ns_tok, $grp_tok, $group, $key );
+				$entries[] = array( $backend_key, $encoded, $ttl_ms, true, false );
+			}
+
+			if (count( $valid_keys ) === 0) {
+				return $out;
+			}
+
+			$this->backend_calls += 1;
+			$start = microtime( true );
+			$pipeline_results = $this->backend->set_conditional_pipeline( $entries );
+			$this->backend_time += ( microtime( true ) - $start ) * 1000000;
+
+			if ( ! $this->sync_state()) {
+				foreach ($valid_keys as $key) {
+					$storage_id = $storage_ids[ $key ];
+					if ( ! $this->exists( $storage_id, $group )) {
+						$out[ $key ] = $this->set_in_memory( $storage_id, $group, $data[ $key ] );
+					} else {
+						$out[ $key ] = false;
+					}
+				}
+				return $out;
+			}
+
+			$failed_keys = array();
+			$failed_backend_keys = array();
+
+			foreach ($valid_keys as $idx => $key) {
+				$storage_id = $storage_ids[ $key ];
+				if ($pipeline_results[ $idx ]) {
+					$this->set_in_memory( $storage_id, $group, $data[ $key ] );
+					$out[ $key ] = true;
+				} else {
+					$out[ $key ] = false;
+					$failed_keys[] = $key;
+					$failed_backend_keys[] = $this->key_space->item_key( $ns_tok, $grp_tok, $group, $key );
+				}
+			}
+
+			if (count( $failed_backend_keys ) > 0) {
+				$this->backend_calls += 1;
+				$start = microtime( true );
+				$raw_values = $this->backend->mget( $failed_backend_keys );
+				$this->backend_time += ( microtime( true ) - $start ) * 1000000;
+
+				if ($this->sync_state() && is_array( $raw_values )) {
+					foreach ($failed_keys as $idx => $key) {
+						$raw = $raw_values[ $idx ] ?? null;
+						if (is_string( $raw ) && $raw !== '') {
+							list($ok2, $val) = ValueCodec::decode( $raw );
+							if ($ok2) {
+								$storage_id = $storage_ids[ $key ];
+								$this->set_in_memory( $storage_id, $group, $val );
+							}
+						}
+					}
+				}
+			}
+
+			return $out;
 		}
 
 		/**
@@ -2290,7 +2462,9 @@ namespace Mincemeat\ObjectCache {
 		 * @param int    $expire Optional. TTL in seconds.
 		 * @return bool True on success, false if the item does not exist.
 		 */
-		public function replace( $key, $data, string $group = '', int $expire = 0): bool {
+		public function replace( $key, $data, $group = '', $expire = 0): bool {
+			$group  = (string) $group;
+			$expire = (int) $expire;
 			if ( ! $this->key_space->is_valid_key( $key )) {
 				return false;
 			}
@@ -2318,7 +2492,9 @@ namespace Mincemeat\ObjectCache {
 		 * @param int    $expire Optional. TTL in seconds.
 		 * @return bool True on success, false if the key is invalid.
 		 */
-		public function set( $key, $data, string $group = '', int $expire = 0): bool {
+		public function set( $key, $data, $group = '', $expire = 0): bool {
+			$group  = (string) $group;
+			$expire = (int) $expire;
 			if ( ! $this->key_space->is_valid_key( $key )) {
 				return false;
 			}
@@ -2341,14 +2517,77 @@ namespace Mincemeat\ObjectCache {
 		 * @param int    $expire Optional. TTL in seconds.
 		 * @return bool[] Per-key results.
 		 */
-		public function set_multiple( array $data, string $group = '', int $expire = 0): array {
-			$values = array();
+		public function set_multiple( array $data, $group = '', $expire = 0): array {
+			$group  = (string) $group;
+			$expire = (int) $expire;
+			$group  = $this->key_space->normalize_group( $group );
 
-			foreach ($data as $key => $value) {
-				$values[ $key ] = $this->set( $key, $value, $group, $expire );
+			if ( ! $this->is_persistent_group( $group )) {
+				$values = array();
+				foreach ($data as $key => $value) {
+					$values[ $key ] = $this->set( $key, $value, $group, $expire );
+				}
+				return $values;
 			}
 
-			return $values;
+			// Persistent set pipeline.
+			$valid_keys = array();
+			$storage_ids = array();
+			$entries = array();
+			$out = array();
+
+			$ns_tok  = $this->backend->namespace_token();
+			$grp_tok = $this->backend->group_token( $group );
+			$ttl_ms  = $this->resolve_ttl_ms( $expire );
+
+			foreach ($data as $key => $value) {
+				if ( ! $this->key_space->is_valid_key( $key )) {
+					$out[ $key ] = false;
+					continue;
+				}
+
+				try {
+					$encoded = ValueCodec::encode( $value );
+				} catch (ValueCodecException $e) {
+					$out[ $key ] = false;
+					continue;
+				}
+
+				$storage_id = $this->key_space->storage_id( $key, $group );
+				$storage_ids[ $key ] = $storage_id;
+				$valid_keys[] = $key;
+				$backend_key = $this->key_space->item_key( $ns_tok, $grp_tok, $group, $key );
+				$entries[] = array( $backend_key, $encoded, $ttl_ms );
+			}
+
+			if (count( $valid_keys ) === 0) {
+				return $out;
+			}
+
+			$this->backend_calls += 1;
+			$start = microtime( true );
+			$pipeline_results = $this->backend->set_pipeline( $entries );
+			$this->backend_time += ( microtime( true ) - $start ) * 1000000;
+
+			if ( ! $this->sync_state()) {
+				foreach ($valid_keys as $key) {
+					$storage_id = $storage_ids[ $key ];
+					$out[ $key ] = $this->set_in_memory( $storage_id, $group, $data[ $key ] );
+				}
+				return $out;
+			}
+
+			foreach ($valid_keys as $idx => $key) {
+				$storage_id = $storage_ids[ $key ];
+				if ($pipeline_results[ $idx ]) {
+					$this->set_in_memory( $storage_id, $group, $data[ $key ] );
+					$out[ $key ] = true;
+				} else {
+					$out[ $key ] = false;
+				}
+			}
+
+			return $out;
 		}
 
 		/**
@@ -2360,7 +2599,8 @@ namespace Mincemeat\ObjectCache {
 		 * @param bool|null   $found Optional. Whether the key was found (reference).
 		 * @return mixed|false The cached value on hit, false on miss or invalid key.
 		 */
-		public function get( $key, string $group = '', bool $force = false, &$found = null) {
+		public function get( $key, $group = '', bool $force = false, &$found = null) {
+			$group = (string) $group;
 			if ( ! $this->key_space->is_valid_key( $key )) {
 				return false;
 			}
@@ -2396,7 +2636,8 @@ namespace Mincemeat\ObjectCache {
 		 * @param bool   $force Optional. Force reads past the runtime tier.
 		 * @return array<string,mixed> Per-key values; misses are false.
 		 */
-		public function get_multiple( array $keys, string $group = '', bool $force = false): array {
+		public function get_multiple( array $keys, $group = '', bool $force = false): array {
+			$group = (string) $group;
 			$group = $this->key_space->normalize_group( $group );
 
 			if ($this->is_persistent_group( $group )) {
@@ -2419,7 +2660,8 @@ namespace Mincemeat\ObjectCache {
 		 * @param string $group Optional. The cache group. Default empty.
 		 * @return bool True on success, false if absent or invalid key.
 		 */
-		public function delete( $key, string $group = ''): bool {
+		public function delete( $key, $group = ''): bool {
+			$group = (string) $group;
 			if ( ! $this->key_space->is_valid_key( $key )) {
 				return false;
 			}
@@ -2447,14 +2689,69 @@ namespace Mincemeat\ObjectCache {
 		 * @param string $group Optional. The cache group. Default empty.
 		 * @return bool[] Per-key results.
 		 */
-		public function delete_multiple( array $keys, string $group = ''): array {
-			$values = array();
+		public function delete_multiple( array $keys, $group = ''): array {
+			$group  = (string) $group;
+			$group  = $this->key_space->normalize_group( $group );
 
-			foreach ($keys as $key) {
-				$values[ $key ] = $this->delete( $key, $group );
+			if ( ! $this->is_persistent_group( $group )) {
+				$values = array();
+				foreach ($keys as $key) {
+					$values[ $key ] = $this->delete( $key, $group );
+				}
+				return $values;
 			}
 
-			return $values;
+			// Persistent delete pipeline.
+			$valid_keys = array();
+			$storage_ids = array();
+			$was_in_memory = array();
+			$backend_keys = array();
+			$out = array();
+
+			$ns_tok  = $this->backend->namespace_token();
+			$grp_tok = $this->backend->group_token( $group );
+
+			foreach ($keys as $key) {
+				if ( ! $this->key_space->is_valid_key( $key )) {
+					$out[ $key ] = false;
+					continue;
+				}
+				$storage_id = $this->key_space->storage_id( $key, $group );
+				$storage_ids[ $key ] = $storage_id;
+				$was_in_memory[ $key ] = $this->exists( $storage_id, $group );
+				$valid_keys[] = $key;
+				$backend_keys[] = $this->key_space->item_key( $ns_tok, $grp_tok, $group, $key );
+			}
+
+			if (count( $valid_keys ) === 0) {
+				return $out;
+			}
+
+			$this->backend_calls += 1;
+			$start = microtime( true );
+			$pipeline_results = $this->backend->del_pipeline( $backend_keys );
+			$this->backend_time += ( microtime( true ) - $start ) * 1000000;
+
+			if ( ! $this->sync_state()) {
+				foreach ($valid_keys as $key) {
+					$storage_id = $storage_ids[ $key ];
+					if ($was_in_memory[ $key ]) {
+						unset( $this->cache[ $group ][ $storage_id ] );
+						$out[ $key ] = true;
+					} else {
+						$out[ $key ] = false;
+					}
+				}
+				return $out;
+			}
+
+			foreach ($valid_keys as $idx => $key) {
+				$storage_id = $storage_ids[ $key ];
+				unset( $this->cache[ $group ][ $storage_id ] );
+				$out[ $key ] = $pipeline_results[ $idx ] || $was_in_memory[ $key ];
+			}
+
+			return $out;
 		}
 
 		/**
@@ -2465,7 +2762,9 @@ namespace Mincemeat\ObjectCache {
 		 * @param string $group  Optional. The cache group. Default empty.
 		 * @return int|false The new value on success, false on miss or invalid key.
 		 */
-		public function incr( $key, int $offset = 1, string $group = '') {
+		public function incr( $key, $offset = 1, $group = '') {
+			$offset = (int) $offset;
+			$group  = (string) $group;
 			return $this->delta( $key, $offset, $group );
 		}
 
@@ -2477,7 +2776,9 @@ namespace Mincemeat\ObjectCache {
 		 * @param string $group  Optional. The cache group. Default empty.
 		 * @return int|false The new value on success, false on miss or invalid key.
 		 */
-		public function decr( $key, int $offset = 1, string $group = '') {
+		public function decr( $key, $offset = 1, $group = '') {
+			$offset = (int) $offset;
+			$group  = (string) $group;
 			return $this->delta( $key, -$offset, $group );
 		}
 
@@ -2526,7 +2827,8 @@ namespace Mincemeat\ObjectCache {
 		 * @param string $group The group name to flush.
 		 * @return bool True on success.
 		 */
-		public function flush_group( string $group): bool {
+		public function flush_group( $group): bool {
+			$group = (string) $group;
 			if ('' === $group) {
 				$group = 'default';
 			}
@@ -2581,7 +2883,8 @@ namespace Mincemeat\ObjectCache {
 		 * @param string $group Normalized group name.
 		 * @return bool
 		 */
-		public function is_non_persistent_group( string $group): bool {
+		public function is_non_persistent_group( $group): bool {
+			$group = (string) $group;
 			return isset( $this->non_persistent_groups[ $group ] );
 		}
 
