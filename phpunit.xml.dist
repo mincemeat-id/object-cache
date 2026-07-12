@@ -15,7 +15,10 @@
 
     <testsuites>
         <testsuite name="tests">
-            <directory>tests/</directory>
+            <directory suffix="Test.php">tests/Unit</directory>
+            <directory suffix="Test.php">tests/Concurrency</directory>
+            <directory suffix="Test.php">tests/Integration</directory>
+            <directory suffix="Test.php">tests/Failure</directory>
         </testsuite>
     </testsuites>
 

@@ -7,7 +7,7 @@
  * Version: 1.0.0-dev
  * Drop-in Version: 1.0.0-dev
  * Schema Version: 1
- * Build Hash: 8da4975bce2b34629e9a156f2cca3c047d724336939e742dd9823cfa8818ebd0
+ * Build Hash: 58236fdcb8ce4c98d21d0204b039fa0b5e95e4174b0ba8f2e83a5051af6a269f
  *
  * @package Mincemeat\ObjectCache
  */
@@ -4597,9 +4597,8 @@ namespace {
 		 * @return bool True on success, false on failure.
 		 */
 		function wp_cache_flush_group( $group) {
-			global $wp_object_cache;
-
-			return $wp_object_cache->flush_group( $group );
+			_doing_it_wrong( __FUNCTION__, 'The wp_cache_flush_group() function is not supported by external object caches.', '6.1.0' );
+			return false;
 		}
 	}
 
@@ -4693,5 +4692,9 @@ namespace {
 				$wp_object_cache->reset();
 			}
 		}
+	}
+
+	if ( ! class_exists( 'WP_Object_Cache' ) ) {
+		class_alias( \Mincemeat\ObjectCache\ObjectCache::class, 'WP_Object_Cache' );
 	}
 }

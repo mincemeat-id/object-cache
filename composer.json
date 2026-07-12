@@ -32,10 +32,14 @@
         }
     },
     "scripts": {
+        "build": "php tools/build-dropin.php",
         "test": "phpunit",
+        "test:setup": "bash tools/install-wp-tests.sh",
         "test:unit": "phpunit --group unit",
         "test:contract": "phpunit --group contract",
         "test:integration": "phpunit --group integration",
+        "test:smoke": "php tools/run-smoke-tests.php",
+        "test:coverage": "php tools/verify-coverage.php",
         "lint": "phpcs",
         "compat": "phpcs --standard=PHPCompatibility",
         "stan": "phpstan analyse"

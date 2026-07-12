@@ -36,7 +36,11 @@ class PhpRedisAdapterTest extends TestCase
     public function test_connect_with_tls_passes_stream_context()
     {
         if (!class_exists(\Redis::class)) {
-            $this->markTestSkipped('Redis extension not available.');
+            if (getenv('MINCEMEAT_REQUIRE_INTEGRATION')) {
+                $this->fail('Redis extension not available.');
+            } else {
+                $this->markTestSkipped('Redis extension not available.');
+            }
         }
 
         $config = new Config(array(
@@ -78,7 +82,11 @@ class PhpRedisAdapterTest extends TestCase
     public function test_connect_with_persistent_generates_canonical_id()
     {
         if (!class_exists(\Redis::class)) {
-            $this->markTestSkipped('Redis extension not available.');
+            if (getenv('MINCEMEAT_REQUIRE_INTEGRATION')) {
+                $this->fail('Redis extension not available.');
+            } else {
+                $this->markTestSkipped('Redis extension not available.');
+            }
         }
 
         $config = new Config(array(

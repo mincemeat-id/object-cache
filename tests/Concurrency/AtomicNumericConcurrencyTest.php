@@ -39,14 +39,30 @@ class AtomicNumericConcurrencyTest extends TestCase
         $port = (int) (getenv('MINCEMEAT_TEST_REDIS_PORT') ?: 6379);
 
         if (! class_exists(\Redis::class)) {
-            $this->markTestSkipped('PhpRedis extension not available.');
+            if (getenv('MINCEMEAT_REQUIRE_INTEGRATION')) {
+                $this->fail('PhpRedis extension not available.');
+            } else {
+                $this->markTestSkipped('PhpRedis extension not available.');
+            }
+        }
+
+        if (! function_exists('pcntl_fork')) {
+            if (getenv('MINCEMEAT_REQUIRE_INTEGRATION')) {
+                $this->fail('pcntl extension is not available.');
+            } else {
+                $this->markTestSkipped('pcntl extension is not available.');
+            }
         }
 
         // Probe connectivity with a raw Redis connection.
         $probe = new \Redis();
         $connected = @$probe->connect($host, $port, 1.0);
         if (! $connected) {
-            $this->markTestSkipped('No Redis/Valkey server reachable at ' . $host . ':' . $port);
+            if (getenv('MINCEMEAT_REQUIRE_INTEGRATION')) {
+                $this->fail('No Redis/Valkey server reachable at ' . $host . ':' . $port);
+            } else {
+                $this->markTestSkipped('No Redis/Valkey server reachable at ' . $host . ':' . $port);
+            }
         }
         $probe->close();
     }
@@ -73,7 +89,11 @@ class AtomicNumericConcurrencyTest extends TestCase
         $be->initialize($config);
 
         if (! $be->is_persistent()) {
-            $this->markTestSkipped('Backend not persistent.');
+            if (getenv('MINCEMEAT_REQUIRE_INTEGRATION')) {
+                $this->fail('Backend not persistent.');
+            } else {
+                $this->markTestSkipped('Backend not persistent.');
+            }
         }
 
         $cache = new ObjectCache($ks, $be);
@@ -87,7 +107,11 @@ class AtomicNumericConcurrencyTest extends TestCase
             $pid = pcntl_fork();
 
             if ($pid === -1) {
-                $this->markTestSkipped('pcntl_fork not available.');
+                if (getenv('MINCEMEAT_REQUIRE_INTEGRATION')) {
+                    $this->fail('pcntl_fork failed.');
+                } else {
+                    $this->markTestSkipped('pcntl_fork not available.');
+                }
             }
 
             if ($pid === 0) {
@@ -158,7 +182,11 @@ class AtomicNumericConcurrencyTest extends TestCase
         $be->initialize($config);
 
         if (! $be->is_persistent()) {
-            $this->markTestSkipped('Backend not persistent.');
+            if (getenv('MINCEMEAT_REQUIRE_INTEGRATION')) {
+                $this->fail('Backend not persistent.');
+            } else {
+                $this->markTestSkipped('Backend not persistent.');
+            }
         }
 
         $initial = 100;
@@ -175,6 +203,14 @@ class AtomicNumericConcurrencyTest extends TestCase
 
         for ($i = 0; $i < $workers; $i++) {
             $pid = pcntl_fork();
+
+            if ($pid === -1) {
+                if (getenv('MINCEMEAT_REQUIRE_INTEGRATION')) {
+                    $this->fail('pcntl_fork failed.');
+                } else {
+                    $this->markTestSkipped('pcntl_fork not available.');
+                }
+            }
 
             if ($pid === 0) {
                 $child_config = new Config(array(

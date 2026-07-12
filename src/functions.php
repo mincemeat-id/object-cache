@@ -254,9 +254,8 @@ if ( ! function_exists( 'wp_cache_flush_group' )) {
 	 * @return bool True on success, false on failure.
 	 */
 	function wp_cache_flush_group( $group) {
-		global $wp_object_cache;
-
-		return $wp_object_cache->flush_group( $group );
+		_doing_it_wrong( __FUNCTION__, 'The wp_cache_flush_group() function is not supported by external object caches.', '6.1.0' );
+		return false;
 	}
 }
 
@@ -350,4 +349,8 @@ if ( ! function_exists( 'wp_cache_reset' )) {
 			$wp_object_cache->reset();
 		}
 	}
+}
+
+if ( ! class_exists( 'WP_Object_Cache' ) ) {
+	class_alias( \Mincemeat\ObjectCache\ObjectCache::class, 'WP_Object_Cache' );
 }

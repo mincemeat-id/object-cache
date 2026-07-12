@@ -69,10 +69,18 @@ abstract class IntegrationTestCase extends TestCase
             'debug'            => false,
         );
 
+        if (getenv('MINCEMEAT_REQUIRE_INTEGRATION') && !class_exists(\Redis::class)) {
+            $this->fail('PhpRedis extension is not available but integration is required.');
+        }
+
         try {
             $this->config = new Config($config_array);
         } catch (\Throwable $e) {
-            $this->markTestSkipped('Invalid config: ' . $e->getMessage());
+            if (getenv('MINCEMEAT_REQUIRE_INTEGRATION')) {
+                $this->fail('Invalid config: ' . $e->getMessage());
+            } else {
+                $this->markTestSkipped('Invalid config: ' . $e->getMessage());
+            }
         }
 
         $key_space = new KeySpace(false, 1);
@@ -80,7 +88,18 @@ abstract class IntegrationTestCase extends TestCase
         $this->backend->initialize($this->config);
 
         if (! $this->backend->is_persistent()) {
-            $this->markTestSkipped('No Redis/Valkey server reachable at ' . $host . ':' . $port);
+            if (getenv('MINCEMEAT_REQUIRE_INTEGRATION')) {
+                $this->fail('No Redis/Valkey server reachable at ' . $host . ':' . $port);
+            } else {
+                $this->markTestSkipped('No Redis/Valkey server reachable at ' . $host . ':' . $port);
+            }
+        }
+
+        $expected_product = getenv('MINCEMEAT_EXPECTED_BACKEND');
+        if ($expected_product) {
+            $info = $this->backend->server_info();
+            $this->assertNotNull($info, 'Server info not available for backend assertion.');
+            $this->assertSame($expected_product, $info['product'], 'Expected product ' . $expected_product . ' but got ' . $info['product']);
         }
 
         $this->available = true;

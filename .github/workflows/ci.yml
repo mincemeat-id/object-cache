@@ -127,6 +127,18 @@ jobs:
           --health-interval 5s
           --health-timeout 3s
           --health-retries 10
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: root
+          MYSQL_DATABASE: wordpress_test
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd "mysqladmin ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -135,7 +147,7 @@ jobs:
         uses: shivammathur/setup-php@v2
         with:
           php-version: ${{ matrix.php }}
-          coverage: xdebug
+          coverage: pcov
           ini-values: zend.assertions=1, error_reporting=-1
 
       - name: Select backend endpoint
@@ -158,10 +170,26 @@ jobs:
       - name: Composer install
         run: composer install --prefer-dist --no-interaction
 
-      - name: PHPUnit contract and integration tests
+      - name: Build drop-in
+        run: php tools/build-dropin.php
+
+      - name: Install WordPress Test Infrastructure
+        run: bash tools/install-wp-tests.sh
+
+      - name: Run Test Suite with Coverage
         env:
           MINCEMEAT_TEST_REDIS_HOST: 127.0.0.1
-        run: vendor/bin/phpunit --group contract,integration --coverage-text
+          MINCEMEAT_REQUIRE_INTEGRATION: 1
+          MINCEMEAT_EXPECTED_BACKEND: ${{ matrix.backend == 'redis8' && 'redis' || 'valkey' }}
+        run: vendor/bin/phpunit --coverage-clover build/logs/clover.xml
+
+      - name: Verify Code Coverage Thresholds
+        run: php tools/verify-coverage.php
+
+      - name: Run Plugin Smoke Tests
+        env:
+          MINCEMEAT_TEST_REDIS_HOST: 127.0.0.1
+        run: php tools/run-smoke-tests.php
 
   artifact-parity:
     name: Artifact Parity (drop-in)
