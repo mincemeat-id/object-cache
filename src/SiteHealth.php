@@ -185,9 +185,10 @@ final class SiteHealth {
 		$server      = $diagnostics['server'] ?? null;
 
 		if ( is_array( $server ) ) {
-			$is_valkey      = isset( $server['valkey_version'] );
-			$server_name    = $is_valkey ? 'Valkey' : 'Redis';
-			$server_version = $is_valkey ? $server['valkey_version'] : ( $server['redis_version'] ?? 'unknown' );
+			$product        = $server['product'] ?? 'unknown';
+			$is_valkey      = ( 'valkey' === $product );
+			$server_name    = $is_valkey ? 'Valkey' : ( 'redis' === $product ? 'Redis' : 'Unknown' );
+			$server_version = $server['version'] ?? 'unknown';
 
 			if ( $is_valkey ) {
 				$version_ok = version_compare( $server_version, '9.0', '>=' );
@@ -458,8 +459,8 @@ final class SiteHealth {
 		$server_name = __( 'none', 'mincemeat-object-cache' );
 		if ( isset( $diagnostics['server'] ) && is_array( $diagnostics['server'] ) ) {
 			$info_arr    = $diagnostics['server'];
-			$product     = isset( $info_arr['valkey_version'] ) ? 'Valkey' : 'Redis';
-			$ver         = $info_arr['valkey_version'] ?? $info_arr['redis_version'] ?? 'unknown';
+			$product     = isset( $info_arr['product'] ) ? ucfirst( $info_arr['product'] ) : 'Redis';
+			$ver         = $info_arr['version'] ?? 'unknown';
 			$server_name = $product . ' ' . $ver;
 		}
 		$fields['server_identity'] = array(
@@ -523,7 +524,7 @@ final class SiteHealth {
 			$metrics['hits'],
 			$metrics['misses'],
 			$metrics['backend_calls'],
-			$metrics['backend_time'],
+			$metrics['backend_time'] / 1000000.0,
 			$metrics['errors']
 		);
 		$fields['metrics'] = array(

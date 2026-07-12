@@ -168,7 +168,8 @@ class SiteHealthTest extends TestCase
 		$adapter = $this->createMock( PhpRedisAdapter::class );
 		$adapter->method( 'is_connected' )->willReturn( true );
 		$adapter->method( 'server_info' )->willReturn( array(
-			'redis_version'     => '7.2.4',
+			'product'          => 'redis',
+			'version'          => '7.2.4',
 			'maxmemory_policy' => 'allkeys-lru',
 		) );
 		$backend = new Backend( $key_space, $adapter );
@@ -184,7 +185,8 @@ class SiteHealthTest extends TestCase
 		$adapter = $this->createMock( PhpRedisAdapter::class );
 		$adapter->method( 'is_connected' )->willReturn( true );
 		$adapter->method( 'server_info' )->willReturn( array(
-			'redis_version'     => '8.0.1',
+			'product'          => 'redis',
+			'version'          => '8.0.1',
 			'maxmemory_policy' => 'allkeys-lru',
 		) );
 		$backend = new Backend( $key_space, $adapter );
@@ -200,7 +202,8 @@ class SiteHealthTest extends TestCase
 		$adapter = $this->createMock( PhpRedisAdapter::class );
 		$adapter->method( 'is_connected' )->willReturn( true );
 		$adapter->method( 'server_info' )->willReturn( array(
-			'valkey_version'    => '8.0.0',
+			'product'          => 'valkey',
+			'version'          => '8.0.0',
 			'maxmemory_policy' => 'allkeys-lru',
 		) );
 		$backend = new Backend( $key_space, $adapter );
@@ -216,7 +219,8 @@ class SiteHealthTest extends TestCase
 		$adapter = $this->createMock( PhpRedisAdapter::class );
 		$adapter->method( 'is_connected' )->willReturn( true );
 		$adapter->method( 'server_info' )->willReturn( array(
-			'valkey_version'    => '9.0.0',
+			'product'          => 'valkey',
+			'version'          => '9.0.0',
 			'maxmemory_policy' => 'allkeys-lru',
 		) );
 		$backend = new Backend( $key_space, $adapter );
@@ -284,7 +288,8 @@ class SiteHealthTest extends TestCase
 		$adapter   = $this->createMock( PhpRedisAdapter::class );
 		$adapter->method( 'is_connected' )->willReturn( true );
 		$adapter->method( 'server_info' )->willReturn( array(
-			'redis_version'     => '8.0.0',
+			'product'          => 'redis',
+			'version'          => '8.0.0',
 			'maxmemory_policy' => 'allkeys-lru',
 		) );
 		$backend = new Backend( $key_space, $adapter );

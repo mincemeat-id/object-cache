@@ -291,5 +291,54 @@ namespace Mincemeat\ObjectCache\Tests\Lifecycle {
 			Lifecycle::deactivate();
 			$this->assertTrue(file_exists($target));
 		}
+
+		public function test_install_dropin_refuses_symlink()
+		{
+			$target = WP_CONTENT_DIR . '/object-cache.php';
+			if (file_exists($target)) {
+				@unlink($target);
+			}
+			$dummy = WP_CONTENT_DIR . '/dummy.php';
+			file_put_contents($dummy, '<?php // dummy');
+			symlink($dummy, $target);
+
+			$this->assertTrue(is_link($target));
+			$result = Lifecycle::install_dropin();
+			$this->assertFalse($result);
+
+			@unlink($target);
+			@unlink($dummy);
+		}
+
+		public function test_remove_dropin_refuses_symlink()
+		{
+			$target = WP_CONTENT_DIR . '/object-cache.php';
+			if (file_exists($target)) {
+				@unlink($target);
+			}
+			$dummy = WP_CONTENT_DIR . '/dummy.php';
+			file_put_contents($dummy, '<?php // dummy');
+			symlink($dummy, $target);
+
+			$result = Lifecycle::remove_dropin();
+			$this->assertFalse($result);
+
+			@unlink($target);
+			@unlink($dummy);
+		}
+
+		public function test_install_dropin_refuses_directory()
+		{
+			$target = WP_CONTENT_DIR . '/object-cache.php';
+			if (file_exists($target)) {
+				@unlink($target);
+			}
+			mkdir($target);
+
+			$result = Lifecycle::install_dropin();
+			$this->assertFalse($result);
+
+			rmdir($target);
+		}
 	}
 }

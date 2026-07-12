@@ -297,10 +297,13 @@ final class Config {
 	 * @return array<string,mixed>
 	 */
 	public function redacted_diagnostics(): array {
-		$tls_summary = array(
-			'verify_peer'      => $this->tls_verify_peer(),
-			'verify_peer_name' => $this->tls_verify_peer_name(),
-		);
+		$tls_summary = array();
+		if ( $this->scheme === self::SCHEME_TLS ) {
+			$tls_summary = array(
+				'verify_peer'      => $this->tls_verify_peer(),
+				'verify_peer_name' => $this->tls_verify_peer_name(),
+			);
+		}
 
 		return array(
 			'scheme'           => $this->scheme,

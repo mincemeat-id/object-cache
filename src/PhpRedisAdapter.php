@@ -53,36 +53,93 @@ class PhpRedisAdapter {
 			throw new BackendException( 'missing-extension', 'The PhpRedis extension is not available.' );
 		}
 
-		$this->redis = new Redis();
+		if ($config->scheme() === Config::SCHEME_TLS) {
+			$phpredis_version = phpversion( 'redis' );
+			if ( ! $phpredis_version || version_compare( $phpredis_version, '5.3.0', '<' ) ) {
+				throw new BackendException( 'missing-extension', 'PhpRedis >= 5.3.0 is required for TLS connection contexts.' );
+			}
+		}
+
+		$this->redis = $this->create_redis_instance();
 
 		$connected     = false;
 		$persistent_id = '';
 
 		if ($config->persistent()) {
-			$persistent_id = 'mcoc:' . $config->namespace_digest() . ':' . $config->database();
+			$tls_non_secret = array();
+			$raw_tls        = $config->tls();
+			foreach ( $raw_tls as $key => $val ) {
+				if ( in_array( $key, array( 'local_pk', 'passphrase' ), true ) ) {
+					continue;
+				}
+				if ( is_scalar( $val ) ) {
+					$tls_non_secret[ $key ] = $val;
+				}
+			}
+
+			$canonical     = array(
+				'scheme'           => $config->scheme(),
+				'host'             => $config->scheme() === Config::SCHEME_UNIX ? '' : $config->host(),
+				'port'             => $config->scheme() === Config::SCHEME_UNIX ? 0 : $config->port(),
+				'path'             => $config->scheme() === Config::SCHEME_UNIX ? $config->path() : '',
+				'database'         => $config->database(),
+				'namespace_digest' => $config->namespace_digest(),
+				'username'         => $config->username(),
+				'tls_non_secret'   => $tls_non_secret,
+			);
+			$persistent_id = 'mcoc:' . hash( 'sha256', serialize( $canonical ) );
+		}
+
+		$context = null;
+		if ($config->scheme() === Config::SCHEME_TLS) {
+			$context = array( 'stream' => $config->tls() );
 		}
 
 		$params = $this->connect_params( $config );
 
 		try {
 			if ($persistent_id !== '') {
-				$connected = $this->redis->pconnect(
-					$params['host'],
-					$params['port'],
-					$config->connect_timeout(),
-					$persistent_id,
-					0,
-					$config->read_timeout()
-				);
+				if ($context !== null) {
+					$connected = $this->redis->pconnect(
+						$params['host'],
+						$params['port'],
+						$config->connect_timeout(),
+						$persistent_id,
+						0,
+						$config->read_timeout(),
+						$context
+					);
+				} else {
+					$connected = $this->redis->pconnect(
+						$params['host'],
+						$params['port'],
+						$config->connect_timeout(),
+						$persistent_id,
+						0,
+						$config->read_timeout()
+					);
+				}
 			} else {
-				$connected = $this->redis->connect(
-					$params['host'],
-					$params['port'],
-					$config->connect_timeout(),
-					null,
-					0,
-					$config->read_timeout()
-				);
+				if ($context !== null) {
+					$connected = $this->redis->connect(
+						$params['host'],
+						$params['port'],
+						$config->connect_timeout(),
+						null,
+						0,
+						$config->read_timeout(),
+						$context
+					);
+				} else {
+					$connected = $this->redis->connect(
+						$params['host'],
+						$params['port'],
+						$config->connect_timeout(),
+						null,
+						0,
+						$config->read_timeout()
+					);
+				}
 			}
 		} catch (\Throwable $e) {
 			throw new BackendException( 'connect-failed', 'Connection attempt failed.', 0, $e );
@@ -128,13 +185,8 @@ class PhpRedisAdapter {
 			}
 		}
 
-		// Test UNLINK availability via the EXISTS command (cheap).
-		try {
-			$this->redis->unlink( '_mcoc_probe' );
-			$this->unlink_supported = true;
-		} catch (\Throwable $e) {
-			$this->unlink_supported = false;
-		}
+		// Unlink is supported on all supported backends (Redis >= 4.0).
+		$this->unlink_supported = true;
 	}
 
 	/**
@@ -450,5 +502,14 @@ class PhpRedisAdapter {
 			'host' => $config->host(),
 			'port' => $config->port(),
 		);
+	}
+
+	/**
+	 * Creates a new Redis instance.
+	 *
+	 * @return \Redis
+	 */
+	protected function create_redis_instance(): \Redis {
+		return new \Redis();
 	}
 }

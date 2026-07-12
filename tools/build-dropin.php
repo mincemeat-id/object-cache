@@ -45,7 +45,7 @@ $unique_imports = array();
 
 foreach ( $files as $file ) {
 	$filename = basename( $file );
-	if ( 'functions.php' === $filename ) {
+	if ( in_array( $filename, array( 'functions.php', 'Lifecycle.php', 'SiteHealth.php', 'CliCommand.php' ), true ) ) {
 		continue;
 	}
 
@@ -171,4 +171,5 @@ if ( ! is_dir( dirname( $output_file ) ) ) {
 }
 
 file_put_contents( $output_file, $output );
+file_put_contents( $output_file . '.sha256', hash( 'sha256', $output ) );
 echo "Successfully built drop-in at stubs/object-cache.php (Hash: {$build_hash})\n";

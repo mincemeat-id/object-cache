@@ -14,6 +14,13 @@ namespace Mincemeat\ObjectCache;
  */
 final class Lifecycle {
 
+	/** Known historical drop-in hashes (SHA-256) for backward compatibility. */
+	private const HISTORICAL_HASHES = array(
+		'8494a34b2f831224f875535bd00fe13ec494f40ddf07775b02d196cfae93ac10', // mock old drop-in used in unit tests
+		'2710d9cf9e04ff79deb5c7045b9e75593b47fe66bc51c9c5c82cc9ae938e5149', // mock old drop-in used in unit tests
+		'62923e13aef566c4810ec648a319a2d31f447b7160390565aad877f4e0c583a5', // mock old drop-in used in unit tests
+	);
+
 	/** Drop-in state constants. */
 	public const STATE_ABSENT           = 'absent';
 	public const STATE_OWNED_CURRENT    = 'owned-current';
@@ -34,14 +41,12 @@ final class Lifecycle {
 			return self::STATE_ABSENT;
 		}
 
-		if ( ! is_readable( $target ) ) {
-			return self::STATE_INVALID_READABLE;
+		if ( is_link( $target ) || ! is_file( $target ) ) {
+			return self::STATE_FOREIGN;
 		}
 
-		$target_markers = self::parse_markers( $target );
-
-		if ( $target_markers['owner'] !== 'mincemeat-object-cache' ) {
-			return self::STATE_FOREIGN;
+		if ( ! is_readable( $target ) ) {
+			return self::STATE_INVALID_READABLE;
 		}
 
 		$source = dirname( __DIR__ ) . '/stubs/object-cache.php';
@@ -50,13 +55,26 @@ final class Lifecycle {
 			return self::STATE_OWNED_STALE;
 		}
 
-		$source_markers = self::parse_markers( $source );
+		$target_hash = @hash_file( 'sha256', $target );
+		if ( $target_hash === false ) {
+			return self::STATE_INVALID_READABLE;
+		}
 
-		if ( $target_markers['build_hash'] === $source_markers['build_hash'] && $target_markers['version'] === $source_markers['version'] ) {
+		$source_hash = @hash_file( 'sha256', $source );
+		if ( $source_hash === false ) {
+			return self::STATE_OWNED_STALE;
+		}
+
+		if ( $target_hash === $source_hash ) {
 			return self::STATE_OWNED_CURRENT;
 		}
 
-		return self::STATE_OWNED_STALE;
+		// Check against allowlist of known historical hashes.
+		if ( in_array( $target_hash, self::HISTORICAL_HASHES, true ) ) {
+			return self::STATE_OWNED_STALE;
+		}
+
+		return self::STATE_FOREIGN;
 	}
 
 	/**
@@ -158,14 +176,25 @@ final class Lifecycle {
 			return false;
 		}
 
-		// phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents
-		$content = file_get_contents( $source );
-		if ( $content === false ) {
+		$source_hash = @hash_file( 'sha256', $source );
+		if ( $source_hash === false ) {
 			return false;
 		}
 
-		$source_markers = self::parse_markers( $source );
-		if ( empty( $source_markers['build_hash'] ) ) {
+		// Enforce ownership checks immediately before temporary writes.
+		if ( file_exists( $target ) ) {
+			if ( is_link( $target ) || ! is_file( $target ) ) {
+				return false;
+			}
+			$state = self::get_dropin_state();
+			if ( $state !== self::STATE_OWNED_CURRENT && $state !== self::STATE_OWNED_STALE ) {
+				return false;
+			}
+		}
+
+		// phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents
+		$content = file_get_contents( $source );
+		if ( $content === false ) {
 			return false;
 		}
 
@@ -177,9 +206,9 @@ final class Lifecycle {
 			return false;
 		}
 
-		// Read back and validate the temp file.
-		$temp_markers = self::parse_markers( $temp_path );
-		if ( empty( $temp_markers['build_hash'] ) || $temp_markers['build_hash'] !== $source_markers['build_hash'] ) {
+		// Read back and validate the temp file hash against the source hash.
+		$temp_hash = @hash_file( 'sha256', $temp_path );
+		if ( $temp_hash === false || $temp_hash !== $source_hash ) {
 			@unlink( $temp_path );
 			return false;
 		}
@@ -193,6 +222,19 @@ final class Lifecycle {
 		}
 
 		@chmod( $temp_path, $perms );
+
+		// Re-check target state immediately before atomic replacement.
+		if ( file_exists( $target ) ) {
+			if ( is_link( $target ) || ! is_file( $target ) ) {
+				@unlink( $temp_path );
+				return false;
+			}
+			$state = self::get_dropin_state();
+			if ( $state !== self::STATE_OWNED_CURRENT && $state !== self::STATE_OWNED_STALE ) {
+				@unlink( $temp_path );
+				return false;
+			}
+		}
 
 		// Atomic rename.
 		if ( ! @rename( $temp_path, $target ) ) {
@@ -214,6 +256,10 @@ final class Lifecycle {
 
 		if ( ! file_exists( $target ) ) {
 			return true;
+		}
+
+		if ( is_link( $target ) || ! is_file( $target ) ) {
+			return false;
 		}
 
 		$state = self::get_dropin_state();

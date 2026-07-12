@@ -60,4 +60,14 @@ class BundlerTest extends TestCase
         exec('php -l ' . escapeshellarg($this->outputFile), $output, $returnCode);
         $this->assertSame(0, $returnCode, 'Generated file must have correct PHP syntax: ' . implode("\n", $output));
     }
+
+    public function test_generated_file_does_not_contain_management_classes()
+    {
+        $this->assertFileExists($this->outputFile);
+        $content = file_get_contents($this->outputFile);
+
+        $this->assertStringNotContainsString('class Lifecycle', $content, 'Drop-in must not contain Lifecycle class.');
+        $this->assertStringNotContainsString('class SiteHealth', $content, 'Drop-in must not contain SiteHealth class.');
+        $this->assertStringNotContainsString('class CliCommand', $content, 'Drop-in must not contain CliCommand class.');
+    }
 }
