@@ -308,10 +308,10 @@ class ObjectCacheContractTest extends TestCase
         $this->assertSame(1, $this->cache->incr('k-non-num-str'));
         $this->assertSame(1, $this->cache->get('k-non-num-str'));
 
-        // 2. Floats
+        // 2. Floats are normalized to WordPress's integer return contract.
         $this->cache->set('k-float', 3.14);
-        $this->assertEqualsWithDelta(4.14, $this->cache->incr('k-float'), 0.000001);
-        $this->assertEqualsWithDelta(4.14, $this->cache->get('k-float'), 0.000001);
+        $this->assertSame(4, $this->cache->incr('k-float'));
+        $this->assertSame(4, $this->cache->get('k-float'));
 
         // 3. String/fractional offsets and negative offsets
         $this->cache->set('k-offset', 10);
@@ -326,11 +326,11 @@ class ObjectCacheContractTest extends TestCase
 
         // 5. Large integer boundaries (2^53 + 1)
         $this->cache->set('k-large-53', 9007199254740993);
-        $this->assertEqualsWithDelta(9007199254740994, $this->cache->incr('k-large-53', 1), 8);
+        $this->assertSame(9007199254740994, $this->cache->incr('k-large-53', 1));
 
-        // 6. PHP_INT_MAX, PHP_INT_MIN, and boundary-crossing
+        // 6. Integer overflow is bounded without widening the return type.
         $this->cache->set('k-int-max', PHP_INT_MAX);
-        $this->assertEqualsWithDelta((float)PHP_INT_MAX + 1, $this->cache->incr('k-int-max', 1), 1e13);
+        $this->assertSame(PHP_INT_MAX, $this->cache->incr('k-int-max', 1));
     }
 
     public function test_delete()

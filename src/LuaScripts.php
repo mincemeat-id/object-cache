@@ -266,16 +266,13 @@ if is_int_payload then
         end
     end
 
-    if #new_val_str < 19 or (#new_val_str == 19 and cmp_str(new_val_str, "9223372036854775807") <= 0) then
-        new_tag = 1
-        new_payload = new_val_str
-        display_val = new_val_str
-    else
-        new_tag = 2
-        local new_val_num = tonumber(new_val_str)
-        new_payload = encode_double(new_val_num)
-        display_val = string.format('%.17g', new_val_num)
+    if #new_val_str > 19 or (#new_val_str == 19 and cmp_str(new_val_str, "9223372036854775807") > 0) then
+        new_val_str = "9223372036854775807"
     end
+
+    new_tag = 1
+    new_payload = new_val_str
+    display_val = new_val_str
 else
     local current = 0
     if tag == 2 then
@@ -287,21 +284,25 @@ else
         current = tonumber(payload) or 0
     end
 
+    if current < 0 then
+        current = math.ceil(current)
+    else
+        current = math.floor(current)
+    end
+
     local offset = tonumber(ARGV[1])
     local new_value = current + offset
     if new_value < 0 then
         new_value = 0
     end
 
-    if new_value % 1 == 0 and new_value <= 9007199254740992 and new_value >= -9007199254740992 then
-        new_tag = 1
-        new_payload = string.format('%.0f', new_value)
-        display_val = new_payload
+    new_tag = 1
+    if new_value >= 9223372036854775807 then
+        new_payload = "9223372036854775807"
     else
-        new_tag = 2
-        new_payload = encode_double(new_value)
-        display_val = string.format('%.17g', new_value)
+        new_payload = string.format('%.0f', new_value)
     end
+    display_val = new_payload
 end
 
 local new_len = string.len(new_payload)

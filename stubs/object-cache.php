@@ -7,7 +7,7 @@
  * Version: 1.0.0-rc1
  * Drop-in Version: 1.0.0-rc1
  * Schema Version: 1
- * Build Hash: 3125db1e4308a8edb4b16da417ab07267a3244614c2dd21580e5f8202bc3c611
+ * Build Hash: 2b6a99bfc47a11df332f4b576c38f7b55cc3204eb38e10d4c8b585c2bc70eafb
  *
  * @package Mincemeat\ObjectCache
  */
@@ -121,8 +121,8 @@ namespace Mincemeat\ObjectCache {
 				if ( defined( 'Redis::VERSION' ) ) {
 					$redis_version = Redis::VERSION;
 				} elseif ( method_exists( 'Redis', 'getVersion' ) ) {
-					/** @phpstan-ignore-next-line */
-					$redis_version = ( new Redis() )->getVersion();
+					$get_version   = new \ReflectionMethod( Redis::class, 'getVersion' );
+					$redis_version = (string) $get_version->invoke( new Redis() );
 				} else {
 					$redis_version = phpversion( 'redis' ) ? phpversion( 'redis' ) : 'unknown';
 				}
@@ -360,6 +360,19 @@ namespace Mincemeat\ObjectCache {
 		}
 
 		/**
+		 * Returns the adapter required by persistent-only operations.
+		 *
+		 * @throws \LogicException If called outside the persistent invariant.
+		 */
+		private function adapter(): PhpRedisAdapter {
+			if ($this->adapter === null) {
+				throw new \LogicException( 'Persistent backend has no adapter.' );
+			}
+
+			return $this->adapter;
+		}
+
+		/**
 		 * Transition the backend to runtime-only mode due to an external initialization failure.
 		 *
 		 * @param string     $reason    Stable reason category.
@@ -499,7 +512,7 @@ namespace Mincemeat\ObjectCache {
 			}
 
 			try {
-				$values = $this->adapter->mget( $keys );
+				$values = $this->adapter()->mget( $keys );
 			} catch (\Throwable $e) {
 				$this->degrade( self::REASON_COMMAND_FAILED, $e );
 				return array();
@@ -546,7 +559,7 @@ namespace Mincemeat\ObjectCache {
 			$token = KeySpace::generate_token();
 
 			try {
-				$ok = $this->adapter->set_unconditional( $key, $token );
+				$ok = $this->adapter()->set_unconditional( $key, $token );
 			} catch (\Throwable $e) {
 				$this->degrade( self::REASON_COMMAND_FAILED, $e );
 				return false;
@@ -574,7 +587,7 @@ namespace Mincemeat\ObjectCache {
 			$token = KeySpace::generate_token();
 
 			try {
-				$ok = $this->adapter->set_unconditional( $key, $token );
+				$ok = $this->adapter()->set_unconditional( $key, $token );
 			} catch (\Throwable $e) {
 				$this->degrade( self::REASON_COMMAND_FAILED, $e );
 				return false;
@@ -599,7 +612,7 @@ namespace Mincemeat\ObjectCache {
 			}
 
 			try {
-				return $this->adapter->get( $key );
+				return $this->adapter()->get( $key );
 			} catch (\Throwable $e) {
 				$this->degrade( self::REASON_COMMAND_FAILED, $e );
 
@@ -619,7 +632,7 @@ namespace Mincemeat\ObjectCache {
 			}
 
 			try {
-				return $this->adapter->mget( $keys );
+				return $this->adapter()->mget( $keys );
 			} catch (\Throwable $e) {
 				$this->degrade( self::REASON_COMMAND_FAILED, $e );
 
@@ -643,7 +656,7 @@ namespace Mincemeat\ObjectCache {
 			}
 
 			try {
-				return $this->adapter->set( $key, $value, $ttl_ms, $nx, $xx );
+				return $this->adapter()->set( $key, $value, $ttl_ms, $nx, $xx );
 			} catch (\Throwable $e) {
 				$this->degrade( self::REASON_COMMAND_FAILED, $e );
 
@@ -665,7 +678,7 @@ namespace Mincemeat\ObjectCache {
 			}
 
 			try {
-				return $this->adapter->set_unconditional( $key, $value, $ttl_ms );
+				return $this->adapter()->set_unconditional( $key, $value, $ttl_ms );
 			} catch (\Throwable $e) {
 				$this->degrade( self::REASON_COMMAND_FAILED, $e );
 
@@ -685,7 +698,7 @@ namespace Mincemeat\ObjectCache {
 			}
 
 			try {
-				return $this->adapter->del( $key );
+				return $this->adapter()->del( $key );
 			} catch (\Throwable $e) {
 				$this->degrade( self::REASON_COMMAND_FAILED, $e );
 
@@ -710,7 +723,7 @@ namespace Mincemeat\ObjectCache {
 			}
 
 			try {
-				$results = $this->adapter->pipeline( $commands );
+				$results = $this->adapter()->pipeline( $commands );
 			} catch (\Throwable $e) {
 				$this->degrade( self::REASON_COMMAND_FAILED, $e );
 
@@ -730,7 +743,7 @@ namespace Mincemeat\ObjectCache {
 				}
 
 				try {
-					$results = $this->adapter->pipeline( $commands );
+					$results = $this->adapter()->pipeline( $commands );
 				} catch (\Throwable $e) {
 					$this->degrade( self::REASON_COMMAND_FAILED, $e );
 
@@ -763,7 +776,7 @@ namespace Mincemeat\ObjectCache {
 			}
 
 			try {
-				$results = $this->adapter->pipeline( $commands );
+				$results = $this->adapter()->pipeline( $commands );
 			} catch (\Throwable $e) {
 				$this->degrade( self::REASON_COMMAND_FAILED, $e );
 
@@ -795,7 +808,7 @@ namespace Mincemeat\ObjectCache {
 			}
 
 			try {
-				$results = $this->adapter->pipeline( $commands );
+				$results = $this->adapter()->pipeline( $commands );
 			} catch (\Throwable $e) {
 				$this->degrade( self::REASON_COMMAND_FAILED, $e );
 
@@ -824,7 +837,7 @@ namespace Mincemeat\ObjectCache {
 			}
 
 			try {
-				return $this->adapter->eval( $script, $keys, $args );
+				return $this->adapter()->eval( $script, $keys, $args );
 			} catch (\Throwable $e) {
 				$this->degrade( self::REASON_COMMAND_FAILED, $e );
 
@@ -847,7 +860,7 @@ namespace Mincemeat\ObjectCache {
 			}
 
 			try {
-				$result = $this->adapter->eval(
+				$result = $this->adapter()->eval(
 					LuaScripts::INCR_DECR,
 					array( $item_key ),
 					array( (string) $offset )
@@ -866,7 +879,7 @@ namespace Mincemeat\ObjectCache {
 
 			if ($code === LuaScripts::RESULT_OK && isset( $result[1] )) {
 				$val = $result[1];
-				return array( LuaScripts::RESULT_OK, is_numeric( $val ) ? $val + 0 : (int) $val );
+				return array( LuaScripts::RESULT_OK, (int) $val );
 			}
 
 			return array( $code, null );
@@ -905,7 +918,7 @@ namespace Mincemeat\ObjectCache {
 			$token = KeySpace::generate_token();
 
 			try {
-				$created = $this->adapter->set( $key, $token, null, true );
+				$created = $this->adapter()->set( $key, $token, null, true );
 			} catch (\Throwable $e) {
 				$this->degrade( self::REASON_COMMAND_FAILED, $e );
 
@@ -918,7 +931,7 @@ namespace Mincemeat\ObjectCache {
 
 			// Someone else won the race; read back their token.
 			try {
-				$existing = $this->adapter->get( $key );
+				$existing = $this->adapter()->get( $key );
 			} catch (\Throwable $e) {
 				$this->degrade( self::REASON_COMMAND_FAILED, $e );
 
@@ -933,7 +946,7 @@ namespace Mincemeat\ObjectCache {
 			// Retry with a fresh token.
 			$token2 = KeySpace::generate_token();
 			try {
-				$created2 = $this->adapter->set( $key, $token2, null, true );
+				$created2 = $this->adapter()->set( $key, $token2, null, true );
 			} catch (\Throwable $e) {
 				$this->degrade( self::REASON_COMMAND_FAILED, $e );
 
@@ -946,7 +959,7 @@ namespace Mincemeat\ObjectCache {
 
 			// Try one more get
 			try {
-				$existing2 = $this->adapter->get( $key );
+				$existing2 = $this->adapter()->get( $key );
 			} catch (\Throwable $e) {
 				$this->degrade( self::REASON_COMMAND_FAILED, $e );
 
@@ -2352,16 +2365,13 @@ namespace Mincemeat\ObjectCache {
 	        end
 	    end
 
-	    if #new_val_str < 19 or (#new_val_str == 19 and cmp_str(new_val_str, "9223372036854775807") <= 0) then
-	        new_tag = 1
-	        new_payload = new_val_str
-	        display_val = new_val_str
-	    else
-	        new_tag = 2
-	        local new_val_num = tonumber(new_val_str)
-	        new_payload = encode_double(new_val_num)
-	        display_val = string.format('%.17g', new_val_num)
+	    if #new_val_str > 19 or (#new_val_str == 19 and cmp_str(new_val_str, "9223372036854775807") > 0) then
+	        new_val_str = "9223372036854775807"
 	    end
+
+	    new_tag = 1
+	    new_payload = new_val_str
+	    display_val = new_val_str
 	else
 	    local current = 0
 	    if tag == 2 then
@@ -2373,21 +2383,25 @@ namespace Mincemeat\ObjectCache {
 	        current = tonumber(payload) or 0
 	    end
 
+	    if current < 0 then
+	        current = math.ceil(current)
+	    else
+	        current = math.floor(current)
+	    end
+
 	    local offset = tonumber(ARGV[1])
 	    local new_value = current + offset
 	    if new_value < 0 then
 	        new_value = 0
 	    end
 
-	    if new_value % 1 == 0 and new_value <= 9007199254740992 and new_value >= -9007199254740992 then
-	        new_tag = 1
-	        new_payload = string.format('%.0f', new_value)
-	        display_val = new_payload
+	    new_tag = 1
+	    if new_value >= 9223372036854775807 then
+	        new_payload = "9223372036854775807"
 	    else
-	        new_tag = 2
-	        new_payload = encode_double(new_value)
-	        display_val = string.format('%.17g', new_value)
+	        new_payload = string.format('%.0f', new_value)
 	    end
+	    display_val = new_payload
 	end
 
 	local new_len = string.len(new_payload)
@@ -2598,8 +2612,8 @@ namespace Mincemeat\ObjectCache {
 			$entries = array();
 			$out = array();
 
-			$ns_tok  = $this->backend->namespace_token();
-			$grp_tok = $this->backend->group_token( $group );
+			$ns_tok  = $this->backend()->namespace_token();
+			$grp_tok = $this->backend()->group_token( $group );
 			$ttl_ms  = $this->resolve_ttl_ms( $expire );
 
 			foreach ($data as $key => $value) {
@@ -2634,7 +2648,7 @@ namespace Mincemeat\ObjectCache {
 
 			$this->backend_calls += 1;
 			$start = microtime( true );
-			$pipeline_results = $this->backend->set_conditional_pipeline( $entries );
+			$pipeline_results = $this->backend()->set_conditional_pipeline( $entries );
 			$this->backend_time += ( microtime( true ) - $start ) * 1000000;
 
 			if ( ! $this->sync_state()) {
@@ -2667,10 +2681,10 @@ namespace Mincemeat\ObjectCache {
 			if (count( $failed_backend_keys ) > 0) {
 				$this->backend_calls += 1;
 				$start = microtime( true );
-				$raw_values = $this->backend->mget( $failed_backend_keys );
+				$raw_values = $this->backend()->mget( $failed_backend_keys );
 				$this->backend_time += ( microtime( true ) - $start ) * 1000000;
 
-				if ($this->sync_state() && is_array( $raw_values )) {
+				if ($this->sync_state()) {
 					foreach ($failed_keys as $idx => $key) {
 						$raw = $raw_values[ $idx ] ?? null;
 						if (is_string( $raw ) && $raw !== '') {
@@ -2770,8 +2784,8 @@ namespace Mincemeat\ObjectCache {
 			$entries = array();
 			$out = array();
 
-			$ns_tok  = $this->backend->namespace_token();
-			$grp_tok = $this->backend->group_token( $group );
+			$ns_tok  = $this->backend()->namespace_token();
+			$grp_tok = $this->backend()->group_token( $group );
 			$ttl_ms  = $this->resolve_ttl_ms( $expire );
 
 			foreach ($data as $key => $value) {
@@ -2800,7 +2814,7 @@ namespace Mincemeat\ObjectCache {
 
 			$this->backend_calls += 1;
 			$start = microtime( true );
-			$pipeline_results = $this->backend->set_pipeline( $entries );
+			$pipeline_results = $this->backend()->set_pipeline( $entries );
 			$this->backend_time += ( microtime( true ) - $start ) * 1000000;
 
 			if ( ! $this->sync_state()) {
@@ -2942,8 +2956,8 @@ namespace Mincemeat\ObjectCache {
 			$backend_keys = array();
 			$out = array();
 
-			$ns_tok  = $this->backend->namespace_token();
-			$grp_tok = $this->backend->group_token( $group );
+			$ns_tok  = $this->backend()->namespace_token();
+			$grp_tok = $this->backend()->group_token( $group );
 
 			foreach ($keys as $key) {
 				if ( ! $this->key_space->is_valid_key( $key )) {
@@ -2963,7 +2977,7 @@ namespace Mincemeat\ObjectCache {
 
 			$this->backend_calls += 1;
 			$start = microtime( true );
-			$pipeline_results = $this->backend->del_pipeline( $backend_keys );
+			$pipeline_results = $this->backend()->del_pipeline( $backend_keys );
 			$this->backend_time += ( microtime( true ) - $start ) * 1000000;
 
 			if ( ! $this->sync_state()) {
@@ -3293,6 +3307,19 @@ namespace Mincemeat\ObjectCache {
 		}
 
 		/**
+		 * Returns the backend required by persistent-only operations.
+		 *
+		 * @throws \LogicException If called outside the persistent invariant.
+		 */
+		private function backend(): Backend {
+			if ($this->backend === null) {
+				throw new \LogicException( 'Persistent cache operation has no backend.' );
+			}
+
+			return $this->backend;
+		}
+
+		/**
 		 * Whether a group should use the persistent backend.
 		 *
 		 * @param string $group Normalized group name.
@@ -3347,18 +3374,19 @@ namespace Mincemeat\ObjectCache {
 		 * @param mixed  $key
 		 * @param string $group
 		 * @param bool   $force
-		 * @param bool   $found
+		 * @param bool|null $found
+		 * @param-out bool $found
 		 * @param string $storage_id
 		 * @return mixed|false
 		 */
 		private function persistent_get( $key, string $group, bool $force, &$found, string $storage_id ) {
-			$ns_tok   = $this->backend->namespace_token();
-			$grp_tok  = $this->backend->group_token( $group );
+			$ns_tok   = $this->backend()->namespace_token();
+			$grp_tok  = $this->backend()->group_token( $group );
 			$item_key = $this->key_space->item_key( $ns_tok, $grp_tok, $group, $key );
 
 			$this->backend_calls += 1;
 			$start                = microtime( true );
-			$raw                  = $this->backend->get( $item_key );
+			$raw                  = $this->backend()->get( $item_key );
 			$this->backend_time  += ( microtime( true ) - $start ) * 1000000;
 
 			if ( ! $this->sync_state()) {
@@ -3376,8 +3404,8 @@ namespace Mincemeat\ObjectCache {
 				}
 
 				if ($err !== null) {
-					$this->backend->log_error( 'Value codec decode failed: ' . $err );
-					$this->backend->del( $item_key );
+					$this->backend()->log_error( 'Value codec decode failed: ' . $err );
+					$this->backend()->del( $item_key );
 				}
 			}
 
@@ -3425,8 +3453,8 @@ namespace Mincemeat\ObjectCache {
 				return $values;
 			}
 
-			$ns_tok  = $this->backend->namespace_token();
-			$grp_tok = $this->backend->group_token( $group );
+			$ns_tok  = $this->backend()->namespace_token();
+			$grp_tok = $this->backend()->group_token( $group );
 
 			$backend_keys = array();
 			foreach ($missing as $key) {
@@ -3435,7 +3463,7 @@ namespace Mincemeat\ObjectCache {
 
 			$this->backend_calls += 1;
 			$start                = microtime( true );
-			$raw_values           = $this->backend->mget( $backend_keys );
+			$raw_values           = $this->backend()->mget( $backend_keys );
 			$this->backend_time  += ( microtime( true ) - $start ) * 1000000;
 
 			if ( ! $this->sync_state()) {
@@ -3465,9 +3493,9 @@ namespace Mincemeat\ObjectCache {
 					}
 
 					if ($err !== null) {
-						$this->backend->log_error( 'Value codec decode failed: ' . $err );
+						$this->backend()->log_error( 'Value codec decode failed: ' . $err );
 						$item_key = $this->key_space->item_key( $ns_tok, $grp_tok, $group, $key );
-						$this->backend->del( $item_key );
+						$this->backend()->del( $item_key );
 					}
 				}
 
@@ -3495,14 +3523,14 @@ namespace Mincemeat\ObjectCache {
 				return false;
 			}
 
-			$ns_tok   = $this->backend->namespace_token();
-			$grp_tok  = $this->backend->group_token( $group );
+			$ns_tok   = $this->backend()->namespace_token();
+			$grp_tok  = $this->backend()->group_token( $group );
 			$item_key = $this->key_space->item_key( $ns_tok, $grp_tok, $group, $key );
 			$ttl_ms   = $this->resolve_ttl_ms( $expire );
 
 			$this->backend_calls += 1;
 			$start                = microtime( true );
-			$ok                   = $this->backend->set_unconditional( $item_key, $encoded, $ttl_ms );
+			$ok                   = $this->backend()->set_unconditional( $item_key, $encoded, $ttl_ms );
 			$this->backend_time  += ( microtime( true ) - $start ) * 1000000;
 
 			if ( ! $this->sync_state()) {
@@ -3533,14 +3561,14 @@ namespace Mincemeat\ObjectCache {
 				return false;
 			}
 
-			$ns_tok   = $this->backend->namespace_token();
-			$grp_tok  = $this->backend->group_token( $group );
+			$ns_tok   = $this->backend()->namespace_token();
+			$grp_tok  = $this->backend()->group_token( $group );
 			$item_key = $this->key_space->item_key( $ns_tok, $grp_tok, $group, $key );
 			$ttl_ms   = $this->resolve_ttl_ms( $expire );
 
 			$this->backend_calls += 1;
 			$start                = microtime( true );
-			$ok                   = $this->backend->set( $item_key, $encoded, $ttl_ms, true, false );
+			$ok                   = $this->backend()->set( $item_key, $encoded, $ttl_ms, true, false );
 			$this->backend_time  += ( microtime( true ) - $start ) * 1000000;
 
 			if ( ! $this->sync_state()) {
@@ -3552,7 +3580,7 @@ namespace Mincemeat\ObjectCache {
 			}
 
 			// Key exists in backend; read back to populate memory.
-			$raw = $this->backend->get( $item_key );
+			$raw = $this->backend()->get( $item_key );
 			if (is_string( $raw ) && $raw !== '') {
 				list($ok2, $val) = ValueCodec::decode( $raw );
 				if ($ok2) {
@@ -3580,14 +3608,14 @@ namespace Mincemeat\ObjectCache {
 				return false;
 			}
 
-			$ns_tok   = $this->backend->namespace_token();
-			$grp_tok  = $this->backend->group_token( $group );
+			$ns_tok   = $this->backend()->namespace_token();
+			$grp_tok  = $this->backend()->group_token( $group );
 			$item_key = $this->key_space->item_key( $ns_tok, $grp_tok, $group, $key );
 			$ttl_ms   = $this->resolve_ttl_ms( $expire );
 
 			$this->backend_calls += 1;
 			$start                = microtime( true );
-			$ok                   = $this->backend->set( $item_key, $encoded, $ttl_ms, false, true );
+			$ok                   = $this->backend()->set( $item_key, $encoded, $ttl_ms, false, true );
 			$this->backend_time  += ( microtime( true ) - $start ) * 1000000;
 
 			if ( ! $this->sync_state()) {
@@ -3614,13 +3642,13 @@ namespace Mincemeat\ObjectCache {
 		 * @return bool
 		 */
 		private function persistent_delete( $key, string $group, string $storage_id ): bool {
-			$ns_tok   = $this->backend->namespace_token();
-			$grp_tok  = $this->backend->group_token( $group );
+			$ns_tok   = $this->backend()->namespace_token();
+			$grp_tok  = $this->backend()->group_token( $group );
 			$item_key = $this->key_space->item_key( $ns_tok, $grp_tok, $group, $key );
 
 			$this->backend_calls += 1;
 			$start                = microtime( true );
-			$deleted              = $this->backend->del( $item_key );
+			$deleted              = $this->backend()->del( $item_key );
 			$this->backend_time  += ( microtime( true ) - $start ) * 1000000;
 
 			$was_in_memory = $this->exists( $storage_id, $group );
@@ -3645,7 +3673,8 @@ namespace Mincemeat\ObjectCache {
 		 *
 		 * @param string    $storage_id
 		 * @param string    $group
-		 * @param bool      $found
+		 * @param bool|null $found
+		 * @param-out bool $found
 		 * @return mixed|false
 		 */
 		private function runtime_fallback_get( string $storage_id, string $group, &$found ) {
@@ -3692,17 +3721,7 @@ namespace Mincemeat\ObjectCache {
 				return false;
 			}
 
-			$current = $this->cache[ $group ][ $storage_id ];
-
-			if ( ! is_numeric( $current )) {
-				$current = 0;
-			}
-
-			$current += $offset;
-
-			if (0 > $current) {
-				$current = 0;
-			}
+			$current = $this->apply_integer_delta( $this->cache[ $group ][ $storage_id ], $offset );
 
 			$this->cache[ $group ][ $storage_id ] = $current;
 
@@ -3719,27 +3738,20 @@ namespace Mincemeat\ObjectCache {
 		 * @return int|false
 		 */
 		private function persistent_delta( $key, int $offset, string $group, string $storage_id ) {
-			$ns_tok   = $this->backend->namespace_token();
-			$grp_tok  = $this->backend->group_token( $group );
+			$ns_tok   = $this->backend()->namespace_token();
+			$grp_tok  = $this->backend()->group_token( $group );
 			$item_key = $this->key_space->item_key( $ns_tok, $grp_tok, $group, $key );
 
 			$this->backend_calls   += 1;
 			$start                  = microtime( true );
-			list($code, $new_value) = $this->backend->eval_incr( $item_key, $offset );
+			list($code, $new_value) = $this->backend()->eval_incr( $item_key, $offset );
 			$this->backend_time    += ( microtime( true ) - $start ) * 1000000;
 
 			if ( ! $this->sync_state()) {
 				// Backend degraded: fall back to in-memory delta if the value
 				// is already loaded. This preserves coherent runtime behavior.
 				if ($this->exists( $storage_id, $group )) {
-					$current = $this->cache[ $group ][ $storage_id ];
-					if ( ! is_numeric( $current )) {
-						$current = 0;
-					}
-					$current += $offset;
-					if (0 > $current) {
-						$current = 0;
-					}
+					$current = $this->apply_integer_delta( $this->cache[ $group ][ $storage_id ], $offset );
 					$this->cache[ $group ][ $storage_id ] = $current;
 
 					return $current;
@@ -3758,6 +3770,33 @@ namespace Mincemeat\ObjectCache {
 			unset( $this->cache[ $group ][ $storage_id ] );
 
 			return false;
+		}
+
+		/**
+		 * Coerces a cached numeric value to an integer and applies a bounded delta.
+		 *
+		 * @param mixed $value
+		 */
+		private function apply_integer_delta( $value, int $offset ): int {
+			$current = is_numeric( $value ) ? (int) $value : 0;
+
+			if ($offset === 0) {
+				return max( 0, $current );
+			}
+
+			if ($offset > 0 && $current > PHP_INT_MAX - $offset) {
+				return PHP_INT_MAX;
+			}
+
+			if ($offset > 0 && $current < -$offset) {
+				return 0;
+			}
+
+			if ($offset < 0 && ( $offset === PHP_INT_MIN || $current < -$offset )) {
+				return 0;
+			}
+
+			return $current + $offset;
 		}
 	}
 
@@ -4131,10 +4170,34 @@ namespace Mincemeat\ObjectCache {
 			}
 
 			$pipe  = $this->redis->pipeline();
+			if ($pipe === false) {
+				return array();
+			}
+
 			$count = 0;
 
 			foreach ($commands as $cmd) {
-				call_user_func_array( array( $pipe, $cmd[0] ), $cmd[1] );
+				$args = $cmd[1];
+				switch ($cmd[0]) {
+					case 'set':
+						$key     = (string) ( $args[0] ?? '' );
+						$value   = (string) ( $args[1] ?? '' );
+						$options = $args[2] ?? null;
+						if (is_array( $options )) {
+							$pipe->set( $key, $value, $options );
+						} else {
+							$pipe->set( $key, $value );
+						}
+						break;
+					case 'unlink':
+						$pipe->unlink( (string) ( $args[0] ?? '' ) );
+						break;
+					case 'del':
+						$pipe->del( (string) ( $args[0] ?? '' ) );
+						break;
+					default:
+						throw new \LogicException( 'Unsupported pipeline command.' );
+				}
 				++$count;
 			}
 

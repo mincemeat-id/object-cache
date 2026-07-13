@@ -107,8 +107,11 @@ class AtomicNumericTest extends IntegrationTestCase
     public function test_incr_float_value_succeeds()
     {
         $this->cache->set('k', 3.14, 'options');
-        $this->assertEqualsWithDelta(4.14, $this->cache->incr('k', 1, 'options'), 0.000001);
-        $this->assertEqualsWithDelta(4.14, $this->cache->get('k', 'options'), 0.000001);
+        $this->assertSame(4, $this->cache->incr('k', 1, 'options'));
+        $this->assertSame(4, $this->cache->get('k', 'options'));
+
+        $new = $this->new_request();
+        $this->assertSame(4, $new->get('k', 'options'));
     }
 
     public function test_incr_decr_extra_coercion_and_boundaries()
@@ -128,9 +131,12 @@ class AtomicNumericTest extends IntegrationTestCase
         $this->cache->set('k-large-53', 9007199254740993, 'options');
         $this->assertSame(9007199254740994, $this->cache->incr('k-large-53', 1, 'options'));
 
-        // 4. PHP_INT_MAX, PHP_INT_MIN, and boundary-crossing
+        // 4. Integer overflow is bounded without widening the return type.
         $this->cache->set('k-int-max', PHP_INT_MAX, 'options');
-        $this->assertSame((float)PHP_INT_MAX + 1, $this->cache->incr('k-int-max', 1, 'options'));
+        $this->assertSame(PHP_INT_MAX, $this->cache->incr('k-int-max', 1, 'options'));
+
+        $new = $this->new_request();
+        $this->assertSame(PHP_INT_MAX, $new->get('k-int-max', 'options'));
     }
 
     public function test_incr_preserves_finite_ttl()

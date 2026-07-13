@@ -14,6 +14,7 @@ use Mincemeat\ObjectCache\Backend;
 use Mincemeat\ObjectCache\Config;
 use Mincemeat\ObjectCache\KeySpace;
 use Mincemeat\ObjectCache\ObjectCache;
+use Mincemeat\ObjectCache\PhpRedisAdapter;
 use Mincemeat\ObjectCache\SiteHealth;
 
 class Phase5Test extends IntegrationTestCase
@@ -161,29 +162,16 @@ class Phase5Test extends IntegrationTestCase
         $prop->setAccessible(true);
         $real_adapter = $prop->getValue($this->backend);
 
-        $spy = new class($real_adapter) {
+        $spy = new class($real_adapter) extends PhpRedisAdapter {
             private $real;
             public $calls = [];
             public function __construct($real) {
                 $this->real = $real;
             }
-            public function __call($name, $args) {
-                $this->calls[] = $name;
-                return call_user_func_array([$this->real, $name], $args);
+            public function set_unconditional(string $key, string $value, ?int $ttl_ms = null): bool {
+                $this->calls[] = 'set_unconditional';
+                return $this->real->set_unconditional($key, $value, $ttl_ms);
             }
-            public function connect($config) { return $this->real->connect($config); }
-            public function get($key) { $this->calls[] = 'get'; return $this->real->get($key); }
-            public function mget($keys) { $this->calls[] = 'mget'; return $this->real->mget($keys); }
-            public function set($key, $value, $ttl_ms = null, $nx = false, $xx = false) { $this->calls[] = 'set'; return $this->real->set($key, $value, $ttl_ms, $nx, $xx); }
-            public function set_unconditional($key, $value, $ttl_ms = null) { $this->calls[] = 'set_unconditional'; return $this->real->set_unconditional($key, $value, $ttl_ms); }
-            public function del($key) { $this->calls[] = 'del'; return $this->real->del($key); }
-            public function del_multiple($keys) { $this->calls[] = 'del_multiple'; return $this->real->del_multiple($keys); }
-            public function pttl($key) { $this->calls[] = 'pttl'; return $this->real->pttl($key); }
-            public function eval($script, $keys = [], $args = []) { $this->calls[] = 'eval'; return $this->real->eval($script, $keys, $args); }
-            public function pipeline($commands) { $this->calls[] = 'pipeline'; return $this->real->pipeline($commands); }
-            public function server_info() { return $this->real->server_info(); }
-            public function cached_server_info() { return $this->real->cached_server_info(); }
-            public function close() { return $this->real->close(); }
         };
 
         $prop->setValue($this->backend, $spy);

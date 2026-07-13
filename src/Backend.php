@@ -175,6 +175,19 @@ final class Backend {
 	}
 
 	/**
+	 * Returns the adapter required by persistent-only operations.
+	 *
+	 * @throws \LogicException If called outside the persistent invariant.
+	 */
+	private function adapter(): PhpRedisAdapter {
+		if ($this->adapter === null) {
+			throw new \LogicException( 'Persistent backend has no adapter.' );
+		}
+
+		return $this->adapter;
+	}
+
+	/**
 	 * Transition the backend to runtime-only mode due to an external initialization failure.
 	 *
 	 * @param string     $reason    Stable reason category.
@@ -314,7 +327,7 @@ final class Backend {
 		}
 
 		try {
-			$values = $this->adapter->mget( $keys );
+			$values = $this->adapter()->mget( $keys );
 		} catch (\Throwable $e) {
 			$this->degrade( self::REASON_COMMAND_FAILED, $e );
 			return array();
@@ -361,7 +374,7 @@ final class Backend {
 		$token = KeySpace::generate_token();
 
 		try {
-			$ok = $this->adapter->set_unconditional( $key, $token );
+			$ok = $this->adapter()->set_unconditional( $key, $token );
 		} catch (\Throwable $e) {
 			$this->degrade( self::REASON_COMMAND_FAILED, $e );
 			return false;
@@ -389,7 +402,7 @@ final class Backend {
 		$token = KeySpace::generate_token();
 
 		try {
-			$ok = $this->adapter->set_unconditional( $key, $token );
+			$ok = $this->adapter()->set_unconditional( $key, $token );
 		} catch (\Throwable $e) {
 			$this->degrade( self::REASON_COMMAND_FAILED, $e );
 			return false;
@@ -414,7 +427,7 @@ final class Backend {
 		}
 
 		try {
-			return $this->adapter->get( $key );
+			return $this->adapter()->get( $key );
 		} catch (\Throwable $e) {
 			$this->degrade( self::REASON_COMMAND_FAILED, $e );
 
@@ -434,7 +447,7 @@ final class Backend {
 		}
 
 		try {
-			return $this->adapter->mget( $keys );
+			return $this->adapter()->mget( $keys );
 		} catch (\Throwable $e) {
 			$this->degrade( self::REASON_COMMAND_FAILED, $e );
 
@@ -458,7 +471,7 @@ final class Backend {
 		}
 
 		try {
-			return $this->adapter->set( $key, $value, $ttl_ms, $nx, $xx );
+			return $this->adapter()->set( $key, $value, $ttl_ms, $nx, $xx );
 		} catch (\Throwable $e) {
 			$this->degrade( self::REASON_COMMAND_FAILED, $e );
 
@@ -480,7 +493,7 @@ final class Backend {
 		}
 
 		try {
-			return $this->adapter->set_unconditional( $key, $value, $ttl_ms );
+			return $this->adapter()->set_unconditional( $key, $value, $ttl_ms );
 		} catch (\Throwable $e) {
 			$this->degrade( self::REASON_COMMAND_FAILED, $e );
 
@@ -500,7 +513,7 @@ final class Backend {
 		}
 
 		try {
-			return $this->adapter->del( $key );
+			return $this->adapter()->del( $key );
 		} catch (\Throwable $e) {
 			$this->degrade( self::REASON_COMMAND_FAILED, $e );
 
@@ -525,7 +538,7 @@ final class Backend {
 		}
 
 		try {
-			$results = $this->adapter->pipeline( $commands );
+			$results = $this->adapter()->pipeline( $commands );
 		} catch (\Throwable $e) {
 			$this->degrade( self::REASON_COMMAND_FAILED, $e );
 
@@ -545,7 +558,7 @@ final class Backend {
 			}
 
 			try {
-				$results = $this->adapter->pipeline( $commands );
+				$results = $this->adapter()->pipeline( $commands );
 			} catch (\Throwable $e) {
 				$this->degrade( self::REASON_COMMAND_FAILED, $e );
 
@@ -578,7 +591,7 @@ final class Backend {
 		}
 
 		try {
-			$results = $this->adapter->pipeline( $commands );
+			$results = $this->adapter()->pipeline( $commands );
 		} catch (\Throwable $e) {
 			$this->degrade( self::REASON_COMMAND_FAILED, $e );
 
@@ -610,7 +623,7 @@ final class Backend {
 		}
 
 		try {
-			$results = $this->adapter->pipeline( $commands );
+			$results = $this->adapter()->pipeline( $commands );
 		} catch (\Throwable $e) {
 			$this->degrade( self::REASON_COMMAND_FAILED, $e );
 
@@ -639,7 +652,7 @@ final class Backend {
 		}
 
 		try {
-			return $this->adapter->eval( $script, $keys, $args );
+			return $this->adapter()->eval( $script, $keys, $args );
 		} catch (\Throwable $e) {
 			$this->degrade( self::REASON_COMMAND_FAILED, $e );
 
@@ -662,7 +675,7 @@ final class Backend {
 		}
 
 		try {
-			$result = $this->adapter->eval(
+			$result = $this->adapter()->eval(
 				LuaScripts::INCR_DECR,
 				array( $item_key ),
 				array( (string) $offset )
@@ -681,7 +694,7 @@ final class Backend {
 
 		if ($code === LuaScripts::RESULT_OK && isset( $result[1] )) {
 			$val = $result[1];
-			return array( LuaScripts::RESULT_OK, is_numeric( $val ) ? $val + 0 : (int) $val );
+			return array( LuaScripts::RESULT_OK, (int) $val );
 		}
 
 		return array( $code, null );
@@ -720,7 +733,7 @@ final class Backend {
 		$token = KeySpace::generate_token();
 
 		try {
-			$created = $this->adapter->set( $key, $token, null, true );
+			$created = $this->adapter()->set( $key, $token, null, true );
 		} catch (\Throwable $e) {
 			$this->degrade( self::REASON_COMMAND_FAILED, $e );
 
@@ -733,7 +746,7 @@ final class Backend {
 
 		// Someone else won the race; read back their token.
 		try {
-			$existing = $this->adapter->get( $key );
+			$existing = $this->adapter()->get( $key );
 		} catch (\Throwable $e) {
 			$this->degrade( self::REASON_COMMAND_FAILED, $e );
 
@@ -748,7 +761,7 @@ final class Backend {
 		// Retry with a fresh token.
 		$token2 = KeySpace::generate_token();
 		try {
-			$created2 = $this->adapter->set( $key, $token2, null, true );
+			$created2 = $this->adapter()->set( $key, $token2, null, true );
 		} catch (\Throwable $e) {
 			$this->degrade( self::REASON_COMMAND_FAILED, $e );
 
@@ -761,7 +774,7 @@ final class Backend {
 
 		// Try one more get
 		try {
-			$existing2 = $this->adapter->get( $key );
+			$existing2 = $this->adapter()->get( $key );
 		} catch (\Throwable $e) {
 			$this->degrade( self::REASON_COMMAND_FAILED, $e );
 

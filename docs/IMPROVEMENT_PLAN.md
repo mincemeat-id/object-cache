@@ -1,7 +1,7 @@
 # Mincemeat Object Cache - Improvement Plan
 
 Date: 2026-07-13
-Status: post-remediation, release-candidate quality.
+Status: post-remediation, release-candidate quality; Milestone 1 complete.
 Scope: next engineering improvements after the production-readiness remediation work was completed and pushed.
 
 This replaces the old production-readiness remediation plan. The previous blocker set is closed: the test-specific `wp_cache_flush_group()` branch is gone, package artifacts are ignored rather than committed, package determinism is checked, artifact parity CI has been expanded, JSON test configuration is in place, and local credential/certificate hygiene has improved.
@@ -40,12 +40,10 @@ Results:
 - PCOV coverage was generated successfully.
 - Overall line coverage: `77.02%` (`1632/2119`).
 - Existing coverage verifier passed.
-- PHPStan level 8 failed with `59` file errors:
-  - `src/Backend.php`: `19`
-  - `src/ObjectCache.php`: `39`
-  - `src/PhpRedisAdapter.php`: `1`
+- PHPStan level 8 initially failed with `59` file errors concentrated in `Backend`, `ObjectCache`, and `PhpRedisAdapter`.
+- Milestone 1 resolved those errors without a baseline or ignore comments; level 8 is now the configured default.
 
-The level 8 failures are mostly nullable invariant issues that the runtime enforces operationally but PHPStan cannot prove yet, plus numeric return precision. Treat these as implementation-shape work, not suppression work.
+The level 8 failures were mostly nullable invariant issues that the runtime enforced operationally but PHPStan could not prove, plus numeric return precision. They were resolved as implementation-shape work rather than suppression work.
 
 ## Upstream Context
 
@@ -70,6 +68,8 @@ Important upstream facts:
 
 Goal: make `composer stan` run at level 8 over runtime source without baselines or ignore comments.
 
+Status: complete on 2026-07-13.
+
 Findings:
 
 - `Backend` stores the adapter as nullable, then most command methods assume `is_persistent()` proves it is non-null.
@@ -77,13 +77,13 @@ Findings:
 - `ObjectCache::delta()` and `ObjectCache::persistent_delta()` can return inferred `float|int` because arithmetic over numeric mixed values widens the type.
 - `PhpRedisAdapter::pipeline()` uses `call_user_func_array()` on a value PHPStan cannot prove is a callable Redis object.
 
-Recommended implementation shape:
+Implemented:
 
-1. Add explicit non-null accessors for persistent invariants, for example `Backend::adapter()` and `ObjectCache::backend()`, that throw only for impossible internal misuse.
-2. Use those accessors inside persistent-only private methods so PHPStan can follow the invariant.
-3. Tighten numeric paths so WordPress integer return expectations are explicit and tested.
-4. Replace dynamic callable pipeline dispatch with a small allowlisted command dispatcher or typed adapter methods.
-5. Keep `phpstan.neon` strict without baselines.
+1. Added explicit non-null `Backend::adapter()` and `ObjectCache::backend()` accessors for persistent invariants.
+2. Persistent-only operations use those accessors so nullable state is checked at one boundary.
+3. Numeric paths now coerce to bounded integers, and contract tests cover float normalization and overflow.
+4. Pipeline dispatch is allowlisted to `set`, `unlink`, and `del`; arbitrary dynamic callable dispatch is gone.
+5. `phpstan.neon` now defaults to level 8 without baselines or ignore comments.
 
 Acceptance criteria:
 

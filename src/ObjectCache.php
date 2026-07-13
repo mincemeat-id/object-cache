@@ -194,8 +194,8 @@ final class ObjectCache {
 		$entries = array();
 		$out = array();
 
-		$ns_tok  = $this->backend->namespace_token();
-		$grp_tok = $this->backend->group_token( $group );
+		$ns_tok  = $this->backend()->namespace_token();
+		$grp_tok = $this->backend()->group_token( $group );
 		$ttl_ms  = $this->resolve_ttl_ms( $expire );
 
 		foreach ($data as $key => $value) {
@@ -230,7 +230,7 @@ final class ObjectCache {
 
 		$this->backend_calls += 1;
 		$start = microtime( true );
-		$pipeline_results = $this->backend->set_conditional_pipeline( $entries );
+		$pipeline_results = $this->backend()->set_conditional_pipeline( $entries );
 		$this->backend_time += ( microtime( true ) - $start ) * 1000000;
 
 		if ( ! $this->sync_state()) {
@@ -263,10 +263,10 @@ final class ObjectCache {
 		if (count( $failed_backend_keys ) > 0) {
 			$this->backend_calls += 1;
 			$start = microtime( true );
-			$raw_values = $this->backend->mget( $failed_backend_keys );
+			$raw_values = $this->backend()->mget( $failed_backend_keys );
 			$this->backend_time += ( microtime( true ) - $start ) * 1000000;
 
-			if ($this->sync_state() && is_array( $raw_values )) {
+			if ($this->sync_state()) {
 				foreach ($failed_keys as $idx => $key) {
 					$raw = $raw_values[ $idx ] ?? null;
 					if (is_string( $raw ) && $raw !== '') {
@@ -366,8 +366,8 @@ final class ObjectCache {
 		$entries = array();
 		$out = array();
 
-		$ns_tok  = $this->backend->namespace_token();
-		$grp_tok = $this->backend->group_token( $group );
+		$ns_tok  = $this->backend()->namespace_token();
+		$grp_tok = $this->backend()->group_token( $group );
 		$ttl_ms  = $this->resolve_ttl_ms( $expire );
 
 		foreach ($data as $key => $value) {
@@ -396,7 +396,7 @@ final class ObjectCache {
 
 		$this->backend_calls += 1;
 		$start = microtime( true );
-		$pipeline_results = $this->backend->set_pipeline( $entries );
+		$pipeline_results = $this->backend()->set_pipeline( $entries );
 		$this->backend_time += ( microtime( true ) - $start ) * 1000000;
 
 		if ( ! $this->sync_state()) {
@@ -538,8 +538,8 @@ final class ObjectCache {
 		$backend_keys = array();
 		$out = array();
 
-		$ns_tok  = $this->backend->namespace_token();
-		$grp_tok = $this->backend->group_token( $group );
+		$ns_tok  = $this->backend()->namespace_token();
+		$grp_tok = $this->backend()->group_token( $group );
 
 		foreach ($keys as $key) {
 			if ( ! $this->key_space->is_valid_key( $key )) {
@@ -559,7 +559,7 @@ final class ObjectCache {
 
 		$this->backend_calls += 1;
 		$start = microtime( true );
-		$pipeline_results = $this->backend->del_pipeline( $backend_keys );
+		$pipeline_results = $this->backend()->del_pipeline( $backend_keys );
 		$this->backend_time += ( microtime( true ) - $start ) * 1000000;
 
 		if ( ! $this->sync_state()) {
@@ -889,6 +889,19 @@ final class ObjectCache {
 	}
 
 	/**
+	 * Returns the backend required by persistent-only operations.
+	 *
+	 * @throws \LogicException If called outside the persistent invariant.
+	 */
+	private function backend(): Backend {
+		if ($this->backend === null) {
+			throw new \LogicException( 'Persistent cache operation has no backend.' );
+		}
+
+		return $this->backend;
+	}
+
+	/**
 	 * Whether a group should use the persistent backend.
 	 *
 	 * @param string $group Normalized group name.
@@ -943,18 +956,19 @@ final class ObjectCache {
 	 * @param mixed  $key
 	 * @param string $group
 	 * @param bool   $force
-	 * @param bool   $found
+	 * @param bool|null $found
+	 * @param-out bool $found
 	 * @param string $storage_id
 	 * @return mixed|false
 	 */
 	private function persistent_get( $key, string $group, bool $force, &$found, string $storage_id ) {
-		$ns_tok   = $this->backend->namespace_token();
-		$grp_tok  = $this->backend->group_token( $group );
+		$ns_tok   = $this->backend()->namespace_token();
+		$grp_tok  = $this->backend()->group_token( $group );
 		$item_key = $this->key_space->item_key( $ns_tok, $grp_tok, $group, $key );
 
 		$this->backend_calls += 1;
 		$start                = microtime( true );
-		$raw                  = $this->backend->get( $item_key );
+		$raw                  = $this->backend()->get( $item_key );
 		$this->backend_time  += ( microtime( true ) - $start ) * 1000000;
 
 		if ( ! $this->sync_state()) {
@@ -972,8 +986,8 @@ final class ObjectCache {
 			}
 
 			if ($err !== null) {
-				$this->backend->log_error( 'Value codec decode failed: ' . $err );
-				$this->backend->del( $item_key );
+				$this->backend()->log_error( 'Value codec decode failed: ' . $err );
+				$this->backend()->del( $item_key );
 			}
 		}
 
@@ -1021,8 +1035,8 @@ final class ObjectCache {
 			return $values;
 		}
 
-		$ns_tok  = $this->backend->namespace_token();
-		$grp_tok = $this->backend->group_token( $group );
+		$ns_tok  = $this->backend()->namespace_token();
+		$grp_tok = $this->backend()->group_token( $group );
 
 		$backend_keys = array();
 		foreach ($missing as $key) {
@@ -1031,7 +1045,7 @@ final class ObjectCache {
 
 		$this->backend_calls += 1;
 		$start                = microtime( true );
-		$raw_values           = $this->backend->mget( $backend_keys );
+		$raw_values           = $this->backend()->mget( $backend_keys );
 		$this->backend_time  += ( microtime( true ) - $start ) * 1000000;
 
 		if ( ! $this->sync_state()) {
@@ -1061,9 +1075,9 @@ final class ObjectCache {
 				}
 
 				if ($err !== null) {
-					$this->backend->log_error( 'Value codec decode failed: ' . $err );
+					$this->backend()->log_error( 'Value codec decode failed: ' . $err );
 					$item_key = $this->key_space->item_key( $ns_tok, $grp_tok, $group, $key );
-					$this->backend->del( $item_key );
+					$this->backend()->del( $item_key );
 				}
 			}
 
@@ -1091,14 +1105,14 @@ final class ObjectCache {
 			return false;
 		}
 
-		$ns_tok   = $this->backend->namespace_token();
-		$grp_tok  = $this->backend->group_token( $group );
+		$ns_tok   = $this->backend()->namespace_token();
+		$grp_tok  = $this->backend()->group_token( $group );
 		$item_key = $this->key_space->item_key( $ns_tok, $grp_tok, $group, $key );
 		$ttl_ms   = $this->resolve_ttl_ms( $expire );
 
 		$this->backend_calls += 1;
 		$start                = microtime( true );
-		$ok                   = $this->backend->set_unconditional( $item_key, $encoded, $ttl_ms );
+		$ok                   = $this->backend()->set_unconditional( $item_key, $encoded, $ttl_ms );
 		$this->backend_time  += ( microtime( true ) - $start ) * 1000000;
 
 		if ( ! $this->sync_state()) {
@@ -1129,14 +1143,14 @@ final class ObjectCache {
 			return false;
 		}
 
-		$ns_tok   = $this->backend->namespace_token();
-		$grp_tok  = $this->backend->group_token( $group );
+		$ns_tok   = $this->backend()->namespace_token();
+		$grp_tok  = $this->backend()->group_token( $group );
 		$item_key = $this->key_space->item_key( $ns_tok, $grp_tok, $group, $key );
 		$ttl_ms   = $this->resolve_ttl_ms( $expire );
 
 		$this->backend_calls += 1;
 		$start                = microtime( true );
-		$ok                   = $this->backend->set( $item_key, $encoded, $ttl_ms, true, false );
+		$ok                   = $this->backend()->set( $item_key, $encoded, $ttl_ms, true, false );
 		$this->backend_time  += ( microtime( true ) - $start ) * 1000000;
 
 		if ( ! $this->sync_state()) {
@@ -1148,7 +1162,7 @@ final class ObjectCache {
 		}
 
 		// Key exists in backend; read back to populate memory.
-		$raw = $this->backend->get( $item_key );
+		$raw = $this->backend()->get( $item_key );
 		if (is_string( $raw ) && $raw !== '') {
 			list($ok2, $val) = ValueCodec::decode( $raw );
 			if ($ok2) {
@@ -1176,14 +1190,14 @@ final class ObjectCache {
 			return false;
 		}
 
-		$ns_tok   = $this->backend->namespace_token();
-		$grp_tok  = $this->backend->group_token( $group );
+		$ns_tok   = $this->backend()->namespace_token();
+		$grp_tok  = $this->backend()->group_token( $group );
 		$item_key = $this->key_space->item_key( $ns_tok, $grp_tok, $group, $key );
 		$ttl_ms   = $this->resolve_ttl_ms( $expire );
 
 		$this->backend_calls += 1;
 		$start                = microtime( true );
-		$ok                   = $this->backend->set( $item_key, $encoded, $ttl_ms, false, true );
+		$ok                   = $this->backend()->set( $item_key, $encoded, $ttl_ms, false, true );
 		$this->backend_time  += ( microtime( true ) - $start ) * 1000000;
 
 		if ( ! $this->sync_state()) {
@@ -1210,13 +1224,13 @@ final class ObjectCache {
 	 * @return bool
 	 */
 	private function persistent_delete( $key, string $group, string $storage_id ): bool {
-		$ns_tok   = $this->backend->namespace_token();
-		$grp_tok  = $this->backend->group_token( $group );
+		$ns_tok   = $this->backend()->namespace_token();
+		$grp_tok  = $this->backend()->group_token( $group );
 		$item_key = $this->key_space->item_key( $ns_tok, $grp_tok, $group, $key );
 
 		$this->backend_calls += 1;
 		$start                = microtime( true );
-		$deleted              = $this->backend->del( $item_key );
+		$deleted              = $this->backend()->del( $item_key );
 		$this->backend_time  += ( microtime( true ) - $start ) * 1000000;
 
 		$was_in_memory = $this->exists( $storage_id, $group );
@@ -1241,7 +1255,8 @@ final class ObjectCache {
 	 *
 	 * @param string    $storage_id
 	 * @param string    $group
-	 * @param bool      $found
+	 * @param bool|null $found
+	 * @param-out bool $found
 	 * @return mixed|false
 	 */
 	private function runtime_fallback_get( string $storage_id, string $group, &$found ) {
@@ -1288,17 +1303,7 @@ final class ObjectCache {
 			return false;
 		}
 
-		$current = $this->cache[ $group ][ $storage_id ];
-
-		if ( ! is_numeric( $current )) {
-			$current = 0;
-		}
-
-		$current += $offset;
-
-		if (0 > $current) {
-			$current = 0;
-		}
+		$current = $this->apply_integer_delta( $this->cache[ $group ][ $storage_id ], $offset );
 
 		$this->cache[ $group ][ $storage_id ] = $current;
 
@@ -1315,27 +1320,20 @@ final class ObjectCache {
 	 * @return int|false
 	 */
 	private function persistent_delta( $key, int $offset, string $group, string $storage_id ) {
-		$ns_tok   = $this->backend->namespace_token();
-		$grp_tok  = $this->backend->group_token( $group );
+		$ns_tok   = $this->backend()->namespace_token();
+		$grp_tok  = $this->backend()->group_token( $group );
 		$item_key = $this->key_space->item_key( $ns_tok, $grp_tok, $group, $key );
 
 		$this->backend_calls   += 1;
 		$start                  = microtime( true );
-		list($code, $new_value) = $this->backend->eval_incr( $item_key, $offset );
+		list($code, $new_value) = $this->backend()->eval_incr( $item_key, $offset );
 		$this->backend_time    += ( microtime( true ) - $start ) * 1000000;
 
 		if ( ! $this->sync_state()) {
 			// Backend degraded: fall back to in-memory delta if the value
 			// is already loaded. This preserves coherent runtime behavior.
 			if ($this->exists( $storage_id, $group )) {
-				$current = $this->cache[ $group ][ $storage_id ];
-				if ( ! is_numeric( $current )) {
-					$current = 0;
-				}
-				$current += $offset;
-				if (0 > $current) {
-					$current = 0;
-				}
+				$current = $this->apply_integer_delta( $this->cache[ $group ][ $storage_id ], $offset );
 				$this->cache[ $group ][ $storage_id ] = $current;
 
 				return $current;
@@ -1354,5 +1352,32 @@ final class ObjectCache {
 		unset( $this->cache[ $group ][ $storage_id ] );
 
 		return false;
+	}
+
+	/**
+	 * Coerces a cached numeric value to an integer and applies a bounded delta.
+	 *
+	 * @param mixed $value
+	 */
+	private function apply_integer_delta( $value, int $offset ): int {
+		$current = is_numeric( $value ) ? (int) $value : 0;
+
+		if ($offset === 0) {
+			return max( 0, $current );
+		}
+
+		if ($offset > 0 && $current > PHP_INT_MAX - $offset) {
+			return PHP_INT_MAX;
+		}
+
+		if ($offset > 0 && $current < -$offset) {
+			return 0;
+		}
+
+		if ($offset < 0 && ( $offset === PHP_INT_MIN || $current < -$offset )) {
+			return 0;
+		}
+
+		return $current + $offset;
 	}
 }

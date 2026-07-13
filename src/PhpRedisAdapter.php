@@ -382,10 +382,34 @@ class PhpRedisAdapter {
 		}
 
 		$pipe  = $this->redis->pipeline();
+		if ($pipe === false) {
+			return array();
+		}
+
 		$count = 0;
 
 		foreach ($commands as $cmd) {
-			call_user_func_array( array( $pipe, $cmd[0] ), $cmd[1] );
+			$args = $cmd[1];
+			switch ($cmd[0]) {
+				case 'set':
+					$key     = (string) ( $args[0] ?? '' );
+					$value   = (string) ( $args[1] ?? '' );
+					$options = $args[2] ?? null;
+					if (is_array( $options )) {
+						$pipe->set( $key, $value, $options );
+					} else {
+						$pipe->set( $key, $value );
+					}
+					break;
+				case 'unlink':
+					$pipe->unlink( (string) ( $args[0] ?? '' ) );
+					break;
+				case 'del':
+					$pipe->del( (string) ( $args[0] ?? '' ) );
+					break;
+				default:
+					throw new \LogicException( 'Unsupported pipeline command.' );
+			}
 			++$count;
 		}
 

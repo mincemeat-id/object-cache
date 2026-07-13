@@ -10,7 +10,7 @@ The project has moved beyond the old remediation phase. Runtime source, generate
 
 The next useful work is not another blocker burn-down. It is improving confidence and capability:
 
-- PHPStan level 8.
+- Maintaining PHPStan level 8 as runtime source evolves.
 - True E2E tests.
 - Stronger PCOV-based coverage.
 - Better local developer commands.
@@ -57,34 +57,21 @@ The existing coverage verifier passed:
 php tools/verify-coverage.php
 ```
 
-Exploratory PHPStan level 8 failed:
+PHPStan level 8 passes and is the configured default:
 
 ```bash
 composer stan -- --error-format=raw --level=8 --memory-limit=1G
 ```
 
-Error distribution:
-
-- `src/Backend.php`: `19`
-- `src/ObjectCache.php`: `39`
-- `src/PhpRedisAdapter.php`: `1`
-
-The failures are mostly nullable invariant proof gaps and numeric return narrowing. They are good candidates for small structural refactors.
+The original 59 errors were resolved with explicit non-null invariant accessors, bounded integer numeric paths, and allowlisted pipeline dispatch. No baseline or ignore comments were added.
 
 ## Fresh Findings
 
-### PHPStan Level 8 Is Close But Structural
+### PHPStan Level 8 Is Complete
 
-The code's runtime invariants are clearer to humans than to PHPStan. `Backend::is_persistent()` implies a usable adapter, and `ObjectCache::is_persistent_group()` implies a usable backend, but those implications are not encoded as types.
+Persistent-state invariants are now encoded through `Backend::adapter()` and `ObjectCache::backend()`. Numeric cache operations have explicit integer returns, and `PhpRedisAdapter::pipeline()` uses an allowlisted dispatcher.
 
-Recommended direction:
-
-- Add explicit internal non-null accessors.
-- Use those accessors inside persistent-only private methods.
-- Tighten integer return paths for increment/decrement.
-- Replace dynamic pipeline dispatch with an allowlisted dispatcher or typed adapter methods.
-
-Do not use baselines or ignore comments for this work.
+Keep `phpstan.neon` at level 8 and do not introduce baselines or ignore comments.
 
 ### Local Commands Need To Match Docker Defaults
 
@@ -161,7 +148,6 @@ Hash field expiration, vector commands, and Valkey `DELIFEQ` are real 6.3.0 feat
 
 ## Current Risks
 
-- PHPStan level 8 is not yet green.
 - Local default commands are not as smooth as CI.
 - E2E coverage is not yet present.
 - Backend and adapter coverage are lower than the most security-sensitive pure components.
@@ -170,4 +156,4 @@ Hash field expiration, vector commands, and Valkey `DELIFEQ` are real 6.3.0 feat
 
 ## Recommendation
 
-Use `docs/IMPROVEMENT_PLAN.md` as the next work queue. Start with local developer experience and PHPStan level 8, then expand PCOV thresholds and WordPress compatibility coverage before adding larger PhpRedis behavior changes.
+Use `docs/IMPROVEMENT_PLAN.md` as the next work queue. Continue with local developer experience, then expand PCOV thresholds and WordPress compatibility coverage before adding larger PhpRedis behavior changes.
