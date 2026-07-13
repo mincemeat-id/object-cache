@@ -29,7 +29,12 @@
     "autoload-dev": {
         "psr-4": {
             "Mincemeat\\ObjectCache\\Tests\\": "tests/"
-        }
+        },
+        "exclude-from-classmap": [
+            "tests/bootstrap.php",
+            "tests/Integration/WordPressQueryCacheSmoke.php",
+            "tests/wp-tests/"
+        ]
     },
     "scripts": {
         "build": "php tools/build-dropin.php",
