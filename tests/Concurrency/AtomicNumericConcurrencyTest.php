@@ -36,7 +36,7 @@ class AtomicNumericConcurrencyTest extends TestCase
         parent::setUp();
 
         $host = getenv('MINCEMEAT_TEST_REDIS_HOST') ?: '127.0.0.1';
-        $port = (int) (getenv('MINCEMEAT_TEST_REDIS_PORT') ?: 6379);
+        $port = (int) (getenv('MINCEMEAT_TEST_REDIS_PORT') ?: 6383);
 
         if (! class_exists(\Redis::class)) {
             if (getenv('MINCEMEAT_REQUIRE_INTEGRATION')) {
@@ -71,7 +71,7 @@ class AtomicNumericConcurrencyTest extends TestCase
     {
         $namespace = 'conc-incr-' . bin2hex(random_bytes(8));
         $host = getenv('MINCEMEAT_TEST_REDIS_HOST') ?: '127.0.0.1';
-        $port = (int) (getenv('MINCEMEAT_TEST_REDIS_PORT') ?: 6379);
+        $port = (int) (getenv('MINCEMEAT_TEST_REDIS_PORT') ?: 6383);
 
         // Set up: initialize the value to 0.
         $config = new Config(array(
@@ -165,7 +165,7 @@ class AtomicNumericConcurrencyTest extends TestCase
     {
         $namespace = 'conc-decr-' . bin2hex(random_bytes(8));
         $host = getenv('MINCEMEAT_TEST_REDIS_HOST') ?: '127.0.0.1';
-        $port = (int) (getenv('MINCEMEAT_TEST_REDIS_PORT') ?: 6379);
+        $port = (int) (getenv('MINCEMEAT_TEST_REDIS_PORT') ?: 6383);
 
         $config = new Config(array(
             'namespace'        => $namespace,

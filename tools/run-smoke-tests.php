@@ -27,7 +27,7 @@ if (!copy($dropin_src, $dropin_dest)) {
     exit(1);
 }
 
-// 2. Define object cache config (point to local Redis on port 6379)
+// 2. Define object cache config (point to the local Docker Redis by default)
 $redis_host = getenv('MINCEMEAT_TEST_REDIS_HOST') ?: '127.0.0.1';
 $redis_port = (int) (getenv('MINCEMEAT_TEST_REDIS_PORT') ?: 6383);
 
@@ -42,18 +42,8 @@ $object_cache_config = array(
 );
 putenv('MINCEMEAT_OBJECT_CACHE_CONFIG=' . json_encode($object_cache_config));
 
-// Force DB host to point to our container port (detect local 33076 first, fallback to 3306)
+// Use the local Docker port by default; CI exports its matrix port.
 $mysql_port = (int)(getenv('MINCEMEAT_TEST_DB_PORT') ?: 33076);
-$connection = @fsockopen('127.0.0.1', $mysql_port, $errno, $errstr, 0.2);
-if (!is_resource($connection) && $mysql_port === 33076) {
-    $connection3306 = @fsockopen('127.0.0.1', 3306, $errno, $errstr, 0.2);
-    if (is_resource($connection3306)) {
-        $mysql_port = 3306;
-        fclose($connection3306);
-    }
-} elseif (is_resource($connection)) {
-    fclose($connection);
-}
 $_ENV['DB_HOST'] = '127.0.0.1:' . $mysql_port;
 $_SERVER['DB_HOST'] = '127.0.0.1:' . $mysql_port;
 putenv('DB_HOST=127.0.0.1:' . $mysql_port);

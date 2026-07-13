@@ -44,7 +44,7 @@
         "test:contract": "phpunit --group contract",
         "test:integration": "phpunit --group integration",
         "test:smoke": "php tools/run-smoke-tests.php",
-        "test:coverage": "php tools/verify-coverage.php",
+        "test:coverage": "phpunit --coverage-clover build/logs/clover.xml && php tools/verify-coverage.php",
         "lint": "phpcs",
         "compat": "phpcs --standard=PHPCompatibility",
         "stan": "phpstan analyse"

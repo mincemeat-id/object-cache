@@ -75,7 +75,10 @@ jobs:
           ini-values: zend.assertions=1, error_reporting=-1
 
       - name: Select backend endpoint
-        run: echo "MINCEMEAT_TEST_REDIS_PORT=${{ matrix.backend == 'redis8' && '6379' || '6380' }}" >> "$GITHUB_ENV"
+        run: |
+          echo "MINCEMEAT_TEST_REDIS_PORT=${{ matrix.backend == 'redis8' && '6379' || '6380' }}" >> "$GITHUB_ENV"
+          echo "MINCEMEAT_TEST_VALKEY_PORT=6380" >> "$GITHUB_ENV"
+          echo "MINCEMEAT_TEST_DB_PORT=3306" >> "$GITHUB_ENV"
 
       - name: Set multisite env
         if: ${{ matrix.multisite }}

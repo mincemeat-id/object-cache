@@ -64,15 +64,22 @@ Start local services when integration or smoke tests require them:
 docker compose up -d
 ```
 
-The local defaults intentionally avoid common service ports:
+The local defaults intentionally avoid common service ports. The Docker Compose endpoints are automatic fallbacks; helper-service values are exported when those optional scenarios are enabled:
 
-| Service | Host port |
-| --- | --- |
-| Redis 8 | `6383` |
-| Valkey 9 | `6384` |
-| MariaDB 11.8 | `33076` |
+| Service | Environment variable | Local default |
+| --- | --- | --- |
+| Redis 8 | `MINCEMEAT_TEST_REDIS_PORT` | `6383` |
+| Valkey 9 | `MINCEMEAT_TEST_VALKEY_PORT` | `6384` |
+| MariaDB 11.8 | `MINCEMEAT_TEST_DB_PORT` | `33076` |
+| Redis ACL helper | `MINCEMEAT_TEST_ACL_PORT` | `6381` |
+| Redis TLS helper | `MINCEMEAT_TEST_TLS_PORT` | `6382` |
+| Redis Unix socket helper | `MINCEMEAT_TEST_UNIX_SOCKET` | `/tmp/redis-socket/redis.sock` |
+| ACL test username | `MINCEMEAT_TEST_ACL_USER` | `myuser` |
+| ACL test password | `MINCEMEAT_TEST_ACL_PASS` | `mypassword` (local test only) |
+| Trusted test CA | `MINCEMEAT_TEST_TLS_CA` | `tests/certs/ca.crt` |
+| Untrusted test CA | `MINCEMEAT_TEST_TLS_UNTRUSTED_CA` | `tests/certs/untrusted-ca.crt` |
 
-Additional helper services may be started by `tools/setup-test-services.sh` for Unix socket, ACL, and TLS scenarios.
+The default host is `127.0.0.1` (`MINCEMEAT_TEST_REDIS_HOST`). Additional helper services may be started by `tools/setup-test-services.sh` for Unix socket, ACL, and TLS scenarios. That script generates local CA files under `tests/certs/`; CI exports all matrix endpoints explicitly.
 
 ## Build Commands
 
@@ -92,23 +99,19 @@ Package artifacts are intentionally ignored in the working tree. CI verifies det
 
 ## Validation Commands
 
-Fast local validation:
+Fast local validation after `docker compose up -d`:
 
 ```bash
 composer validate --strict --no-check-lock
 composer lint -- --report=summary
 composer stan -- --error-format=raw
-vendor/bin/phpunit
+composer test
 ```
 
-When running the full suite against local docker compose services, set the local ports explicitly:
+Generate fresh PCOV coverage and verify the configured thresholds:
 
 ```bash
-MINCEMEAT_TEST_REDIS_HOST=127.0.0.1 \
-MINCEMEAT_TEST_REDIS_PORT=6383 \
-MINCEMEAT_TEST_VALKEY_PORT=6384 \
-MINCEMEAT_TEST_DB_PORT=33076 \
-vendor/bin/phpunit
+composer test:coverage
 ```
 
 Drop-in parity:

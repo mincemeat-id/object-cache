@@ -28,6 +28,16 @@ $php_ver = PHP_VERSION;
 $config_constant = defined('MINCEMEAT_OBJECT_CACHE_CONFIG') ? MINCEMEAT_OBJECT_CACHE_CONFIG : null;
 $config_digest = md5(serialize($config_constant));
 
+$expected_backend = getenv('MINCEMEAT_EXPECTED_BACKEND'); // 'redis' or 'valkey'
+$require_persistent = getenv('MINCEMEAT_REQUIRE_PERSISTENT'); // '1' or '0'
+$selected_scheme = is_array($config_constant) && isset($config_constant['scheme'])
+    ? (string) $config_constant['scheme']
+    : 'unknown';
+$selected_port = is_array($config_constant) && isset($config_constant['port'])
+    ? (int) $config_constant['port']
+    : null;
+$selected_endpoint = $selected_scheme . ($selected_port !== null ? ':' . $selected_port : '');
+
 // WP_CONTENT_DIR is defined by WordPress
 $dropin_file = defined('WP_CONTENT_DIR') ? WP_CONTENT_DIR . '/object-cache.php' : '';
 $dropin_hash = ($dropin_file && file_exists($dropin_file)) ? md5_file($dropin_file) : 'none';
@@ -39,30 +49,27 @@ $preflight = array(
     'state'         => $cache_state,
     'config_digest' => $config_digest,
     'hash'          => $dropin_hash,
-    'config'        => $config_constant,
+    'expected_backend' => $expected_backend ?: 'runtime-only',
+    'endpoint'      => $selected_endpoint,
 );
 
 echo "\nMINCEMEAT_PREFLIGHT: " . json_encode($preflight) . "\n";
 
-// Validate expectations
-$expected_backend = getenv('MINCEMEAT_EXPECTED_BACKEND'); // 'redis' or 'valkey'
-$require_persistent = getenv('MINCEMEAT_REQUIRE_PERSISTENT'); // '1' or '0'
-
 if ($expected_backend) {
     if (strtolower($product) !== strtolower($expected_backend)) {
-        fwrite(STDERR, "Preflight Failure: Expected backend product '{$expected_backend}', but got '{$product}' (State: {$cache_state}, Reason: {$status['reason']}, Last Error: " . var_export($diag['last_error'] ?? '', true) . ").\n");
+        fwrite(STDERR, "Preflight Failure: Expected backend product '{$expected_backend}' at {$selected_endpoint}, but got '{$product}' (State: {$cache_state}, Reason: {$status['reason']}, Last Error: " . var_export($diag['last_error'] ?? '', true) . ").\n");
         exit(99);
     }
 }
 
 if ($require_persistent === '1') {
     if ($cache_state !== \Mincemeat\ObjectCache\ObjectCache::STATE_PERSISTENT) {
-        fwrite(STDERR, "Preflight Failure: Expected persistent cache state, but got '{$cache_state}'.\n");
+        fwrite(STDERR, "Preflight Failure: Expected persistent cache state for '{$expected_backend}' at {$selected_endpoint}, but got '{$cache_state}'.\n");
         exit(99);
     }
 } elseif ($require_persistent === '0') {
     if ($cache_state !== \Mincemeat\ObjectCache\ObjectCache::STATE_RUNTIME_ONLY) {
-        fwrite(STDERR, "Preflight Failure: Expected runtime-only cache state, but got '{$cache_state}'.\n");
+        fwrite(STDERR, "Preflight Failure: Expected runtime-only cache state at {$selected_endpoint}, but got '{$cache_state}'.\n");
         exit(99);
     }
 }

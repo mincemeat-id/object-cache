@@ -1,7 +1,7 @@
 # Mincemeat Object Cache - Improvement Plan
 
 Date: 2026-07-13
-Status: post-remediation, release-candidate quality; Milestone 1 complete.
+Status: post-remediation, release-candidate quality; Milestones 1 and 2 complete.
 Scope: next engineering improvements after the production-readiness remediation work was completed and pushed.
 
 This replaces the old production-readiness remediation plan. The previous blocker set is closed: the test-specific `wp_cache_flush_group()` branch is gone, package artifacts are ignored rather than committed, package determinism is checked, artifact parity CI has been expanded, JSON test configuration is in place, and local credential/certificate hygiene has improved.
@@ -99,20 +99,22 @@ git diff --exit-code stubs/object-cache.php stubs/object-cache.php.sha256
 
 Goal: the documented local commands should work against the repository's docker compose defaults without hidden environment knowledge.
 
+Status: complete on 2026-07-13.
+
 Findings:
 
 - `docker-compose.yml` maps Redis 8 to `6383` and Valkey 9 to `6384`.
-- A plain PHPUnit run can hit CI-oriented defaults inside the authoritative WordPress gate tests: Redis `6379` and Valkey `6380`.
-- Running with explicit local env works and passes.
-- `composer test:coverage` currently verifies an existing Clover file; it does not create the coverage file first.
+- A plain PHPUnit run previously hit CI-oriented defaults inside some test paths.
+- CI uses explicit matrix endpoints while local fallbacks now match Docker Compose.
+- `composer test:coverage` generates a fresh Clover report before verifying it.
 
-Recommended changes:
+Implemented:
 
-1. Make `composer test` and the gate tests default to local docker compose ports when running outside CI.
-2. Keep CI matrix ports explicit and isolated.
-3. Add `composer test:coverage:generate` or make `composer test:coverage` generate then verify coverage.
-4. Add a compact `.env.example` or docs table for local Redis, Valkey, MariaDB, TLS, ACL, and Unix socket test ports.
-5. Ensure failed local preflight output prints the selected ports and backend expectation without secrets.
+1. `composer test` and authoritative gates default to Redis `6383`, Valkey `6384`, and MariaDB `33076` locally.
+2. CI and scheduled matrix workflows export Redis/Valkey/MariaDB ports explicitly.
+3. `composer test:coverage` runs PHPUnit with Clover generation, then verifies the fresh report.
+4. README and implementation docs list all local Docker and helper-service endpoints.
+5. Preflight output reports only the expected backend and selected scheme/port, never the full configuration.
 
 Acceptance criteria:
 

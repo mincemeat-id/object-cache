@@ -278,7 +278,7 @@ class ConnectionScenariosTest extends TestCase
     public function test_persistent_pooling_connection_isolation()
     {
         $host = getenv('MINCEMEAT_TEST_REDIS_HOST') ?: '127.0.0.1';
-        $port = (int)(getenv('MINCEMEAT_TEST_REDIS_PORT') ?: 6379);
+        $port = (int)(getenv('MINCEMEAT_TEST_REDIS_PORT') ?: 6383);
 
         // Define two configs with different ports or namespaces but persistent pooling enabled.
         $config1 = new Config(array(

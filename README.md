@@ -59,22 +59,33 @@ There is no settings page. All runtime diagnostics are surfaced through WordPres
 
 ## Development & Testing Ports
 
-For local development and testing, non-default ports are used to prevent conflicts with other local databases or services:
-- **Redis 8**: mapped to host port `6383`.
-- **Valkey 9**: mapped to host port `6384`.
-- **MariaDB 11.8**: mapped to host port `33076`.
+For local development and testing, non-default ports are used to prevent conflicts with other local databases or services. The Docker Compose endpoints are automatic fallbacks; helper-service values are exported when those optional scenarios are enabled:
+
+| Service | Environment variable | Local default |
+| --- | --- | --- |
+| Redis 8 | `MINCEMEAT_TEST_REDIS_PORT` | `6383` |
+| Valkey 9 | `MINCEMEAT_TEST_VALKEY_PORT` | `6384` |
+| MariaDB 11.8 | `MINCEMEAT_TEST_DB_PORT` | `33076` |
+| Redis ACL helper | `MINCEMEAT_TEST_ACL_PORT` | `6381` |
+| Redis TLS helper | `MINCEMEAT_TEST_TLS_PORT` | `6382` |
+| Redis Unix socket helper | `MINCEMEAT_TEST_UNIX_SOCKET` | `/tmp/redis-socket/redis.sock` |
+| ACL test username | `MINCEMEAT_TEST_ACL_USER` | `myuser` |
+| ACL test password | `MINCEMEAT_TEST_ACL_PASS` | `mypassword` (local test only) |
+| Trusted test CA | `MINCEMEAT_TEST_TLS_CA` | `tests/certs/ca.crt` |
+| Untrusted test CA | `MINCEMEAT_TEST_TLS_UNTRUSTED_CA` | `tests/certs/untrusted-ca.crt` |
+
+The default host is `127.0.0.1` and can be overridden with `MINCEMEAT_TEST_REDIS_HOST`. CI exports its own isolated service ports explicitly.
 
 To set up the containers and run the test suite locally:
 1. Start the Docker services: `docker compose up -d`
-2. Run the PHPUnit test suite with the local service ports:
+2. Run the PHPUnit test suite or generate and verify coverage:
 
 ```bash
-MINCEMEAT_TEST_REDIS_HOST=127.0.0.1 \
-MINCEMEAT_TEST_REDIS_PORT=6383 \
-MINCEMEAT_TEST_VALKEY_PORT=6384 \
-MINCEMEAT_TEST_DB_PORT=33076 \
-vendor/bin/phpunit
+composer test
+composer test:coverage
 ```
+
+Optional Unix socket, ACL, and TLS scenarios are started with `bash tools/setup-test-services.sh`. Export the helper variables from the table to enable those tests locally.
 
 For the current improvement roadmap, see the [Improvement Plan](docs/IMPROVEMENT_PLAN.md).
 

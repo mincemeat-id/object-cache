@@ -13,7 +13,7 @@ The next useful work is not another blocker burn-down. It is improving confidenc
 - Maintaining PHPStan level 8 as runtime source evolves.
 - True E2E tests.
 - Stronger PCOV-based coverage.
-- Better local developer commands.
+- Maintaining one-command local test and coverage workflows.
 - WordPress compatibility surface hardening.
 - PhpRedis 6.3.0 modernization.
 - Continued performance and fault-injection work.
@@ -73,15 +73,11 @@ Persistent-state invariants are now encoded through `Backend::adapter()` and `Ob
 
 Keep `phpstan.neon` at level 8 and do not introduce baselines or ignore comments.
 
-### Local Commands Need To Match Docker Defaults
+### Local Commands Match Docker Defaults
 
-The repository documents local Redis 8 on `6383`, Valkey 9 on `6384`, and MariaDB on `33076`. With explicit env vars, the full PHPUnit suite passes. Without them, some authoritative gate paths can use CI-oriented defaults.
+Local test fallbacks now match Redis 8 on `6383`, Valkey 9 on `6384`, and MariaDB on `33076`. CI exports its `6379`, `6380`, and `3306` matrix endpoints explicitly.
 
-Recommended direction:
-
-- Make default local commands align with docker compose.
-- Keep CI matrix ports explicit.
-- Make `composer test:coverage` generate coverage before verifying it.
+`composer test` runs against Docker Compose defaults without extra environment variables. `composer test:coverage` generates a fresh Clover report before enforcing coverage thresholds.
 
 ### PCOV Makes Coverage Work Actionable
 
@@ -148,7 +144,6 @@ Hash field expiration, vector commands, and Valkey `DELIFEQ` are real 6.3.0 feat
 
 ## Current Risks
 
-- Local default commands are not as smooth as CI.
 - E2E coverage is not yet present.
 - Backend and adapter coverage are lower than the most security-sensitive pure components.
 - WordPress compatibility for direct `$wp_object_cache` property access has not been fully proven.
@@ -156,4 +151,4 @@ Hash field expiration, vector commands, and Valkey `DELIFEQ` are real 6.3.0 feat
 
 ## Recommendation
 
-Use `docs/IMPROVEMENT_PLAN.md` as the next work queue. Continue with local developer experience, then expand PCOV thresholds and WordPress compatibility coverage before adding larger PhpRedis behavior changes.
+Use `docs/IMPROVEMENT_PLAN.md` as the next work queue. Continue with PCOV threshold expansion and WordPress compatibility coverage before adding larger PhpRedis behavior changes.

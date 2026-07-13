@@ -52,7 +52,7 @@ abstract class IntegrationTestCase extends TestCase
         $GLOBALS['__mincemeat_actions']          = array();
 
         $host = getenv('MINCEMEAT_TEST_REDIS_HOST') ?: '127.0.0.1';
-        $port = (int) (getenv('MINCEMEAT_TEST_REDIS_PORT') ?: 6379);
+        $port = (int) (getenv('MINCEMEAT_TEST_REDIS_PORT') ?: 6383);
 
         $namespace = 'test-' . bin2hex(random_bytes(8));
 

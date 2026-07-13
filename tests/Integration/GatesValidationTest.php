@@ -261,18 +261,8 @@ class GatesValidationTest extends TestCase
                 $process_env[$k] = (string) $v;
             }
         }
-        // Force the DB host to point to our container port (detect local 33076 first, fallback to 3306)
+        // Use the local Docker port by default; CI exports its matrix port.
         $mysql_port = (int)(getenv('MINCEMEAT_TEST_DB_PORT') ?: 33076);
-        $connection = @fsockopen('127.0.0.1', $mysql_port, $errno, $errstr, 0.2);
-        if (!is_resource($connection) && $mysql_port === 33076) {
-            $connection3306 = @fsockopen('127.0.0.1', 3306, $errno, $errstr, 0.2);
-            if (is_resource($connection3306)) {
-                $mysql_port = 3306;
-                fclose($connection3306);
-            }
-        } elseif (is_resource($connection)) {
-            fclose($connection);
-        }
         $process_env['DB_HOST'] = '127.0.0.1:' . $mysql_port;
         if ($multisite) {
             $process_env['WP_MULTISITE'] = '1';
@@ -336,6 +326,8 @@ class GatesValidationTest extends TestCase
         $this->assertSame(0, $result['status'], "WordPress cache tests failed in runtime-only single-site:\nSTDOUT:\n" . $result['stdout'] . "\nSTDERR:\n" . $result['stderr']);
         $this->assertStringContainsString('OK', $result['stdout']);
         $this->assertStringContainsString('MINCEMEAT_PREFLIGHT: ', $result['stdout']);
+        $this->assertStringContainsString('"expected_backend":"runtime-only"', $result['stdout']);
+        $this->assertStringContainsString('"endpoint":"tcp:9999"', $result['stdout']);
     }
 
     public function test_p1_gate_authoritative_tests_redis8_single_site()
@@ -353,7 +345,7 @@ class GatesValidationTest extends TestCase
             'MINCEMEAT_OBJECT_CACHE_CONFIG' => json_encode(array(
                 'scheme'          => 'tcp',
                 'host'            => '127.0.0.1',
-                'port'            => (int)(getenv('MINCEMEAT_TEST_REDIS_PORT') ?: 6379), // Redis 8
+                'port'            => (int)(getenv('MINCEMEAT_TEST_REDIS_PORT') ?: 6383), // Redis 8
                 'database'         => 0,
                 'connect_timeout' => 1.0,
                 'read_timeout'    => 1.0,
@@ -365,6 +357,8 @@ class GatesValidationTest extends TestCase
         $this->assertSame(0, $result['status'], "WordPress cache tests failed in Redis 8 single-site:\nSTDOUT:\n" . $result['stdout'] . "\nSTDERR:\n" . $result['stderr']);
         $this->assertStringContainsString('OK', $result['stdout']);
         $this->assertStringContainsString('MINCEMEAT_PREFLIGHT: ', $result['stdout']);
+        $this->assertStringContainsString('"expected_backend":"redis"', $result['stdout']);
+        $this->assertStringContainsString('"endpoint":"tcp:', $result['stdout']);
     }
 
     public function test_p1_gate_authoritative_tests_valkey9_single_site()
@@ -382,7 +376,7 @@ class GatesValidationTest extends TestCase
             'MINCEMEAT_OBJECT_CACHE_CONFIG' => json_encode(array(
                 'scheme'          => 'tcp',
                 'host'            => '127.0.0.1',
-                'port'            => (int)(getenv('MINCEMEAT_TEST_VALKEY_PORT') ?: 6380), // Valkey 9
+                'port'            => (int)(getenv('MINCEMEAT_TEST_VALKEY_PORT') ?: 6384), // Valkey 9
                 'database'         => 0,
                 'connect_timeout' => 1.0,
                 'read_timeout'    => 1.0,
@@ -394,6 +388,8 @@ class GatesValidationTest extends TestCase
         $this->assertSame(0, $result['status'], "WordPress cache tests failed in Valkey 9 single-site:\nSTDOUT:\n" . $result['stdout'] . "\nSTDERR:\n" . $result['stderr']);
         $this->assertStringContainsString('OK', $result['stdout']);
         $this->assertStringContainsString('MINCEMEAT_PREFLIGHT: ', $result['stdout']);
+        $this->assertStringContainsString('"expected_backend":"valkey"', $result['stdout']);
+        $this->assertStringContainsString('"endpoint":"tcp:', $result['stdout']);
     }
 
     public function test_p1_gate_authoritative_tests_redis8_multisite()
@@ -411,7 +407,7 @@ class GatesValidationTest extends TestCase
             'MINCEMEAT_OBJECT_CACHE_CONFIG' => json_encode(array(
                 'scheme'          => 'tcp',
                 'host'            => '127.0.0.1',
-                'port' => (int)(getenv('MINCEMEAT_TEST_REDIS_PORT') ?: 6379), // Redis 8
+                'port' => (int)(getenv('MINCEMEAT_TEST_REDIS_PORT') ?: 6383), // Redis 8
                 'database'         => 0,
                 'connect_timeout' => 1.0,
                 'read_timeout'    => 1.0,
@@ -423,6 +419,8 @@ class GatesValidationTest extends TestCase
         $this->assertSame(0, $result['status'], "WordPress cache tests failed in Redis 8 multisite:\nSTDOUT:\n" . $result['stdout'] . "\nSTDERR:\n" . $result['stderr']);
         $this->assertStringContainsString('OK', $result['stdout']);
         $this->assertStringContainsString('MINCEMEAT_PREFLIGHT: ', $result['stdout']);
+        $this->assertStringContainsString('"expected_backend":"redis"', $result['stdout']);
+        $this->assertStringContainsString('"endpoint":"tcp:', $result['stdout']);
     }
 
     public function test_p1_gate_authoritative_tests_valkey9_multisite()
@@ -440,7 +438,7 @@ class GatesValidationTest extends TestCase
             'MINCEMEAT_OBJECT_CACHE_CONFIG' => json_encode(array(
                 'scheme'          => 'tcp',
                 'host'            => '127.0.0.1',
-                'port' => (int)(getenv('MINCEMEAT_TEST_VALKEY_PORT') ?: 6380), // Valkey 9
+                'port' => (int)(getenv('MINCEMEAT_TEST_VALKEY_PORT') ?: 6384), // Valkey 9
                 'database'         => 0,
                 'connect_timeout' => 1.0,
                 'read_timeout'    => 1.0,
@@ -452,5 +450,7 @@ class GatesValidationTest extends TestCase
         $this->assertSame(0, $result['status'], "WordPress cache tests failed in Valkey 9 multisite:\nSTDOUT:\n" . $result['stdout'] . "\nSTDERR:\n" . $result['stderr']);
         $this->assertStringContainsString('OK', $result['stdout']);
         $this->assertStringContainsString('MINCEMEAT_PREFLIGHT: ', $result['stdout']);
+        $this->assertStringContainsString('"expected_backend":"valkey"', $result['stdout']);
+        $this->assertStringContainsString('"endpoint":"tcp:', $result['stdout']);
     }
 }

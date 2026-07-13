@@ -34,7 +34,7 @@ class FailureProxyTest extends TestCase
         }
 
         $this->host = getenv('MINCEMEAT_TEST_REDIS_HOST') ?: '127.0.0.1';
-        $this->port = (int)(getenv('MINCEMEAT_TEST_REDIS_PORT') ?: 6379);
+        $this->port = (int)(getenv('MINCEMEAT_TEST_REDIS_PORT') ?: 6383);
 
         // Verify server reachable
         $probe = new \Redis();
