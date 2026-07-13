@@ -299,6 +299,17 @@ class GatesValidationTest extends TestCase
         );
     }
 
+    /**
+     * Returns the selected CI backend when the integration matrix constrains
+     * this test process to one backend product.
+     */
+    private function selectedBackend(): string
+    {
+        $backend = getenv('MINCEMEAT_EXPECTED_BACKEND');
+
+        return is_string($backend) ? $backend : '';
+    }
+
     public function test_p1_gate_authoritative_tests_runtime_only_single_site()
     {
         // 1. Runtime-only mode: Connection to backend is blocked / points to dummy port
@@ -329,6 +340,10 @@ class GatesValidationTest extends TestCase
 
     public function test_p1_gate_authoritative_tests_redis8_single_site()
     {
+        if ($this->selectedBackend() && $this->selectedBackend() !== 'redis') {
+            $this->markTestSkipped('Redis authoritative gate is covered by the redis8 matrix cell.');
+        }
+
         $this->cleanupDropin();
         $this->assertTrue(Lifecycle::install_dropin());
 
@@ -354,6 +369,10 @@ class GatesValidationTest extends TestCase
 
     public function test_p1_gate_authoritative_tests_valkey9_single_site()
     {
+        if ($this->selectedBackend() && $this->selectedBackend() !== 'valkey') {
+            $this->markTestSkipped('Valkey authoritative gate is covered by the valkey9 matrix cell.');
+        }
+
         $this->cleanupDropin();
         $this->assertTrue(Lifecycle::install_dropin());
 
@@ -379,6 +398,10 @@ class GatesValidationTest extends TestCase
 
     public function test_p1_gate_authoritative_tests_redis8_multisite()
     {
+        if ($this->selectedBackend() && $this->selectedBackend() !== 'redis') {
+            $this->markTestSkipped('Redis authoritative gate is covered by the redis8 matrix cell.');
+        }
+
         $this->cleanupDropin();
         $this->assertTrue(Lifecycle::install_dropin());
 
@@ -404,6 +427,10 @@ class GatesValidationTest extends TestCase
 
     public function test_p1_gate_authoritative_tests_valkey9_multisite()
     {
+        if ($this->selectedBackend() && $this->selectedBackend() !== 'valkey') {
+            $this->markTestSkipped('Valkey authoritative gate is covered by the valkey9 matrix cell.');
+        }
+
         $this->cleanupDropin();
         $this->assertTrue(Lifecycle::install_dropin());
 
