@@ -4,6 +4,7 @@
 
 - Added isolated WordPress browser/WP-CLI E2E coverage for lifecycle, Site Health, outage recovery, ownership safety, and multisite.
 - Registered the documented hyphenated WP-CLI lifecycle subcommands explicitly.
+- Added repeatable hot-path benchmarks with local JSON baselines, latency comparisons, and exact backend round-trip guardrails.
 
 ## [1.0.0-rc1] - 2026-07-13
 

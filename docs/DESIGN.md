@@ -221,6 +221,19 @@ When Redis/Valkey is unavailable:
 - Site Health should report degraded status without exposing secrets.
 - Reconnection should be bounded and should not create request stalls.
 
+## Performance Guardrails
+
+Hot-path performance is measured by `tools/benchmark-soak.php` with fixed
+workloads, isolated namespaces, repeated samples, and median latency. Adapter
+round trips are asserted exactly where the harness can observe them, so batch
+operations cannot silently regress into additional network exchanges even when
+wall-clock timings are noisy.
+
+Benchmark baselines are machine-local by default. A comparison is valid only
+when PHP, PhpRedis, backend product/version, and the controlled runner match;
+benchmark output must not expose target hosts or other connection details.
+Release notes may quote results only when that execution context is documented.
+
 ## Companion Plugin Responsibilities
 
 The companion plugin is allowed to integrate with normal WordPress plugin lifecycle hooks. It should not be required for the drop-in to execute once installed.

@@ -16,7 +16,7 @@ The next useful work is not another blocker burn-down. It is improving confidenc
 - Maintaining one-command local test and coverage workflows.
 - WordPress compatibility surface hardening.
 - PhpRedis 6.3.0 modernization.
-- Continued performance and fault-injection work.
+- Continued fault-injection work.
 
 The detailed roadmap is in `docs/IMPROVEMENT_PLAN.md`.
 
@@ -140,13 +140,14 @@ Hash field expiration, vector commands, `getWithMeta`, and Valkey `DELIFEQ` were
 - Diagnostics redact sensitive connection information.
 - WordPress core cache gates run against runtime-only, Redis, Valkey, single-site, and multisite modes.
 - PCOV coverage now works locally.
-- The project already has a benchmark/soak tool.
+- The benchmark/soak tool now has fixed workloads, versioned local JSON
+  baselines, median comparisons, and exact hot-path round-trip guardrails.
 
 ## Current Risks
 
-- Performance baselines and command-count guardrails are not yet present.
 - Broader backend fault injection remains incomplete.
 
 ## Recommendation
 
-Use `docs/IMPROVEMENT_PLAN.md` as the next work queue. Continue with performance guardrails and fault-injection coverage before adding larger cache behavior changes.
+Use `docs/IMPROVEMENT_PLAN.md` as the next work queue. Continue with
+fault-injection coverage before adding larger cache behavior changes.

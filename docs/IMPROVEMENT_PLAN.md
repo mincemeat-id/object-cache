@@ -1,7 +1,7 @@
 # Mincemeat Object Cache - Improvement Plan
 
 Date: 2026-07-13
-Status: post-remediation, release-candidate quality; Milestones 1 through 6 complete.
+Status: post-remediation, release-candidate quality; Milestones 1 through 7 complete.
 Scope: next engineering improvements after the production-readiness remediation work was completed and pushed.
 
 This replaces the old production-readiness remediation plan. The previous blocker set is closed: the test-specific `wp_cache_flush_group()` branch is gone, package artifacts are ignored rather than committed, package determinism is checked, artifact parity CI has been expanded, JSON test configuration is in place, and local credential/certificate hygiene has improved.
@@ -300,30 +300,17 @@ New PhpRedis behavior must be covered against both Redis 8 and Valkey 9 in CI.
 
 Goal: make performance changes measurable and prevent accidental hot-path regressions.
 
-Current state:
+Status: complete on 2026-07-13.
 
-- `tools/benchmark-soak.php` exists and covers scalar set, backend hit, request-memory hit, backend miss, multiple get, group flush, failed backend connection, and soak behavior.
-- The baseline file is ignored, so performance history is local only.
+Implemented:
 
-Recommended work:
-
-1. Stabilize benchmark inputs and output JSON.
-2. Add a benchmark baseline policy:
-   - local baselines ignored by default, or
-   - versioned baseline snapshots for release branches only.
-3. Track these hot paths:
-   - request-memory hit
-   - backend hit
-   - backend miss
-   - `get_multiple`
-   - `set_multiple`
-   - `delete_multiple`
-   - group token resolution
-   - namespace flush
-   - group flush
-   - failed connection/circuit-open path
-4. Add command-count assertions where possible so optimization work does not accidentally add backend round trips.
-5. Compare `EVAL` vs `SCRIPT LOAD`/`EVALSHA` after the PhpRedis 6.3.0 modernization.
+1. Reworked `tools/benchmark-soak.php` around fixed operation counts, one warmup, five measured samples, median latency, isolated namespaces, and a versioned JSON schema.
+2. Kept machine-specific `tests/benchmarks-baseline.json` local and ignored by default. Comparisons reject different schema, suite, PHP, PhpRedis, backend product, or backend version contexts.
+3. Added benchmarks for request-memory hits, forced backend hits and misses, `get_multiple`, `set_multiple`, `delete_multiple`, cold group-token resolution, namespace flush, group flush, failed connection/circuit-open behavior, and mixed soak behavior.
+4. Added exact adapter round-trip guardrails for every object-cache path where calls are observable. The benchmark fails independently of latency if a path adds a backend round trip.
+5. Added validated measurements and a direct reported delta for the production numeric Lua source through `EVAL` and preloaded `SCRIPT LOAD`/`EVALSHA`.
+6. Comparisons fail above a 75% regression only when the total measured delta also exceeds the 1 ms noise floor. Exact round-trip assertions provide the stricter deterministic guardrail; latency remains a coarse developer signal rather than a cross-runner claim.
+7. Added `composer benchmark`; `--json` emits machine-readable results without target host or other connection details.
 
 Acceptance criteria:
 
@@ -332,7 +319,10 @@ php tools/benchmark-soak.php 127.0.0.1 6383 --save-baseline
 php tools/benchmark-soak.php 127.0.0.1 6383 --compare
 ```
 
-Release notes should include benchmark context only when the runner and environment are controlled enough to be meaningful.
+Both commands enforce command-count guardrails. The compare command additionally
+enforces latency thresholds and must be run on the same controlled runner and
+backend environment. Release notes should include benchmark context only when
+those controls are documented.
 
 ## Milestone 8: Stability And Fault Injection
 

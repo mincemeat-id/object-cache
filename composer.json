@@ -38,6 +38,7 @@
         ]
     },
     "scripts": {
+        "benchmark": "php tools/benchmark-soak.php",
         "build": "php tools/build-dropin.php",
         "test": "phpunit",
         "test:setup": "bash tools/install-wp-tests.sh",

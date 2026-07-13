@@ -101,6 +101,20 @@ composer test:coverage
 
 Optional Unix socket, ACL, and TLS scenarios are started with `bash tools/setup-test-services.sh`. Export the helper variables from the table to enable those tests locally.
 
+### Performance baselines
+
+The benchmark suite uses fixed hot-path workloads and exact backend round-trip
+guardrails. Baselines are local and ignored because wall-clock comparisons are
+meaningful only on the same controlled runner and software versions:
+
+```bash
+composer benchmark -- 127.0.0.1 6383 --save-baseline
+composer benchmark -- 127.0.0.1 6383 --compare
+```
+
+Pass `--json` for the versioned machine-readable report. Reports identify PHP,
+PhpRedis, and the backend product/version but omit the connection target.
+
 ## End-to-End Tests
 
 The browser and WP-CLI suite creates an isolated WordPress 6.9 install with its own MariaDB and authenticated Redis containers. It covers admin activation, drop-in lifecycle commands, Site Health redaction, normal admin/frontend requests, backend outage and recovery, foreign drop-in protection, managed deactivation, and multisite network activation.

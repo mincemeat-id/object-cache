@@ -17,7 +17,7 @@ Verified during the 2026-07-13 improvement-plan review:
 
 Current improvement targets:
 
-- Continued performance, stability, and compatibility work.
+- Continued stability and compatibility work.
 
 PhpRedis 6.3.0 is the minimum required extension version and is installed
 explicitly in CI. Connection setup verifies serializer, compression, prefix,
@@ -121,6 +121,20 @@ Generate fresh PCOV coverage and verify the configured thresholds:
 ```bash
 composer test:coverage
 ```
+
+Create and compare a local performance baseline against Redis 8:
+
+```bash
+composer benchmark -- 127.0.0.1 6383 --save-baseline
+composer benchmark -- 127.0.0.1 6383 --compare
+```
+
+The benchmark uses fixed workloads, one warmup, five measured samples, and
+median latency. It also asserts exact adapter round-trip counts for cache hot
+paths. Local snapshots live at `tests/benchmarks-baseline.json` and remain
+ignored because timings are meaningful only on the same controlled runner,
+PHP/PhpRedis versions, and backend product/version. Use `--json` for the
+versioned machine-readable report; connection targets are intentionally omitted.
 
 Run the isolated real-WordPress browser and WP-CLI suite (Docker Compose required):
 
