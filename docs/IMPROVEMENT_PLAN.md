@@ -1,0 +1,363 @@
+# Mincemeat Object Cache - Improvement Plan
+
+Date: 2026-07-13
+Status: post-remediation, release-candidate quality.
+Scope: next engineering improvements after the production-readiness remediation work was completed and pushed.
+
+This replaces the old production-readiness remediation plan. The previous blocker set is closed: the test-specific `wp_cache_flush_group()` branch is gone, package artifacts are ignored rather than committed, package determinism is checked, artifact parity CI has been expanded, JSON test configuration is in place, and local credential/certificate hygiene has improved.
+
+There are no newly identified P0 release blockers from this documentation-only review. The next work is quality, compatibility, test depth, and performance.
+
+## Current Evidence
+
+Local environment:
+
+- PHP: `8.4.23`
+- PhpRedis extension: `6.3.0`
+- PCOV extension: `1.0.12`
+- Redis service: Redis 8 on local port `6383`
+- Valkey service: Valkey 9 on local port `6384`
+- WordPress test checkout: `6.9.4-src`
+
+Checks run during this review:
+
+```bash
+php -m | sort | rg '^(pcov|redis)$'
+php --ri redis
+php --ri pcov
+MINCEMEAT_TEST_REDIS_HOST=127.0.0.1 \
+MINCEMEAT_TEST_REDIS_PORT=6383 \
+MINCEMEAT_TEST_VALKEY_PORT=6384 \
+MINCEMEAT_TEST_DB_PORT=33076 \
+vendor/bin/phpunit --coverage-clover build/logs/clover.xml --coverage-text
+php tools/verify-coverage.php
+composer stan -- --error-format=raw --level=8 --memory-limit=1G
+```
+
+Results:
+
+- PHPUnit with explicit local ports passed: `384 tests`, `1211 assertions`, `7 skipped`.
+- PCOV coverage was generated successfully.
+- Overall line coverage: `77.02%` (`1632/2119`).
+- Existing coverage verifier passed.
+- PHPStan level 8 failed with `59` file errors:
+  - `src/Backend.php`: `19`
+  - `src/ObjectCache.php`: `39`
+  - `src/PhpRedisAdapter.php`: `1`
+
+The level 8 failures are mostly nullable invariant issues that the runtime enforces operationally but PHPStan cannot prove yet, plus numeric return precision. Treat these as implementation-shape work, not suppression work.
+
+## Upstream Context
+
+Primary sources checked:
+
+- PhpRedis 6.3.0 release notes: https://github.com/phpredis/phpredis/releases/tag/6.3.0
+- PhpRedis 6.3.0 changelog: https://github.com/phpredis/phpredis/blob/6.3.0/CHANGELOG.md
+- PhpRedis 6.3.0 stubs and README: https://github.com/phpredis/phpredis/tree/6.3.0
+- WordPress 6.9 cache API: https://github.com/WordPress/wordpress-develop/blob/6.9/src/wp-includes/cache.php
+- WordPress 6.9 cache compatibility helpers: https://github.com/WordPress/wordpress-develop/blob/6.9/src/wp-includes/cache-compat.php
+- WordPress 6.9 object cache class: https://github.com/WordPress/wordpress-develop/blob/6.9/src/wp-includes/class-wp-object-cache.php
+
+Important upstream facts:
+
+- WordPress 6.9 adds salted cache helper functions in `cache-compat.php`: `wp_cache_get_salted()`, `wp_cache_set_salted()`, `wp_cache_get_multiple_salted()`, and `wp_cache_set_multiple_salted()`.
+- WordPress 6.9 core cache facade signatures still match the current Mincemeat facade shape for the standard `wp_cache_*` functions.
+- WordPress core's `WP_Object_Cache` still exposes compatibility surface beyond methods: public `cache_hits` and `cache_misses`, magic accessors for private/protected properties, and a `stats()` method.
+- PhpRedis 6.3.0 was released on 2025-11-06 and adds or improves `serverName()`, `serverVersion()`, `getWithMeta`, `hgetwithmeta`, `HGETEX`, `HSETEX`, `HGETDEL`, Valkey `DELIFEQ`, Redis vector commands, constructor `database`, `maxRetries` socket configuration, and internal command/performance work.
+- PhpRedis supports connection and retry options that are relevant to this plugin: `OPT_MAX_RETRIES`, `OPT_BACKOFF_ALGORITHM`, `OPT_BACKOFF_BASE`, `OPT_BACKOFF_CAP`, `OPT_TCP_KEEPALIVE`, `OPT_READ_TIMEOUT`, `OPT_REPLY_LITERAL`, serializer options, and compression options.
+
+## Milestone 1: PHPStan Level 8
+
+Goal: make `composer stan` run at level 8 over runtime source without baselines or ignore comments.
+
+Findings:
+
+- `Backend` stores the adapter as nullable, then most command methods assume `is_persistent()` proves it is non-null.
+- `ObjectCache` stores the backend as nullable, then persistent branches rely on `is_persistent_group()` proving it is non-null.
+- `ObjectCache::delta()` and `ObjectCache::persistent_delta()` can return inferred `float|int` because arithmetic over numeric mixed values widens the type.
+- `PhpRedisAdapter::pipeline()` uses `call_user_func_array()` on a value PHPStan cannot prove is a callable Redis object.
+
+Recommended implementation shape:
+
+1. Add explicit non-null accessors for persistent invariants, for example `Backend::adapter()` and `ObjectCache::backend()`, that throw only for impossible internal misuse.
+2. Use those accessors inside persistent-only private methods so PHPStan can follow the invariant.
+3. Tighten numeric paths so WordPress integer return expectations are explicit and tested.
+4. Replace dynamic callable pipeline dispatch with a small allowlisted command dispatcher or typed adapter methods.
+5. Keep `phpstan.neon` strict without baselines.
+
+Acceptance criteria:
+
+```bash
+composer stan -- --error-format=raw --level=8 --memory-limit=1G
+composer stan -- --error-format=github
+vendor/bin/phpunit
+php tools/build-dropin.php
+git diff --exit-code stubs/object-cache.php stubs/object-cache.php.sha256
+```
+
+## Milestone 2: Local Developer Experience
+
+Goal: the documented local commands should work against the repository's docker compose defaults without hidden environment knowledge.
+
+Findings:
+
+- `docker-compose.yml` maps Redis 8 to `6383` and Valkey 9 to `6384`.
+- A plain PHPUnit run can hit CI-oriented defaults inside the authoritative WordPress gate tests: Redis `6379` and Valkey `6380`.
+- Running with explicit local env works and passes.
+- `composer test:coverage` currently verifies an existing Clover file; it does not create the coverage file first.
+
+Recommended changes:
+
+1. Make `composer test` and the gate tests default to local docker compose ports when running outside CI.
+2. Keep CI matrix ports explicit and isolated.
+3. Add `composer test:coverage:generate` or make `composer test:coverage` generate then verify coverage.
+4. Add a compact `.env.example` or docs table for local Redis, Valkey, MariaDB, TLS, ACL, and Unix socket test ports.
+5. Ensure failed local preflight output prints the selected ports and backend expectation without secrets.
+
+Acceptance criteria:
+
+```bash
+docker compose up -d
+composer test
+composer test:coverage
+```
+
+Both should pass on a fresh checkout with PhpRedis and PCOV installed.
+
+## Milestone 3: PCOV Coverage Expansion
+
+Goal: use PCOV as the normal local and CI coverage driver, then raise coverage only where it increases confidence.
+
+Current coverage snapshot:
+
+| Component | Line coverage |
+| --- | ---: |
+| `src/KeySpace.php` | `100.00%` |
+| `src/Config.php` | `97.66%` |
+| `src/ValueCodec.php` | `94.51%` |
+| `src/SiteHealth.php` | `84.69%` |
+| `src/ObjectCache.php` | `78.25%` |
+| `src/Lifecycle.php` | `69.57%` |
+| `src/PhpRedisAdapter.php` | `64.65%` |
+| `src/Backend.php` | `64.05%` |
+
+Recommended coverage targets:
+
+- Overall line coverage: raise from `77%` to `85%`.
+- `Backend`: cover token initialization races, degraded transitions, script failures, and server identity fallback.
+- `PhpRedisAdapter`: cover connect options, `setOption()` failures, pipeline dispatch, `evalsha` fallback once added, and `serverName()`/`serverVersion()` capability probing.
+- `ObjectCache`: cover mid-request degradation for multiple operations, non-persistent groups, object cloning through batch paths, and numeric edge cases.
+- `Lifecycle`: cover permissions, unreadable files, checksums, atomic temp cleanup, and WP-CLI messages without touching real user drop-ins.
+
+Acceptance criteria:
+
+```bash
+vendor/bin/phpunit --coverage-clover build/logs/clover.xml --coverage-text
+php tools/verify-coverage.php
+```
+
+The verifier should fail when critical file coverage regresses and should document every threshold as a current baseline or a deliberate target.
+
+## Milestone 4: E2E Tests
+
+Goal: add browser-level and CLI-level confidence around the companion plugin and drop-in lifecycle.
+
+Current state:
+
+- The project has strong PHPUnit, integration, WordPress core cache gate, and smoke coverage.
+- The current smoke tool boots WooCommerce, Yoast SEO, and Easy Digital Downloads through WordPress test bootstrap.
+- There is not yet a true browser E2E suite that exercises admin activation, Site Health UI, frontend requests, or WP-CLI flows in a real WordPress install.
+
+Recommended E2E scenarios:
+
+1. Install and activate the companion plugin.
+2. Install the drop-in through WP-CLI and verify `wp-content/object-cache.php`.
+3. Open Site Health Info and confirm status fields are present with redacted values.
+4. Load admin and frontend pages with Redis available.
+5. Stop Redis during a request sequence and confirm WordPress remains available while Site Health degrades safely.
+6. Restore Redis and confirm a new request returns to persistent state.
+7. Verify multisite activation and network admin status.
+8. Verify the plugin refuses to overwrite a foreign drop-in.
+9. Verify plugin deactivation/removal only removes a managed current drop-in.
+
+Candidate tooling:
+
+- WordPress E2E utilities plus Playwright for browser flows.
+- WP-CLI in the test container for lifecycle commands.
+- Docker compose service controls for Redis/Valkey outage tests.
+
+Acceptance criteria:
+
+```bash
+composer test:e2e
+```
+
+The suite should create its own WordPress state, use local-only credentials, redact output on failure, and run in CI on at least one PHP version before expanding to the full matrix.
+
+## Milestone 5: WordPress Compatibility
+
+Goal: stay faithful to the WordPress 6.9+ cache contract and reduce surprises for plugins that inspect `$wp_object_cache`.
+
+Findings:
+
+- Standard facade signatures match WordPress 6.9.
+- Salted cache helper tests are already included in the authoritative gate command.
+- WordPress core's object cache has public/magic compatibility behavior not fully mirrored by Mincemeat.
+- Core deprecation and `_doing_it_wrong()` versions use WordPress versions, while some Mincemeat messages use plugin version `1.0.0`.
+
+Recommended work:
+
+1. Add contract tests for the public compatibility surface expected by core and common plugins:
+   - `$wp_object_cache->cache_hits`
+   - `$wp_object_cache->cache_misses`
+   - `$wp_object_cache->global_groups`
+   - `$wp_object_cache->blog_prefix`
+   - `isset()` behavior for those properties
+   - `stats()` output shape
+2. Decide whether to implement magic accessors or explicit public mirrors while preserving PHP 7.4 syntax.
+3. Add direct tests for the four WordPress 6.9 salted cache helpers.
+4. Expand query smoke tests around `post-queries`, `term-queries`, `comment-queries`, `site-queries`, `network-queries`, and `user-queries`.
+5. Review `_doing_it_wrong()` and `_deprecated_function()` version strings against WordPress core for contract fidelity.
+6. Add tests for default non-persistent groups used by WordPress test bootstrap: `counts`, `plugins`, and `theme_json`.
+
+Acceptance criteria:
+
+```bash
+vendor/bin/phpunit --group contract
+vendor/bin/phpunit --group compatibility
+MINCEMEAT_TEST_REDIS_HOST=127.0.0.1 \
+MINCEMEAT_TEST_REDIS_PORT=6383 \
+MINCEMEAT_TEST_VALKEY_PORT=6384 \
+vendor/bin/phpunit --group integration
+```
+
+## Milestone 6: PhpRedis 6.3.0 Modernization
+
+Goal: make PhpRedis 6.3.0 the deliberate target, using modern capabilities when they improve correctness, observability, or performance.
+
+Policy decision:
+
+- Decide whether v1 requires PhpRedis `>=6.3.0`, or whether it remains permissive while feature-detecting 6.3.0 capabilities.
+- If the project target is PhpRedis 6.3.0, update README, `readme.txt`, Site Health, docs, and tests to say that plainly.
+
+Recommended capability work:
+
+1. Server identity:
+   - Prefer `serverName()` and `serverVersion()` when available.
+   - Fall back to sanitized `INFO` parsing.
+   - Preserve Redis, Valkey, and unknown compatible service behavior without branching cache semantics by product.
+2. Connection reliability:
+   - Add config keys or internal defaults for `OPT_MAX_RETRIES`, backoff algorithm/base/cap, `OPT_TCP_KEEPALIVE`, and `OPT_READ_TIMEOUT`.
+   - Keep retry budgets bounded so Redis outages do not stall WordPress bootstrap.
+   - Include redacted retry/backoff information in diagnostics.
+3. Lua script performance:
+   - Load the numeric Lua script with `SCRIPT LOAD`.
+   - Use `EVALSHA`.
+   - Fall back to `EVAL` on `NOSCRIPT`.
+   - Cache script SHA per adapter connection, not globally across incompatible backends.
+4. Option validation:
+   - After connect, assert serializer is `SERIALIZER_NONE`, compression is `COMPRESSION_NONE`, prefix is empty, and reply behavior matches expectations.
+   - Do not enable PhpRedis serializer or compression unless the plugin's wire-format ownership is deliberately redesigned.
+5. Modern command review:
+   - Evaluate `getWithMeta` for diagnostics or TTL-aware debug information, not hot-path behavior unless benchmarks justify it.
+   - Treat Valkey `DELIFEQ`, hash-field expiration, and vector commands as interesting but not automatically relevant to an object-cache drop-in.
+   - Keep direct Redis/Valkey operations inside the adapter layer.
+
+Acceptance criteria:
+
+```bash
+vendor/bin/phpunit --group unit
+MINCEMEAT_REQUIRE_INTEGRATION=1 vendor/bin/phpunit --group integration
+php tools/benchmark-soak.php 127.0.0.1 6383 --compare
+```
+
+New PhpRedis behavior must be covered against both Redis 8 and Valkey 9 in CI.
+
+## Milestone 7: Performance Guardrails
+
+Goal: make performance changes measurable and prevent accidental hot-path regressions.
+
+Current state:
+
+- `tools/benchmark-soak.php` exists and covers scalar set, backend hit, request-memory hit, backend miss, multiple get, group flush, failed backend connection, and soak behavior.
+- The baseline file is ignored, so performance history is local only.
+
+Recommended work:
+
+1. Stabilize benchmark inputs and output JSON.
+2. Add a benchmark baseline policy:
+   - local baselines ignored by default, or
+   - versioned baseline snapshots for release branches only.
+3. Track these hot paths:
+   - request-memory hit
+   - backend hit
+   - backend miss
+   - `get_multiple`
+   - `set_multiple`
+   - `delete_multiple`
+   - group token resolution
+   - namespace flush
+   - group flush
+   - failed connection/circuit-open path
+4. Add command-count assertions where possible so optimization work does not accidentally add backend round trips.
+5. Compare `EVAL` vs `SCRIPT LOAD`/`EVALSHA` after the PhpRedis 6.3.0 modernization.
+
+Acceptance criteria:
+
+```bash
+php tools/benchmark-soak.php 127.0.0.1 6383 --save-baseline
+php tools/benchmark-soak.php 127.0.0.1 6383 --compare
+```
+
+Release notes should include benchmark context only when the runner and environment are controlled enough to be meaningful.
+
+## Milestone 8: Stability And Fault Injection
+
+Goal: prove WordPress remains available and diagnostics remain redacted during realistic backend failures.
+
+Recommended scenarios:
+
+- Redis disconnect during `get`.
+- Redis disconnect during `set`.
+- Redis disconnect during pipeline execution.
+- Redis disconnect during `EVALSHA`/`EVAL`.
+- `NOSCRIPT` during numeric operation.
+- TLS peer verification failure.
+- TLS peer-name mismatch.
+- ACL authentication failure.
+- ACL permission denial for `EVAL`, `SCRIPT`, `UNLINK`, or `INFO`.
+- Backend timeout with retry/backoff enabled.
+- Maxmemory eviction of control keys.
+- Corrupt value envelope in Redis.
+- Persistent connection reused with changed database, ACL, TLS, or namespace identity.
+
+Acceptance criteria:
+
+- No raw credentials, hostnames, TLS paths, socket paths, or stack traces appear in Site Health, logs, test output, or CI artifacts.
+- The object cache enters runtime-only or degraded state without throwing into ordinary WordPress request flow.
+- Metrics and Site Health distinguish configuration errors, connect failures, auth failures, command failures, and degraded state.
+
+## Suggested Execution Order
+
+1. Fix local developer command defaults and coverage script behavior.
+2. Raise PHPStan to level 8.
+3. Expand PCOV thresholds for Backend, PhpRedisAdapter, ObjectCache, and Lifecycle.
+4. Add direct WordPress 6.9 salted helper and core compatibility-property tests.
+5. Implement PhpRedis 6.3.0 server identity and bounded retry/backoff capability detection.
+6. Add `SCRIPT LOAD`/`EVALSHA` with `NOSCRIPT` fallback.
+7. Add browser/WP-CLI E2E tests.
+8. Add performance baselines and fault-injection expansion.
+
+## Release Gate For Future Stable Tags
+
+A future stable tag should require:
+
+- PHPStan level 8 passes.
+- PHPUnit, authoritative WordPress cache gates, and smoke tests pass with local documented ports and CI matrix ports.
+- PCOV coverage thresholds pass and are current.
+- E2E lifecycle/Site Health smoke suite passes.
+- Redis 8 and Valkey 9 pass single-site and multisite integration.
+- TCP, TLS, ACL, and Unix socket scenarios pass.
+- Drop-in parity passes.
+- Package determinism and ZIP allowlist checks pass in CI.
+- Docs accurately state WordPress, PHP, Redis, Valkey, and PhpRedis support policy.

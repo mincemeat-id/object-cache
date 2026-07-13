@@ -5,21 +5,23 @@ Audience: maintainers, contributors, release engineers, and AI agents.
 
 ## Current Status
 
-The implementation is pre-release and close to release-candidate quality, but not ready for a public production tag.
+The implementation is release-candidate quality after the production-readiness remediation work. No current P0 release blockers are documented.
 
-Verified locally:
+Verified during the 2026-07-13 improvement-plan review:
 
-- Composer metadata validates.
-- PHPCS passes.
-- PHPStan level 6 passes.
-- PHPUnit passes locally with 6 skipped tests and coverage-driver warnings.
-- The generated drop-in remained stable in the local drop-in parity check.
+- Composer metadata, PHPCS, PHPStan level 6, PHPUnit, generated artifact parity, package determinism, and the broader Redis/Valkey matrix are covered by CI.
+- Local PHPUnit with explicit docker compose ports passed on PHP 8.4.23: `384 tests`, `1211 assertions`, `7 skipped`.
+- PCOV is available locally and produced `77.02%` line coverage over `src/`.
+- The existing coverage verifier passed.
+- An exploratory PHPStan level 8 run found `59` file errors concentrated in `Backend`, `ObjectCache`, and `PhpRedisAdapter`.
 
-Known release blockers:
+Current improvement targets:
 
-- `wp_cache_flush_group()` contains a test-specific runtime branch.
-- Package ZIP generation is not deterministic.
-- Artifact parity CI does not yet verify all generated release files.
+- PHPStan level 8.
+- Browser/WP-CLI E2E tests.
+- More complete PCOV coverage thresholds.
+- Continued performance, stability, and compatibility work.
+- PhpRedis 6.3.0 capability utilization.
 
 ## Repository Map
 
@@ -31,11 +33,11 @@ Known release blockers:
 | `stubs/object-cache.php.sha256` | Generated. Do not edit manually. |
 | `mincemeat-object-cache.php` | Companion plugin entry point and lifecycle integration. |
 | `tools/build-dropin.php` | Drop-in generator. |
-| `tools/build-package.php` | Package generator. Currently needs determinism fixes. |
+| `tools/build-package.php` | Package generator used by release tooling and determinism checks. |
 | `tools/install-wp-tests.sh` | WordPress test-suite setup. |
-| `tools/setup-test-services.sh` | Local Redis/Valkey/TLS helper. Needs hygiene improvements. |
+| `tools/setup-test-services.sh` | Local Redis/Valkey/TLS helper. |
 | `tests/` | PHPUnit coverage. |
-| `docs/` | Design and release-readiness docs. Currently ignored by `.gitignore`; force-add or unignore before committing. |
+| `docs/` | Design, implementation, analysis, and improvement planning docs. |
 | `AGENTS.md` | Root instructions for future coding agents. |
 
 ## Development Rules
@@ -87,7 +89,7 @@ Build the plugin package:
 php tools/build-package.php
 ```
 
-Important: package generation is currently not deterministic. Do not rely on repeated package hashes until the remediation plan is complete.
+Package artifacts are intentionally ignored in the working tree. CI verifies deterministic package generation and the ZIP allowlist.
 
 ## Validation Commands
 
@@ -100,6 +102,16 @@ composer stan -- --error-format=raw
 vendor/bin/phpunit
 ```
 
+When running the full suite against local docker compose services, set the local ports explicitly:
+
+```bash
+MINCEMEAT_TEST_REDIS_HOST=127.0.0.1 \
+MINCEMEAT_TEST_REDIS_PORT=6383 \
+MINCEMEAT_TEST_VALKEY_PORT=6384 \
+MINCEMEAT_TEST_DB_PORT=33076 \
+vendor/bin/phpunit
+```
+
 Drop-in parity:
 
 ```bash
@@ -107,7 +119,7 @@ php tools/build-dropin.php
 git diff --exit-code stubs/object-cache.php stubs/object-cache.php.sha256
 ```
 
-Package determinism target after remediation:
+Package determinism check:
 
 ```bash
 php tools/build-package.php
@@ -150,17 +162,15 @@ Do not add test-name-specific branches to runtime code. If a WordPress core comp
 
 ## Release Procedure
 
-Before a public release candidate:
+Before a public release or stable tag:
 
-1. Close all P0 remediation items.
-2. Decide whether package artifacts are committed or release-only.
-3. Make package builds deterministic if package artifacts are committed or if source-to-artifact verification is expected.
-4. Update plugin header version and readme stable tag.
-5. Verify `readme.txt` metadata for WordPress.org conventions.
-6. Run full CI.
-7. Build release package in a clean environment.
-8. Verify package checksum and manifest.
-9. Smoke-test install, activation, Site Health, WP-CLI status, drop-in install, drop-in removal, and checksum mismatch handling.
+1. Review `docs/IMPROVEMENT_PLAN.md` for any release-bound items.
+2. Update plugin header version and readme stable tag.
+3. Verify `readme.txt` metadata for WordPress.org conventions.
+4. Run full CI.
+5. Build release package in a clean environment.
+6. Verify package checksum, manifest, deterministic rebuild, and ZIP allowlist.
+7. Smoke-test install, activation, Site Health, WP-CLI status, drop-in install, drop-in removal, and checksum mismatch handling.
 
 ## Documentation Policy
 
@@ -171,5 +181,3 @@ The docs in this directory are intended to be executable planning material for m
 - Link implementation expectations to files and commands.
 - Remove stale review language after items are closed.
 - Avoid aspirational claims that are not verified by tests or CI.
-
-The repository currently ignores `/docs/` in `.gitignore`. If these documents are meant to ship with the project, remove that ignore rule or force-add the docs deliberately.

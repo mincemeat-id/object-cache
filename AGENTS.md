@@ -14,11 +14,11 @@ Before changing behavior, read:
 
 - `docs/DESIGN.md`
 - `docs/IMPLEMENTATION.md`
-- `docs/PRODUCTION_READINESS_REMEDIATION_PLAN.md`
+- `docs/IMPROVEMENT_PLAN.md`
 - `README.md`
 - `composer.json`
 
-Note: `/docs/` is currently ignored by `.gitignore`. If documentation changes are meant to be committed, force-add them or change the ignore policy deliberately.
+Documentation under `/docs/` is tracked and should be kept current when behavior, support policy, release process, or architecture changes.
 
 ## Hard Rules
 
@@ -42,7 +42,7 @@ Generated artifacts are part of the release trust boundary:
 - `mincemeat-object-cache.zip`
 - `mincemeat-object-cache.zip.sha256`
 
-The drop-in artifacts should be regenerated after runtime source changes. Package artifacts currently need determinism remediation before they can be trusted as reproducible outputs.
+The drop-in artifacts should be regenerated after runtime source changes. Package ZIP, checksum, and manifest files are release build outputs and are intentionally ignored in the working tree. CI verifies deterministic package generation and ZIP contents.
 
 ## Validation
 
@@ -64,7 +64,7 @@ php tools/build-dropin.php
 git diff --exit-code stubs/object-cache.php stubs/object-cache.php.sha256
 ```
 
-Package validation is not a release gate until package determinism is fixed:
+Package validation:
 
 ```bash
 php tools/build-package.php
@@ -92,13 +92,14 @@ When behavior, support policy, release process, or architecture changes, update 
 - what remains blocked
 - which files own the behavior
 
-## Current Release Blockers
+## Current Improvement Focus
 
 As of 2026-07-13:
 
-- Remove the `wp_cache_flush_group()` test-specific runtime branch.
-- Fix package determinism or stop committing package artifacts.
-- Expand artifact parity CI beyond `stubs/object-cache.php`.
-- Clean test tooling around serialized config input and generated local credentials.
+- Raise PHPStan from level 6 to level 8 without baselines or ignore comments.
+- Add true browser/WP-CLI E2E tests around activation, Site Health, drop-in lifecycle, and backend outages.
+- Use the now-available PCOV extension to raise meaningful coverage thresholds.
+- Continue performance, stability, and compatibility hardening.
+- Target PhpRedis 6.3.0 capabilities while preserving Redis 8 and Valkey 9 behavior.
 
-See `docs/PRODUCTION_READINESS_REMEDIATION_PLAN.md` for the full plan.
+See `docs/IMPROVEMENT_PLAN.md` for the full plan.

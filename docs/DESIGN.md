@@ -73,7 +73,7 @@ Companion plugin: mincemeat-object-cache.php
 | `tools/build-dropin.php` | Builds the standalone drop-in from source. |
 | `tools/build-package.php` | Builds release package artifacts. |
 | `tests/` | Unit, contract, compatibility, lifecycle, integration, and smoke tests. |
-| `docs/` | Design, implementation, analysis, and remediation documents. |
+| `docs/` | Design, implementation, analysis, and improvement planning documents. |
 
 ## Boot Sequence
 
@@ -293,10 +293,8 @@ Generated files must be treated explicitly:
 
 - `stubs/object-cache.php` is generated from source and should be verified in CI.
 - `stubs/object-cache.php.sha256` must match the generated drop-in.
-- If `manifest.json`, `mincemeat-object-cache.zip`, and `mincemeat-object-cache.zip.sha256` are committed, CI must prove they are current and deterministic.
-- If generated package files are not committed, release CI should publish them as build artifacts and the repository should ignore them.
-
-The project currently needs remediation here because package output is not deterministic.
+- Package artifacts are currently ignored in the working tree and should be produced by release tooling.
+- CI must prove package output is deterministic and must verify the ZIP file allowlist.
 
 ## Security Principles
 
@@ -310,9 +308,9 @@ The project currently needs remediation here because package output is not deter
 
 AI agents working on this repository should:
 
-- Read this file, `docs/IMPLEMENTATION.md`, and `docs/PRODUCTION_READINESS_REMEDIATION_PLAN.md` before changing runtime behavior.
+- Read this file, `docs/IMPLEMENTATION.md`, and `docs/IMPROVEMENT_PLAN.md` before changing runtime behavior.
 - Change source under `src/`, then regenerate the drop-in.
 - Never edit `stubs/object-cache.php` by hand.
 - Preserve PHP 7.4 syntax.
 - Run the smallest relevant tests first, then the full validation suite for release-impacting changes.
-- Treat documentation in `docs/` as release-critical even though the directory is currently ignored by `.gitignore`.
+- Treat documentation in `docs/` as release-critical.

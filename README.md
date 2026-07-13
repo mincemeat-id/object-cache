@@ -60,15 +60,23 @@ There is no settings page. All runtime diagnostics are surfaced through WordPres
 ## Development & Testing Ports
 
 For local development and testing, non-default ports are used to prevent conflicts with other local databases or services:
-- **Redis 8**: mapped to host port `6383` (configured as default fallback in test configurations and scripts).
-- **Valkey 9**: mapped to host port `6384` (configured as default fallback in test configurations and scripts).
-- **MariaDB 11.8**: mapped to host port `33076` (configured as default fallback in test configurations and scripts).
+- **Redis 8**: mapped to host port `6383`.
+- **Valkey 9**: mapped to host port `6384`.
+- **MariaDB 11.8**: mapped to host port `33076`.
 
 To set up the containers and run the test suite locally:
 1. Start the Docker services: `docker compose up -d`
-2. Run the PHPUnit test suite: `composer test`
+2. Run the PHPUnit test suite with the local service ports:
 
-For details on the project's production readiness roadmap, see the [Production Readiness Remediation Plan](docs/PRODUCTION_READINESS_REMEDIATION_PLAN.md).
+```bash
+MINCEMEAT_TEST_REDIS_HOST=127.0.0.1 \
+MINCEMEAT_TEST_REDIS_PORT=6383 \
+MINCEMEAT_TEST_VALKEY_PORT=6384 \
+MINCEMEAT_TEST_DB_PORT=33076 \
+vendor/bin/phpunit
+```
+
+For the current improvement roadmap, see the [Improvement Plan](docs/IMPROVEMENT_PLAN.md).
 
 ## License
 

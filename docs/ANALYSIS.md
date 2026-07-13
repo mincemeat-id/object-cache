@@ -1,182 +1,173 @@
-# Mincemeat Object Cache - Production Readiness Analysis
+# Mincemeat Object Cache - Current Analysis
 
 Date: 2026-07-13
-Scope: current repository state after the latest pushed implementation work.
-Target: public WordPress Redis/Valkey object-cache plugin for WordPress 6.9+, PHP 7.4 through PHP 8.5, Redis 8, and Valkey 9.
+Scope: fresh documentation-only review after the production-readiness remediation work was completed and pushed.
+Target: WordPress 6.9+, PHP 7.4 through PHP 8.5, Redis 8, Valkey 9, and PhpRedis 6.3.0.
 
-## Executive Summary
+## Summary
 
-The project has moved from prototype/remediation into a credible pre-release state. The runtime has a generated standalone drop-in, a companion plugin, Site Health diagnostics, WP-CLI lifecycle commands, Redis/Valkey integration coverage, PHP 8.5 CI coverage, and stronger static analysis than the earlier review baseline.
+The project has moved beyond the old remediation phase. Runtime source, generated drop-in, deterministic package tooling, expanded CI, WordPress cache gates, redacted diagnostics, local service tooling, coverage checks, and release-candidate metadata are all present.
 
-It is not ready for a public production tag yet. Two release-blocking issues remain:
+The next useful work is not another blocker burn-down. It is improving confidence and capability:
 
-1. Runtime source contains a test-name-specific branch in `wp_cache_flush_group()`.
-2. The package builder claims reproducible output, but `mincemeat-object-cache.zip`, its checksum, and `manifest.json` change on every build.
+- PHPStan level 8.
+- True E2E tests.
+- Stronger PCOV-based coverage.
+- Better local developer commands.
+- WordPress compatibility surface hardening.
+- PhpRedis 6.3.0 modernization.
+- Continued performance and fault-injection work.
 
-Those issues are small in code footprint but large in trust impact. A public caching plugin must not ship runtime behavior that depends on test backtraces, and release artifacts must be deterministic or explicitly treated as generated build outputs.
+The detailed roadmap is in `docs/IMPROVEMENT_PLAN.md`.
 
 ## Validation Snapshot
 
-Local validation was run on PHP 8.4.23.
+Local validation was run on PHP 8.4.23 with PhpRedis 6.3.0 and PCOV 1.0.12.
 
-| Check | Result | Notes |
-| --- | --- | --- |
-| `composer validate --strict --no-check-lock` | Pass | Composer metadata is valid. |
-| `composer lint -- --report=summary` | Pass | PHPCS passes locally. |
-| `composer stan -- --error-format=raw` | Pass | PHPStan level 6 completed. |
-| `vendor/bin/phpunit` | Pass with warnings/skips | 380 tests, 1195 assertions, 6 skipped. Warnings are from missing local coverage driver. |
-| Facade smoke for `wp_cache_supports('flush_group')` and `wp_cache_flush_group()` | Pass | Ordinary runtime path reports support and flushes the group. |
-| `php tools/build-package.php` repeated twice | Fail determinism | ZIP/checksum/manifest changed every run because ZIP entry metadata is not normalized. |
-| `git diff -- stubs/object-cache.php stubs/object-cache.php.sha256 --exit-code` | Pass | Drop-in and sidecar were stable during this validation. |
+```bash
+MINCEMEAT_TEST_REDIS_HOST=127.0.0.1 \
+MINCEMEAT_TEST_REDIS_PORT=6383 \
+MINCEMEAT_TEST_VALKEY_PORT=6384 \
+MINCEMEAT_TEST_DB_PORT=33076 \
+vendor/bin/phpunit --coverage-clover build/logs/clover.xml --coverage-text
+```
 
-Local validation did not prove the full connection matrix. The release gate must still rely on CI coverage for PHP 7.4 through 8.5, Redis 8, Valkey 9, TCP, Unix socket, TLS, ACL, single site, and multisite.
+Result:
 
-## External Compatibility Context
+- `384 tests`
+- `1211 assertions`
+- `7 skipped`
+- pass
 
-WordPress 6.9 introduces cache-key consistency work for query groups and continues to expose cache compatibility helpers through `wp-includes/cache.php` and `wp-includes/cache-compat.php`.
+Coverage:
 
-PHP 8.5 is available as a current PHP branch, but WordPress 6.9 core communication describes PHP 8.5 support as beta-level. This plugin can and should test against PHP 8.5, while release notes should avoid implying that the entire WordPress ecosystem is fully stable on PHP 8.5.
+- overall line coverage: `77.02%`
+- `src/KeySpace.php`: `100.00%`
+- `src/Config.php`: `97.66%`
+- `src/ValueCodec.php`: `94.51%`
+- `src/SiteHealth.php`: `84.69%`
+- `src/ObjectCache.php`: `78.25%`
+- `src/Lifecycle.php`: `69.57%`
+- `src/PhpRedisAdapter.php`: `64.65%`
+- `src/Backend.php`: `64.05%`
 
-References:
+The existing coverage verifier passed:
 
-- WordPress 6.9 query cache-key consistency: https://make.wordpress.org/core/2025/11/17/consistent-cache-keys-for-query-groups-in-wordpress-6-9/
-- WordPress 6.9 `cache.php`: https://github.com/WordPress/wordpress-develop/blob/6.9/src/wp-includes/cache.php
-- WordPress 6.9 `cache-compat.php`: https://github.com/WordPress/wordpress-develop/blob/6.9/src/wp-includes/cache-compat.php
-- PHP supported versions: https://www.php.net/supported-versions.php
-- PHP 8.5 release page: https://www.php.net/releases/8.5/en.php
-- WordPress 6.9 PHP 8.5 support note: https://make.wordpress.org/core/2025/11/21/php-8-5-support-in-wordpress-6-9/
+```bash
+php tools/verify-coverage.php
+```
+
+Exploratory PHPStan level 8 failed:
+
+```bash
+composer stan -- --error-format=raw --level=8 --memory-limit=1G
+```
+
+Error distribution:
+
+- `src/Backend.php`: `19`
+- `src/ObjectCache.php`: `39`
+- `src/PhpRedisAdapter.php`: `1`
+
+The failures are mostly nullable invariant proof gaps and numeric return narrowing. They are good candidates for small structural refactors.
+
+## Fresh Findings
+
+### PHPStan Level 8 Is Close But Structural
+
+The code's runtime invariants are clearer to humans than to PHPStan. `Backend::is_persistent()` implies a usable adapter, and `ObjectCache::is_persistent_group()` implies a usable backend, but those implications are not encoded as types.
+
+Recommended direction:
+
+- Add explicit internal non-null accessors.
+- Use those accessors inside persistent-only private methods.
+- Tighten integer return paths for increment/decrement.
+- Replace dynamic pipeline dispatch with an allowlisted dispatcher or typed adapter methods.
+
+Do not use baselines or ignore comments for this work.
+
+### Local Commands Need To Match Docker Defaults
+
+The repository documents local Redis 8 on `6383`, Valkey 9 on `6384`, and MariaDB on `33076`. With explicit env vars, the full PHPUnit suite passes. Without them, some authoritative gate paths can use CI-oriented defaults.
+
+Recommended direction:
+
+- Make default local commands align with docker compose.
+- Keep CI matrix ports explicit.
+- Make `composer test:coverage` generate coverage before verifying it.
+
+### PCOV Makes Coverage Work Actionable
+
+PCOV is now available, and coverage output is fast enough to be a normal local signal. The biggest coverage opportunities are not the already-well-tested pure components. They are:
+
+- `Backend`
+- `PhpRedisAdapter`
+- `ObjectCache`
+- `Lifecycle`
+
+The plan should raise coverage where it validates failure behavior and hot-path semantics.
+
+### E2E Is The Missing Test Layer
+
+Current testing is strong at PHPUnit, integration, WordPress core cache gates, and plugin bootstrap smoke tests. The missing layer is browser and WP-CLI E2E:
+
+- activation
+- drop-in install/remove
+- Site Health UI
+- frontend and admin page loads
+- Redis outage and recovery
+- multisite network admin
+- foreign drop-in refusal
+
+### WordPress 6.9 Compatibility Should Go Beyond Facades
+
+The standard `wp_cache_*` facade signatures match WordPress 6.9, and the authoritative gate already includes WordPress salted cache helper tests.
+
+Additional compatibility surface deserves attention:
+
+- public `cache_hits`
+- public `cache_misses`
+- readable `global_groups`
+- readable `blog_prefix`
+- magic property behavior
+- `stats()` output
+- WordPress version strings in `_doing_it_wrong()` and `_deprecated_function()` calls
+- default non-persistent groups used by WordPress tests and bootstrap
+
+### PhpRedis 6.3.0 Opens Practical Improvements
+
+The most relevant PhpRedis 6.3.0 opportunities are:
+
+- `serverName()` and `serverVersion()` for cleaner diagnostics.
+- bounded retry/backoff configuration through `OPT_MAX_RETRIES` and `OPT_BACKOFF_*`.
+- `OPT_TCP_KEEPALIVE` for long-running PHP workers.
+- `SCRIPT LOAD` plus `EVALSHA` for the numeric Lua script, with `NOSCRIPT` fallback.
+- option verification after connect so serializer, compression, and prefix assumptions remain true.
+
+Hash field expiration, vector commands, and Valkey `DELIFEQ` are real 6.3.0 features, but they are not automatically useful for a WordPress object-cache drop-in. Evaluate them only when they simplify a real cache behavior.
 
 ## Current Strengths
 
-The core design is now on the right track for a production object-cache drop-in:
+- Runtime code is generated into a standalone drop-in.
+- Source and generated artifacts are separated.
+- Generated drop-in checksum parity is checked.
+- Package artifacts are ignored and determinism is verified in CI.
+- Redis/Valkey access is isolated in the adapter layer.
+- The runtime avoids broad keyspace operations during normal behavior.
+- Diagnostics redact sensitive connection information.
+- WordPress core cache gates run against runtime-only, Redis, Valkey, single-site, and multisite modes.
+- PCOV coverage now works locally.
+- The project already has a benchmark/soak tool.
 
-- Runtime code is generated into a standalone `stubs/object-cache.php` drop-in.
-- Source is organized under `src/` and covered by unit, contract, lifecycle, compatibility, integration, and smoke tests.
-- The companion plugin owns lifecycle, Site Health, checksum verification, and WP-CLI operations instead of mixing admin UI state into the cache runtime.
-- Redis/Valkey support covers TCP, Unix socket, TLS, ACL authentication, persistent connection identity, Lua-assisted numeric operations, and safe fallbacks.
-- The object-cache facade covers modern WordPress cache helpers such as multiple get/set/delete, runtime flush, group flush, and close.
-- Security posture has improved: diagnostics redact credentials, there is no settings UI that can leak connection data, and the implementation avoids broad keyspace operations like `KEYS`, `SCAN`, or database-wide flushes.
-- CI now includes PHP 8.5 and newer Redis/Valkey service coverage.
+## Current Risks
 
-## Findings
+- PHPStan level 8 is not yet green.
+- Local default commands are not as smooth as CI.
+- E2E coverage is not yet present.
+- Backend and adapter coverage are lower than the most security-sensitive pure components.
+- WordPress compatibility for direct `$wp_object_cache` property access has not been fully proven.
+- PhpRedis 6.3.0 is installed locally but not yet fully reflected in support policy, diagnostics, or retry/script strategy.
 
-### P0: Production runtime contains a test-specific branch
+## Recommendation
 
-`src/functions.php` and the generated `stubs/object-cache.php` inspect `debug_backtrace()` inside `wp_cache_flush_group()` and return the WordPress core compatibility fallback only when the caller function is named `test_wp_cache_flush_group`.
-
-Why this matters:
-
-- Production runtime behavior must not depend on test method names.
-- Backtrace inspection adds overhead on a cache facade path.
-- The branch encodes a testing artifact into public behavior.
-- It makes future compatibility work harder because correctness depends on caller identity.
-
-Required remediation:
-
-- Remove the backtrace branch from source and generated drop-in.
-- Keep `wp_cache_supports('flush_group') === true`.
-- Keep `wp_cache_flush_group()` delegating to the object-cache instance.
-- If a WordPress core test expects unsupported behavior for the stock fallback, adapt the test harness or mark that upstream compatibility test as not applicable for this external cache.
-
-### P0: Package build is not deterministic
-
-`tools/build-package.php` describes the ZIP as reproducible, but repeated runs changed `mincemeat-object-cache.zip`, `mincemeat-object-cache.zip.sha256`, and `manifest.json`.
-
-Likely cause:
-
-- `ZipArchive::addFromString()` records current timestamps and default entry attributes unless explicitly normalized.
-
-Required remediation:
-
-- Normalize ZIP entry mtime with a fixed timestamp.
-- Normalize external attributes and file permissions.
-- Keep file order stable.
-- Decide whether generated ZIP artifacts are committed or produced only in release CI.
-- Add CI that builds twice and compares hashes.
-- Add CI parity for `manifest.json`, `mincemeat-object-cache.zip.sha256`, and package contents, not only `stubs/object-cache.php`.
-
-### P1: Artifact parity CI is incomplete
-
-The current artifact-parity job checks `stubs/object-cache.php`, but not the drop-in checksum, package manifest, package checksum, or package determinism.
-
-Required remediation:
-
-- Verify `stubs/object-cache.php.sha256` after `composer build`.
-- Verify `manifest.json` and `mincemeat-object-cache.zip.sha256` after package build if those files remain committed.
-- Build the package twice in clean workspaces and compare SHA-256 hashes.
-- Inspect the ZIP file list against an allowlist.
-
-### P1: Test setup tooling uses unsafe serialization
-
-`tools/install-wp-tests.sh` injects `MINCEMEAT_OBJECT_CACHE_CONFIG` into PHP and decodes it with `unserialize()`.
-
-Why this matters:
-
-- It is test-only, but public repositories teach operational patterns.
-- Serialized input is unnecessary and harder to validate.
-
-Required remediation:
-
-- Accept JSON instead.
-- Decode with `json_decode(..., true)`.
-- Validate expected keys and scalar types before writing config.
-
-### P1: Local service tooling creates sensitive-looking artifacts
-
-`tools/setup-test-services.sh` generates TLS material under `tests/certs`, uses permissive modes, and the repository root contains a `mypassword` file.
-
-Why this matters:
-
-- Test credentials can be low-risk, but committed or stray secret-looking files reduce confidence.
-- Public plugin repositories should model clean local development hygiene.
-
-Required remediation:
-
-- Generate ephemeral certs in a temp or ignored build directory.
-- Avoid `chmod 777`; use the narrowest permissions compatible with Docker volume access.
-- Remove stray credential artifacts from the project root.
-- Document all test credentials as local-only.
-
-### P1: Public release messaging still needs hardening
-
-The plugin is still `1.0.0-dev`, and README/readme metadata must be aligned before public distribution.
-
-Required remediation:
-
-- Replace development version metadata for the release candidate.
-- Verify `readme.txt` headers, stable tag, tested-up-to, requires-at-least, requires-PHP, and license fields.
-- Add explicit support language: tested on PHP 7.4 through 8.5; WordPress 6.9+ required; PHP 8.5 WordPress ecosystem support may still be beta depending on core/plugin stack.
-
-### P2: Composer PHP constraint is broader than the tested support policy
-
-`composer.json` requires `"php": ">=7.4"`, which allows future PHP versions beyond the documented test target.
-
-Options:
-
-- Keep the broad lower-bound constraint and document that official support is limited to CI-tested versions.
-- Add a Composer `conflict` for future PHP majors until CI proves compatibility.
-
-For a WordPress plugin, the first option is often less disruptive, but the support boundary must be explicit.
-
-### P2: Small runtime polish remains
-
-Potential follow-up items:
-
-- Remove no-op state assignments and similar cleanup once release blockers are fixed.
-- Add micro-benchmarks for hot facade functions and request-memory hit paths.
-- Add fault-injection tests for Redis connection loss during `set`, `get`, Lua numeric operations, and group-token rotation.
-- Add release checks that verify no sensitive values appear in Site Health output.
-
-## Release Recommendation
-
-Do not tag a public production release until P0 items are closed and verified in CI.
-
-Recommended next milestone:
-
-1. Remove test-specific runtime behavior.
-2. Make package generation deterministic or move package artifacts out of the committed tree.
-3. Expand artifact parity CI.
-4. Re-run full CI matrix.
-5. Update public release metadata.
-
-After those items pass, the remaining P1/P2 items can be triaged into the first release candidate or the first patch release depending on risk tolerance.
+Use `docs/IMPROVEMENT_PLAN.md` as the next work queue. Start with local developer experience and PHPStan level 8, then expand PCOV thresholds and WordPress compatibility coverage before adding larger PhpRedis behavior changes.
