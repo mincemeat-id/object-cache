@@ -218,6 +218,7 @@ jobs:
       - name: Run Plugin Smoke Tests
         env:
           MINCEMEAT_TEST_REDIS_HOST: 127.0.0.1
+          MINCEMEAT_TEST_REDIS_PORT: ${{ env.MINCEMEAT_TEST_REDIS_PORT }}
         run: php tools/run-smoke-tests.php
 
       - name: Capture logs on failure
