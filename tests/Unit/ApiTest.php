@@ -117,6 +117,7 @@ class ApiTest extends TestCase
         $this->assertEmpty($diag['non_persistent_groups']);
         $this->assertSame(PHP_VERSION, $diag['php_version']);
         $this->assertArrayHasKey('phpredis_version', $diag);
+        $this->assertSame('6.3.0', $diag['phpredis_minimum']);
         $this->assertArrayNotHasKey('scheme', $diag);
     }
 

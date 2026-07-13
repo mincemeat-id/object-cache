@@ -20,6 +20,9 @@ use Redis;
  */
 class PhpRedisAdapter {
 
+	/** Minimum supported PhpRedis extension version. */
+	public const MINIMUM_VERSION = '6.3.0';
+
 	/**
 	 * @var Redis|null
 	 */
@@ -39,6 +42,13 @@ class PhpRedisAdapter {
 	 */
 	private $server_info;
 
+	/**
+	 * Loaded Lua script SHA1 values, keyed by source SHA1 for this connection.
+	 *
+	 * @var array<string,string>
+	 */
+	private $script_shas = array();
+
 	public function __construct() {
 	}
 
@@ -53,14 +63,13 @@ class PhpRedisAdapter {
 			throw new BackendException( 'missing-extension', 'The PhpRedis extension is not available.' );
 		}
 
-		if ($config->scheme() === Config::SCHEME_TLS) {
-			$phpredis_version = phpversion( 'redis' );
-			if ( ! $phpredis_version || version_compare( $phpredis_version, '5.3.0', '<' ) ) {
-				throw new BackendException( 'missing-extension', 'PhpRedis >= 5.3.0 is required for TLS connection contexts.' );
-			}
+		$phpredis_version = $this->phpredis_version();
+		if ( ! $phpredis_version || version_compare( $phpredis_version, self::MINIMUM_VERSION, '<' ) ) {
+			throw new BackendException( 'unsupported-extension', 'PhpRedis >= 6.3.0 is required.' );
 		}
 
 		$this->redis = $this->create_redis_instance();
+		$this->script_shas = array();
 
 		$connected     = false;
 		$persistent_id = '';
@@ -78,14 +87,19 @@ class PhpRedisAdapter {
 			}
 
 			$canonical     = array(
-				'scheme'           => $config->scheme(),
-				'host'             => $config->scheme() === Config::SCHEME_UNIX ? '' : $config->host(),
-				'port'             => $config->scheme() === Config::SCHEME_UNIX ? 0 : $config->port(),
-				'path'             => $config->scheme() === Config::SCHEME_UNIX ? $config->path() : '',
-				'database'         => $config->database(),
-				'namespace_digest' => $config->namespace_digest(),
-				'username'         => $config->username(),
-				'tls_non_secret'   => $tls_non_secret,
+				'scheme'            => $config->scheme(),
+				'host'              => $config->scheme() === Config::SCHEME_UNIX ? '' : $config->host(),
+				'port'              => $config->scheme() === Config::SCHEME_UNIX ? 0 : $config->port(),
+				'path'              => $config->scheme() === Config::SCHEME_UNIX ? $config->path() : '',
+				'database'          => $config->database(),
+				'namespace_digest'  => $config->namespace_digest(),
+				'username'          => $config->username(),
+				'tls_non_secret'    => $tls_non_secret,
+				'max_retries'       => $config->max_retries(),
+				'backoff_algorithm' => $config->backoff_algorithm(),
+				'backoff_base'      => $config->backoff_base(),
+				'backoff_cap'       => $config->backoff_cap(),
+				'tcp_keepalive'     => $config->tcp_keepalive(),
 			);
 			$persistent_id = 'mcoc:' . hash( 'sha256', serialize( $canonical ) );
 		}
@@ -147,16 +161,8 @@ class PhpRedisAdapter {
 			throw new BackendException( 'connect-failed', 'Connection attempt failed.' );
 		}
 
-		// Disable PhpRedis wire-format features so the plugin owns the format and key layout.
-		try {
-			$options_set = $this->redis->setOption( Redis::OPT_SERIALIZER, Redis::SERIALIZER_NONE )
-				&& $this->redis->setOption( Redis::OPT_COMPRESSION, Redis::COMPRESSION_NONE )
-				&& $this->redis->setOption( Redis::OPT_PREFIX, '' );
-		} catch (\Throwable $e) {
-			throw new BackendException( 'connect-failed', 'Connection option configuration failed.', 0, $e );
-		}
-
-		if ( ! $options_set) {
+		$this->configure_options( $config );
+		if ($this->redis === null) {
 			throw new BackendException( 'connect-failed', 'Connection option configuration failed.' );
 		}
 
@@ -192,6 +198,10 @@ class PhpRedisAdapter {
 
 		// Unlink is supported on all supported backends (Redis >= 4.0).
 		$this->unlink_supported = true;
+
+		// Preload the numeric script. Failure is non-fatal because EVAL remains
+		// a correct fallback for servers or ACLs that do not permit SCRIPT LOAD.
+		$this->load_script( LuaScripts::INCR_DECR );
 	}
 
 	/**
@@ -363,7 +373,7 @@ class PhpRedisAdapter {
 	}
 
 	/**
-	 * Runs a Lua script via EVAL.
+	 * Runs a Lua script via EVALSHA with an EVAL fallback on NOSCRIPT.
 	 *
 	 * @param string          $script
 	 * @param array<int,string> $keys
@@ -375,7 +385,29 @@ class PhpRedisAdapter {
 			return false;
 		}
 
-		return $this->redis->eval( $script, array_merge( $keys, $args ), count( $keys ) );
+		$arguments  = array_merge( $keys, $args );
+		$source_sha = sha1( $script );
+		$loaded_sha = $this->script_shas[ $source_sha ] ?? null;
+
+		if ($loaded_sha === null) {
+			return $this->redis->eval( $script, $arguments, count( $keys ) );
+		}
+
+		$result = $this->redis->evalSha( $loaded_sha, $arguments, count( $keys ) );
+		if ($result !== false) {
+			return $result;
+		}
+
+		$last_error = $this->redis->getLastError();
+		if ( ! is_string( $last_error ) || stripos( $last_error, 'NOSCRIPT' ) !== 0) {
+			return false;
+		}
+
+		$this->redis->clearLastError();
+
+		// EVAL executes and repopulates the server's script cache, allowing the
+		// next call on this connection to return to EVALSHA.
+		return $this->redis->eval( $script, $arguments, count( $keys ) );
 	}
 
 	/**
@@ -434,7 +466,8 @@ class PhpRedisAdapter {
 	}
 
 	/**
-	 * Captures sanitized server identity from INFO.
+	 * Captures sanitized server identity, preferring PhpRedis 6.3 methods and
+	 * using INFO only for fallback identity and safe ancillary fields.
 	 *
 	 * @return array<string,string>|null
 	 */
@@ -443,33 +476,51 @@ class PhpRedisAdapter {
 			return null;
 		}
 
+		$product = '';
+		$version = '';
+
+		try {
+			$name_result    = $this->redis->serverName();
+			$version_result = $this->redis->serverVersion();
+			$product        = is_string( $name_result ) ? strtolower( $name_result ) : '';
+			$version        = is_string( $version_result ) ? $version_result : '';
+		} catch (\Throwable $e) {
+			$product = '';
+			$version = '';
+		}
+
 		try {
 			$info = $this->redis->info();
 		} catch (\Throwable $e) {
+			$info = false;
+		}
+
+		if ( ! is_array( $info ) && ( $product === '' || $version === '' )) {
 			return null;
 		}
 
 		if ( ! is_array( $info )) {
-			return null;
+			$info = array();
+		}
+
+		// Fall back to INFO when HELLO identity is unavailable.
+		if ($product === '' || $version === '') {
+			if (isset( $info['valkey_version'] )) {
+				$product = 'valkey';
+				$version = (string) $info['valkey_version'];
+			} elseif (isset( $info['redis_version'] )) {
+				$product = 'redis';
+				$version = (string) $info['redis_version'];
+			}
+		}
+
+		if ( ! in_array( $product, array( 'redis', 'valkey' ), true )) {
+			$product = 'unknown';
 		}
 
 		$identity = array();
-
-		// Detect Redis vs Valkey without behavior forks.
-		$server = isset( $info['redis_version'] ) ? $info['redis_version'] : null;
-		$valkey = isset( $info['valkey_version'] ) ? $info['valkey_version'] : null;
-
-		if ($valkey !== null) {
-			$identity['product'] = 'valkey';
-			$identity['version'] = (string) $valkey;
-		} elseif ($server !== null) {
-			$identity['product'] = 'redis';
-			$identity['version'] = (string) $server;
-		} else {
-			$identity['product'] = 'unknown';
-			$identity['version'] = '';
-		}
-
+		$identity['product']          = $product;
+		$identity['version']          = preg_match( '/^[0-9][0-9A-Za-z.+_-]{0,63}$/', $version ) === 1 ? $version : '';
 		$identity['mode']             = isset( $info['redis_mode'] ) ? (string) $info['redis_mode'] : 'standalone';
 		$identity['os']               = isset( $info['os'] ) ? (string) $info['os'] : '';
 		$identity['maxmemory_policy'] = isset( $info['maxmemory_policy'] ) ? (string) $info['maxmemory_policy'] : '';
@@ -499,6 +550,7 @@ class PhpRedisAdapter {
 		}
 
 		$this->redis = null;
+		$this->script_shas = array();
 	}
 
 	/**
@@ -542,5 +594,114 @@ class PhpRedisAdapter {
 	 */
 	protected function create_redis_instance(): \Redis {
 		return new \Redis();
+	}
+
+	/**
+	 * Returns the installed PhpRedis extension version.
+	 *
+	 * @return string|false
+	 */
+	protected function phpredis_version() {
+		return phpversion( 'redis' );
+	}
+
+	/**
+	 * Applies and verifies bounded reliability and wire-format options.
+	 *
+	 * @throws BackendException When PhpRedis rejects or normalizes an option unexpectedly.
+	 */
+	private function configure_options( Config $config ): void {
+		if ($this->redis === null) {
+			throw new BackendException( 'connect-failed', 'Connection option configuration failed.' );
+		}
+
+		$options = array(
+			array( Redis::OPT_SERIALIZER, Redis::SERIALIZER_NONE, 'int' ),
+			array( Redis::OPT_COMPRESSION, Redis::COMPRESSION_NONE, 'int' ),
+			array( Redis::OPT_PREFIX, '', 'string' ),
+			array( Redis::OPT_REPLY_LITERAL, false, 'bool' ),
+			array( Redis::OPT_READ_TIMEOUT, $config->read_timeout(), 'float' ),
+			array( Redis::OPT_MAX_RETRIES, $config->max_retries(), 'int' ),
+			array( Redis::OPT_BACKOFF_ALGORITHM, $this->backoff_algorithm( $config->backoff_algorithm() ), 'int' ),
+			array( Redis::OPT_BACKOFF_BASE, $config->backoff_base(), 'int' ),
+			array( Redis::OPT_BACKOFF_CAP, $config->backoff_cap(), 'int' ),
+			array( Redis::OPT_TCP_KEEPALIVE, $config->tcp_keepalive(), 'bool' ),
+		);
+
+		try {
+			foreach ($options as $option) {
+				if ( ! $this->redis->setOption( $option[0], $option[1] )) {
+					throw new BackendException( 'connect-failed', 'Connection option configuration failed.' );
+				}
+
+				$actual = $this->redis->getOption( $option[0] );
+				if ( ! $this->option_matches( $actual, $option[1], $option[2] )) {
+					throw new BackendException( 'connect-failed', 'Connection option verification failed.' );
+				}
+			}
+		} catch (BackendException $e) {
+			throw $e;
+		} catch (\Throwable $e) {
+			throw new BackendException( 'connect-failed', 'Connection option configuration failed.', 0, $e );
+		}
+	}
+
+	/**
+	 * Maps a validated config name to a PhpRedis backoff constant.
+	 */
+	private function backoff_algorithm( string $algorithm ): int {
+		$algorithms = array(
+			'default'             => Redis::BACKOFF_ALGORITHM_DEFAULT,
+			'decorrelated_jitter' => Redis::BACKOFF_ALGORITHM_DECORRELATED_JITTER,
+			'full_jitter'         => Redis::BACKOFF_ALGORITHM_FULL_JITTER,
+			'equal_jitter'        => Redis::BACKOFF_ALGORITHM_EQUAL_JITTER,
+			'exponential'         => Redis::BACKOFF_ALGORITHM_EXPONENTIAL,
+			'uniform'             => Redis::BACKOFF_ALGORITHM_UNIFORM,
+			'constant'            => Redis::BACKOFF_ALGORITHM_CONSTANT,
+		);
+
+		return $algorithms[ $algorithm ];
+	}
+
+	/**
+	 * @param mixed  $actual
+	 * @param mixed  $expected
+	 * @param string $type
+	 */
+	private function option_matches( $actual, $expected, string $type ): bool {
+		if ($type === 'int') {
+			return (int) $actual === (int) $expected;
+		}
+
+		if ($type === 'float') {
+			return abs( (float) $actual - (float) $expected ) < 0.000001;
+		}
+
+		if ($type === 'bool') {
+			return (bool) $actual === (bool) $expected;
+		}
+
+		return (string) $actual === (string) $expected;
+	}
+
+	/**
+	 * Best-effort SCRIPT LOAD for this adapter connection.
+	 */
+	private function load_script( string $script ): void {
+		if ($this->redis === null) {
+			return;
+		}
+
+		$source_sha = sha1( $script );
+		try {
+			$loaded_sha = $this->redis->script( 'load', $script );
+			if (is_string( $loaded_sha ) && hash_equals( $source_sha, strtolower( $loaded_sha ) )) {
+				$this->script_shas[ $source_sha ] = $loaded_sha;
+			}
+			$this->redis->clearLastError();
+		} catch (\Throwable $e) {
+			// EVAL remains available as the correctness fallback.
+			return;
+		}
 	}
 }

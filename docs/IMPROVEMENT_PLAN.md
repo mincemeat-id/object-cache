@@ -1,7 +1,7 @@
 # Mincemeat Object Cache - Improvement Plan
 
 Date: 2026-07-13
-Status: post-remediation, release-candidate quality; Milestones 1 through 5 complete.
+Status: post-remediation, release-candidate quality; Milestones 1 through 6 complete.
 Scope: next engineering improvements after the production-readiness remediation work was completed and pushed.
 
 This replaces the old production-readiness remediation plan. The previous blocker set is closed: the test-specific `wp_cache_flush_group()` branch is gone, package artifacts are ignored rather than committed, package determinism is checked, artifact parity CI has been expanded, JSON test configuration is in place, and local credential/certificate hygiene has improved.
@@ -247,10 +247,21 @@ vendor/bin/phpunit --group integration
 
 Goal: make PhpRedis 6.3.0 the deliberate target, using modern capabilities when they improve correctness, observability, or performance.
 
-Policy decision:
+Status: complete on 2026-07-13.
 
-- Decide whether v1 requires PhpRedis `>=6.3.0`, or whether it remains permissive while feature-detecting 6.3.0 capabilities.
-- If the project target is PhpRedis 6.3.0, update README, `readme.txt`, Site Health, docs, and tests to say that plainly.
+Implemented:
+
+1. PhpRedis `>=6.3.0` is now a hard Composer and runtime requirement, explicitly installed in CI and reported by diagnostics and Site Health.
+2. Server identity prefers `serverName()` and `serverVersion()`, with a sanitized `INFO` fallback for Redis, Valkey, and unknown compatible services.
+3. Configuration now exposes bounded command retries, reconnect backoff algorithm/base/cap, TCP keepalive, and read timeout; these settings are redacted appropriately in public diagnostics.
+4. Connection setup applies and reads back serializer, compression, prefix, reply, timeout, retry/backoff, and keepalive options before accepting the connection.
+5. The numeric Lua script is loaded per adapter connection and invoked with `EVALSHA`; `NOSCRIPT` recovers through `EVAL`, while ACL and other errors do not trigger unsafe fallback behavior.
+6. Unit coverage exercises version rejection, option configuration and verification, modern/fallback identity, script SHA use, and `NOSCRIPT` recovery. Redis 8 and Valkey 9 remain explicit CI integration matrix targets.
+
+Policy decision (settled):
+
+- v1 requires PhpRedis `>=6.3.0`; older extension versions fail initialization rather than entering a partially supported capability mode.
+- README, `readme.txt`, Composer, Site Health, diagnostics, CI, docs, and tests state or enforce that minimum.
 
 Recommended capability work:
 

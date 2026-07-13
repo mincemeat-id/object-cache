@@ -7,7 +7,7 @@
  * Version: 1.0.0-rc1
  * Drop-in Version: 1.0.0-rc1
  * Schema Version: 1
- * Build Hash: 4086734275d69a27bc238b1fdeee2ed5f0880499e1f19a80ac7440fb3157e703
+ * Build Hash: d4ce19ae62c2c65570923643eaaee1bc233afc2adc1183aafe4bca74ed1af484
  *
  * @package Mincemeat\ObjectCache
  */
@@ -139,6 +139,7 @@ namespace Mincemeat\ObjectCache {
 				'versions'              => self::version(),
 				'php_version'           => PHP_VERSION,
 				'phpredis_version'      => $redis_version,
+				'phpredis_minimum'      => PhpRedisAdapter::MINIMUM_VERSION,
 			);
 
 			if ( $cache ) {
@@ -1175,6 +1176,9 @@ namespace Mincemeat\ObjectCache {
 		public const REASON_PASSWORD        = 'config-password';
 		public const REASON_CONNECT_TIMEOUT = 'config-connect-timeout';
 		public const REASON_READ_TIMEOUT    = 'config-read-timeout';
+		public const REASON_MAX_RETRIES     = 'config-max-retries';
+		public const REASON_BACKOFF         = 'config-backoff';
+		public const REASON_TCP_KEEPALIVE   = 'config-tcp-keepalive';
 		public const REASON_PERSISTENT      = 'config-persistent';
 		public const REASON_MAX_TTL         = 'config-max-ttl';
 		public const REASON_TLS             = 'config-tls';
@@ -1200,26 +1204,50 @@ namespace Mincemeat\ObjectCache {
 		/** Default maximum TTL: 30 days in seconds. */
 		public const DEFAULT_MAX_TTL = 2592000;
 
+		/** Bounded PhpRedis reconnect defaults. */
+		public const DEFAULT_MAX_RETRIES       = 1;
+		public const MAX_RETRIES               = 3;
+		public const DEFAULT_BACKOFF_ALGORITHM = 'decorrelated_jitter';
+		public const DEFAULT_BACKOFF_BASE      = 10;
+		public const DEFAULT_BACKOFF_CAP       = 100;
+		public const MAX_BACKOFF               = 1000;
+
+		/** Supported PhpRedis reconnect algorithms. */
+		private const BACKOFF_ALGORITHMS = array(
+			'default',
+			'decorrelated_jitter',
+			'full_jitter',
+			'equal_jitter',
+			'exponential',
+			'uniform',
+			'constant',
+		);
+
 		/**
 		 * Known config keys, mapped to defaults applied when the key is absent.
 		 *
 		 * @var array<string,mixed>
 		 */
 		private const KNOWN_KEYS = array(
-			'namespace'       => null,
-			'scheme'          => self::SCHEME_TCP,
-			'host'            => '127.0.0.1',
-			'port'            => 6379,
-			'path'            => null,
-			'database'        => 0,
-			'username'        => null,
-			'password'        => null,
-			'connect_timeout' => 0.25,
-			'read_timeout'    => 0.25,
-			'persistent'      => false,
-			'max_ttl'         => self::DEFAULT_MAX_TTL,
-			'tls'             => array(),
-			'debug'           => false,
+			'namespace'         => null,
+			'scheme'            => self::SCHEME_TCP,
+			'host'              => '127.0.0.1',
+			'port'              => 6379,
+			'path'              => null,
+			'database'          => 0,
+			'username'          => null,
+			'password'          => null,
+			'connect_timeout'   => 0.25,
+			'read_timeout'      => 0.25,
+			'max_retries'       => self::DEFAULT_MAX_RETRIES,
+			'backoff_algorithm' => self::DEFAULT_BACKOFF_ALGORITHM,
+			'backoff_base'      => self::DEFAULT_BACKOFF_BASE,
+			'backoff_cap'       => self::DEFAULT_BACKOFF_CAP,
+			'tcp_keepalive'     => true,
+			'persistent'        => false,
+			'max_ttl'           => self::DEFAULT_MAX_TTL,
+			'tls'               => array(),
+			'debug'             => false,
 		);
 
 		/** @var string */
@@ -1251,6 +1279,21 @@ namespace Mincemeat\ObjectCache {
 
 		/** @var float */
 		private $read_timeout;
+
+		/** @var int */
+		private $max_retries;
+
+		/** @var string */
+		private $backoff_algorithm;
+
+		/** @var int */
+		private $backoff_base;
+
+		/** @var int */
+		private $backoff_cap;
+
+		/** @var bool */
+		private $tcp_keepalive;
 
 		/** @var bool */
 		private $persistent;
@@ -1313,6 +1356,22 @@ namespace Mincemeat\ObjectCache {
 			$rt = $input['read_timeout'] ?? self::KNOWN_KEYS['read_timeout'];
 			$this->validate_timeout( $rt, self::REASON_READ_TIMEOUT );
 			$this->read_timeout = (float) $rt;
+
+			$max_retries = $input['max_retries'] ?? self::KNOWN_KEYS['max_retries'];
+			$this->validate_bounded_integer( $max_retries, 0, self::MAX_RETRIES, self::REASON_MAX_RETRIES );
+			$this->max_retries = (int) $max_retries;
+
+			$backoff_algorithm = $input['backoff_algorithm'] ?? self::KNOWN_KEYS['backoff_algorithm'];
+			$backoff_base      = $input['backoff_base'] ?? self::KNOWN_KEYS['backoff_base'];
+			$backoff_cap       = $input['backoff_cap'] ?? self::KNOWN_KEYS['backoff_cap'];
+			$this->validate_backoff( $backoff_algorithm, $backoff_base, $backoff_cap );
+			$this->backoff_algorithm = (string) $backoff_algorithm;
+			$this->backoff_base      = (int) $backoff_base;
+			$this->backoff_cap       = (int) $backoff_cap;
+
+			$tcp_keepalive = $input['tcp_keepalive'] ?? self::KNOWN_KEYS['tcp_keepalive'];
+			$this->validate_bool( $tcp_keepalive, self::REASON_TCP_KEEPALIVE );
+			$this->tcp_keepalive = (bool) $tcp_keepalive;
 
 			$persistent = $input['persistent'] ?? self::KNOWN_KEYS['persistent'];
 			$this->validate_bool( $persistent, self::REASON_PERSISTENT );
@@ -1406,6 +1465,26 @@ namespace Mincemeat\ObjectCache {
 			return $this->read_timeout;
 		}
 
+		public function max_retries(): int {
+			return $this->max_retries;
+		}
+
+		public function backoff_algorithm(): string {
+			return $this->backoff_algorithm;
+		}
+
+		public function backoff_base(): int {
+			return $this->backoff_base;
+		}
+
+		public function backoff_cap(): int {
+			return $this->backoff_cap;
+		}
+
+		public function tcp_keepalive(): bool {
+			return $this->tcp_keepalive;
+		}
+
 		public function persistent(): bool {
 			return $this->persistent;
 		}
@@ -1461,18 +1540,23 @@ namespace Mincemeat\ObjectCache {
 			}
 
 			return array(
-				'scheme'           => $this->scheme,
-				'host'             => $this->scheme === self::SCHEME_UNIX ? '' : $host,
-				'port'             => $this->scheme === self::SCHEME_UNIX ? null : $port,
-				'path'             => $path,
-				'database'         => $database,
-				'namespace_digest' => substr( $this->namespace_digest, 0, 16 ),
-				'connect_timeout'  => $this->connect_timeout,
-				'read_timeout'     => $this->read_timeout,
-				'persistent'       => $this->persistent,
-				'max_ttl'          => $this->max_ttl,
-				'debug'            => $this->debug,
-				'tls'              => $tls_summary,
+				'scheme'            => $this->scheme,
+				'host'              => $this->scheme === self::SCHEME_UNIX ? '' : $host,
+				'port'              => $this->scheme === self::SCHEME_UNIX ? null : $port,
+				'path'              => $path,
+				'database'          => $database,
+				'namespace_digest'  => substr( $this->namespace_digest, 0, 16 ),
+				'connect_timeout'   => $this->connect_timeout,
+				'read_timeout'      => $this->read_timeout,
+				'max_retries'       => $this->max_retries,
+				'backoff_algorithm' => $this->backoff_algorithm,
+				'backoff_base_ms'   => $this->backoff_base,
+				'backoff_cap_ms'    => $this->backoff_cap,
+				'tcp_keepalive'     => $this->tcp_keepalive,
+				'persistent'        => $this->persistent,
+				'max_ttl'           => $this->max_ttl,
+				'debug'             => $this->debug,
+				'tls'               => $tls_summary,
 			);
 		}
 
@@ -1668,6 +1752,37 @@ namespace Mincemeat\ObjectCache {
 			$f = (float) $value;
 			if ($f <= 0 || $f > self::MAX_TIMEOUT) {
 				throw new ConfigException( $reason, 'Timeout must be greater than zero and at most 60 seconds.' );
+			}
+		}
+
+		/**
+		 * @param mixed  $value
+		 * @param int    $minimum
+		 * @param int    $maximum
+		 * @param string $reason
+		 */
+		private function validate_bounded_integer( $value, int $minimum, int $maximum, string $reason ): void {
+			$ok = is_int( $value ) || ( is_string( $value ) && ctype_digit( $value ) );
+			if ( ! $ok || (int) $value < $minimum || (int) $value > $maximum) {
+				throw new ConfigException( $reason, 'Value is outside the supported integer range.' );
+			}
+		}
+
+		/**
+		 * @param mixed $algorithm
+		 * @param mixed $base
+		 * @param mixed $cap
+		 */
+		private function validate_backoff( $algorithm, $base, $cap ): void {
+			if ( ! is_string( $algorithm ) || ! in_array( $algorithm, self::BACKOFF_ALGORITHMS, true )) {
+				throw new ConfigException( self::REASON_BACKOFF, 'Unsupported backoff algorithm.' );
+			}
+
+			$this->validate_bounded_integer( $base, 0, self::MAX_BACKOFF, self::REASON_BACKOFF );
+			$this->validate_bounded_integer( $cap, 0, self::MAX_BACKOFF, self::REASON_BACKOFF );
+
+			if ( (int) $cap < (int) $base) {
+				throw new ConfigException( self::REASON_BACKOFF, 'Backoff cap must be greater than or equal to its base.' );
 			}
 		}
 
@@ -3864,6 +3979,9 @@ namespace Mincemeat\ObjectCache {
 	 */
 	class PhpRedisAdapter {
 
+		/** Minimum supported PhpRedis extension version. */
+		public const MINIMUM_VERSION = '6.3.0';
+
 		/**
 		 * @var Redis|null
 		 */
@@ -3883,6 +4001,13 @@ namespace Mincemeat\ObjectCache {
 		 */
 		private $server_info;
 
+		/**
+		 * Loaded Lua script SHA1 values, keyed by source SHA1 for this connection.
+		 *
+		 * @var array<string,string>
+		 */
+		private $script_shas = array();
+
 		public function __construct() {
 		}
 
@@ -3897,14 +4022,13 @@ namespace Mincemeat\ObjectCache {
 				throw new BackendException( 'missing-extension', 'The PhpRedis extension is not available.' );
 			}
 
-			if ($config->scheme() === Config::SCHEME_TLS) {
-				$phpredis_version = phpversion( 'redis' );
-				if ( ! $phpredis_version || version_compare( $phpredis_version, '5.3.0', '<' ) ) {
-					throw new BackendException( 'missing-extension', 'PhpRedis >= 5.3.0 is required for TLS connection contexts.' );
-				}
+			$phpredis_version = $this->phpredis_version();
+			if ( ! $phpredis_version || version_compare( $phpredis_version, self::MINIMUM_VERSION, '<' ) ) {
+				throw new BackendException( 'unsupported-extension', 'PhpRedis >= 6.3.0 is required.' );
 			}
 
 			$this->redis = $this->create_redis_instance();
+			$this->script_shas = array();
 
 			$connected     = false;
 			$persistent_id = '';
@@ -3922,14 +4046,19 @@ namespace Mincemeat\ObjectCache {
 				}
 
 				$canonical     = array(
-					'scheme'           => $config->scheme(),
-					'host'             => $config->scheme() === Config::SCHEME_UNIX ? '' : $config->host(),
-					'port'             => $config->scheme() === Config::SCHEME_UNIX ? 0 : $config->port(),
-					'path'             => $config->scheme() === Config::SCHEME_UNIX ? $config->path() : '',
-					'database'         => $config->database(),
-					'namespace_digest' => $config->namespace_digest(),
-					'username'         => $config->username(),
-					'tls_non_secret'   => $tls_non_secret,
+					'scheme'            => $config->scheme(),
+					'host'              => $config->scheme() === Config::SCHEME_UNIX ? '' : $config->host(),
+					'port'              => $config->scheme() === Config::SCHEME_UNIX ? 0 : $config->port(),
+					'path'              => $config->scheme() === Config::SCHEME_UNIX ? $config->path() : '',
+					'database'          => $config->database(),
+					'namespace_digest'  => $config->namespace_digest(),
+					'username'          => $config->username(),
+					'tls_non_secret'    => $tls_non_secret,
+					'max_retries'       => $config->max_retries(),
+					'backoff_algorithm' => $config->backoff_algorithm(),
+					'backoff_base'      => $config->backoff_base(),
+					'backoff_cap'       => $config->backoff_cap(),
+					'tcp_keepalive'     => $config->tcp_keepalive(),
 				);
 				$persistent_id = 'mcoc:' . hash( 'sha256', serialize( $canonical ) );
 			}
@@ -3991,16 +4120,8 @@ namespace Mincemeat\ObjectCache {
 				throw new BackendException( 'connect-failed', 'Connection attempt failed.' );
 			}
 
-			// Disable PhpRedis wire-format features so the plugin owns the format and key layout.
-			try {
-				$options_set = $this->redis->setOption( Redis::OPT_SERIALIZER, Redis::SERIALIZER_NONE )
-					&& $this->redis->setOption( Redis::OPT_COMPRESSION, Redis::COMPRESSION_NONE )
-					&& $this->redis->setOption( Redis::OPT_PREFIX, '' );
-			} catch (\Throwable $e) {
-				throw new BackendException( 'connect-failed', 'Connection option configuration failed.', 0, $e );
-			}
-
-			if ( ! $options_set) {
+			$this->configure_options( $config );
+			if ($this->redis === null) {
 				throw new BackendException( 'connect-failed', 'Connection option configuration failed.' );
 			}
 
@@ -4036,6 +4157,10 @@ namespace Mincemeat\ObjectCache {
 
 			// Unlink is supported on all supported backends (Redis >= 4.0).
 			$this->unlink_supported = true;
+
+			// Preload the numeric script. Failure is non-fatal because EVAL remains
+			// a correct fallback for servers or ACLs that do not permit SCRIPT LOAD.
+			$this->load_script( LuaScripts::INCR_DECR );
 		}
 
 		/**
@@ -4207,7 +4332,7 @@ namespace Mincemeat\ObjectCache {
 		}
 
 		/**
-		 * Runs a Lua script via EVAL.
+		 * Runs a Lua script via EVALSHA with an EVAL fallback on NOSCRIPT.
 		 *
 		 * @param string          $script
 		 * @param array<int,string> $keys
@@ -4219,7 +4344,29 @@ namespace Mincemeat\ObjectCache {
 				return false;
 			}
 
-			return $this->redis->eval( $script, array_merge( $keys, $args ), count( $keys ) );
+			$arguments  = array_merge( $keys, $args );
+			$source_sha = sha1( $script );
+			$loaded_sha = $this->script_shas[ $source_sha ] ?? null;
+
+			if ($loaded_sha === null) {
+				return $this->redis->eval( $script, $arguments, count( $keys ) );
+			}
+
+			$result = $this->redis->evalSha( $loaded_sha, $arguments, count( $keys ) );
+			if ($result !== false) {
+				return $result;
+			}
+
+			$last_error = $this->redis->getLastError();
+			if ( ! is_string( $last_error ) || stripos( $last_error, 'NOSCRIPT' ) !== 0) {
+				return false;
+			}
+
+			$this->redis->clearLastError();
+
+			// EVAL executes and repopulates the server's script cache, allowing the
+			// next call on this connection to return to EVALSHA.
+			return $this->redis->eval( $script, $arguments, count( $keys ) );
 		}
 
 		/**
@@ -4278,7 +4425,8 @@ namespace Mincemeat\ObjectCache {
 		}
 
 		/**
-		 * Captures sanitized server identity from INFO.
+		 * Captures sanitized server identity, preferring PhpRedis 6.3 methods and
+		 * using INFO only for fallback identity and safe ancillary fields.
 		 *
 		 * @return array<string,string>|null
 		 */
@@ -4287,33 +4435,51 @@ namespace Mincemeat\ObjectCache {
 				return null;
 			}
 
+			$product = '';
+			$version = '';
+
+			try {
+				$name_result    = $this->redis->serverName();
+				$version_result = $this->redis->serverVersion();
+				$product        = is_string( $name_result ) ? strtolower( $name_result ) : '';
+				$version        = is_string( $version_result ) ? $version_result : '';
+			} catch (\Throwable $e) {
+				$product = '';
+				$version = '';
+			}
+
 			try {
 				$info = $this->redis->info();
 			} catch (\Throwable $e) {
+				$info = false;
+			}
+
+			if ( ! is_array( $info ) && ( $product === '' || $version === '' )) {
 				return null;
 			}
 
 			if ( ! is_array( $info )) {
-				return null;
+				$info = array();
+			}
+
+			// Fall back to INFO when HELLO identity is unavailable.
+			if ($product === '' || $version === '') {
+				if (isset( $info['valkey_version'] )) {
+					$product = 'valkey';
+					$version = (string) $info['valkey_version'];
+				} elseif (isset( $info['redis_version'] )) {
+					$product = 'redis';
+					$version = (string) $info['redis_version'];
+				}
+			}
+
+			if ( ! in_array( $product, array( 'redis', 'valkey' ), true )) {
+				$product = 'unknown';
 			}
 
 			$identity = array();
-
-			// Detect Redis vs Valkey without behavior forks.
-			$server = isset( $info['redis_version'] ) ? $info['redis_version'] : null;
-			$valkey = isset( $info['valkey_version'] ) ? $info['valkey_version'] : null;
-
-			if ($valkey !== null) {
-				$identity['product'] = 'valkey';
-				$identity['version'] = (string) $valkey;
-			} elseif ($server !== null) {
-				$identity['product'] = 'redis';
-				$identity['version'] = (string) $server;
-			} else {
-				$identity['product'] = 'unknown';
-				$identity['version'] = '';
-			}
-
+			$identity['product']          = $product;
+			$identity['version']          = preg_match( '/^[0-9][0-9A-Za-z.+_-]{0,63}$/', $version ) === 1 ? $version : '';
 			$identity['mode']             = isset( $info['redis_mode'] ) ? (string) $info['redis_mode'] : 'standalone';
 			$identity['os']               = isset( $info['os'] ) ? (string) $info['os'] : '';
 			$identity['maxmemory_policy'] = isset( $info['maxmemory_policy'] ) ? (string) $info['maxmemory_policy'] : '';
@@ -4343,6 +4509,7 @@ namespace Mincemeat\ObjectCache {
 			}
 
 			$this->redis = null;
+			$this->script_shas = array();
 		}
 
 		/**
@@ -4386,6 +4553,115 @@ namespace Mincemeat\ObjectCache {
 		 */
 		protected function create_redis_instance(): \Redis {
 			return new \Redis();
+		}
+
+		/**
+		 * Returns the installed PhpRedis extension version.
+		 *
+		 * @return string|false
+		 */
+		protected function phpredis_version() {
+			return phpversion( 'redis' );
+		}
+
+		/**
+		 * Applies and verifies bounded reliability and wire-format options.
+		 *
+		 * @throws BackendException When PhpRedis rejects or normalizes an option unexpectedly.
+		 */
+		private function configure_options( Config $config ): void {
+			if ($this->redis === null) {
+				throw new BackendException( 'connect-failed', 'Connection option configuration failed.' );
+			}
+
+			$options = array(
+				array( Redis::OPT_SERIALIZER, Redis::SERIALIZER_NONE, 'int' ),
+				array( Redis::OPT_COMPRESSION, Redis::COMPRESSION_NONE, 'int' ),
+				array( Redis::OPT_PREFIX, '', 'string' ),
+				array( Redis::OPT_REPLY_LITERAL, false, 'bool' ),
+				array( Redis::OPT_READ_TIMEOUT, $config->read_timeout(), 'float' ),
+				array( Redis::OPT_MAX_RETRIES, $config->max_retries(), 'int' ),
+				array( Redis::OPT_BACKOFF_ALGORITHM, $this->backoff_algorithm( $config->backoff_algorithm() ), 'int' ),
+				array( Redis::OPT_BACKOFF_BASE, $config->backoff_base(), 'int' ),
+				array( Redis::OPT_BACKOFF_CAP, $config->backoff_cap(), 'int' ),
+				array( Redis::OPT_TCP_KEEPALIVE, $config->tcp_keepalive(), 'bool' ),
+			);
+
+			try {
+				foreach ($options as $option) {
+					if ( ! $this->redis->setOption( $option[0], $option[1] )) {
+						throw new BackendException( 'connect-failed', 'Connection option configuration failed.' );
+					}
+
+					$actual = $this->redis->getOption( $option[0] );
+					if ( ! $this->option_matches( $actual, $option[1], $option[2] )) {
+						throw new BackendException( 'connect-failed', 'Connection option verification failed.' );
+					}
+				}
+			} catch (BackendException $e) {
+				throw $e;
+			} catch (\Throwable $e) {
+				throw new BackendException( 'connect-failed', 'Connection option configuration failed.', 0, $e );
+			}
+		}
+
+		/**
+		 * Maps a validated config name to a PhpRedis backoff constant.
+		 */
+		private function backoff_algorithm( string $algorithm ): int {
+			$algorithms = array(
+				'default'             => Redis::BACKOFF_ALGORITHM_DEFAULT,
+				'decorrelated_jitter' => Redis::BACKOFF_ALGORITHM_DECORRELATED_JITTER,
+				'full_jitter'         => Redis::BACKOFF_ALGORITHM_FULL_JITTER,
+				'equal_jitter'        => Redis::BACKOFF_ALGORITHM_EQUAL_JITTER,
+				'exponential'         => Redis::BACKOFF_ALGORITHM_EXPONENTIAL,
+				'uniform'             => Redis::BACKOFF_ALGORITHM_UNIFORM,
+				'constant'            => Redis::BACKOFF_ALGORITHM_CONSTANT,
+			);
+
+			return $algorithms[ $algorithm ];
+		}
+
+		/**
+		 * @param mixed  $actual
+		 * @param mixed  $expected
+		 * @param string $type
+		 */
+		private function option_matches( $actual, $expected, string $type ): bool {
+			if ($type === 'int') {
+				return (int) $actual === (int) $expected;
+			}
+
+			if ($type === 'float') {
+				return abs( (float) $actual - (float) $expected ) < 0.000001;
+			}
+
+			if ($type === 'bool') {
+				return (bool) $actual === (bool) $expected;
+			}
+
+			return (string) $actual === (string) $expected;
+		}
+
+		/**
+		 * Best-effort SCRIPT LOAD for this adapter connection.
+		 */
+		private function load_script( string $script ): void {
+			if ($this->redis === null) {
+				return;
+			}
+
+			$source_sha = sha1( $script );
+			try {
+				$loaded_sha = $this->redis->script( 'load', $script );
+				if (is_string( $loaded_sha ) && hash_equals( $source_sha, strtolower( $loaded_sha ) )) {
+					$this->script_shas[ $source_sha ] = $loaded_sha;
+				}
+				$this->redis->clearLastError();
+			} catch (\Throwable $e) {
+				// EVAL remains available as the correctness fallback.
+				return;
+			}
 		}
 	}
 

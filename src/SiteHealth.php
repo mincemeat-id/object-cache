@@ -136,6 +136,24 @@ final class SiteHealth {
 			);
 		}
 
+		$phpredis_version = phpversion( 'redis' );
+		if ( ! $phpredis_version || version_compare( $phpredis_version, PhpRedisAdapter::MINIMUM_VERSION, '<' ) ) {
+			return array(
+				'label'       => __( 'PhpRedis extension must be updated', 'mincemeat-object-cache' ),
+				'status'      => 'critical',
+				'badge'       => self::badge(),
+				'description' => sprintf(
+					'<p>%s</p>',
+					sprintf(
+						/* translators: 1: Required PhpRedis version, 2: Detected version */
+						__( 'Mincemeat Object Cache requires PhpRedis %1$s or newer. The installed extension reports version %2$s.', 'mincemeat-object-cache' ),
+						PhpRedisAdapter::MINIMUM_VERSION,
+						$phpredis_version ? $phpredis_version : __( 'unknown', 'mincemeat-object-cache' )
+					)
+				),
+			);
+		}
+
 		$status = Api::status();
 		$state  = $status['state'];
 		$reason = $status['reason'];
@@ -452,6 +470,10 @@ final class SiteHealth {
 			'phpredis_version' => array(
 				'label' => __( 'PhpRedis Version', 'mincemeat-object-cache' ),
 				'value' => $diagnostics['phpredis_version'],
+			),
+			'phpredis_minimum' => array(
+				'label' => __( 'Minimum PhpRedis Version', 'mincemeat-object-cache' ),
+				'value' => $diagnostics['phpredis_minimum'],
 			),
 		);
 

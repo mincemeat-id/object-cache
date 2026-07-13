@@ -17,7 +17,7 @@ Mincemeat Object Cache is a Redis/Valkey object-cache drop-in for Mincemeat. It 
 Key facts:
 
 * Requires PHP 7.4 or later. Official support is strictly limited to PHP versions actively tested in the continuous integration matrix (currently PHP 7.4 through PHP 8.5; PHP 8.5 support also depends on the wider WordPress installation stack). Future PHP versions (such as PHP 8.6+) are not officially supported until explicitly validated in the test suite.
-* Requires the PhpRedis PHP extension (v1 of this plugin uses PhpRedis only).
+* Requires PhpRedis 6.3.0 or later (v1 of this plugin uses PhpRedis only).
 * Configured via the `MINCEMEAT_OBJECT_CACHE_CONFIG` array constant in wp-config.php.
 * Has NO settings page. All diagnostics are surfaced through WordPress Site Health.
 * The runtime cache implementation lives in the generated standalone `wp-content/object-cache.php` drop-in file. This companion plugin provides drop-in lifecycle, Site Health, and minimal WP-CLI integration.
@@ -25,7 +25,7 @@ Key facts:
 == Installation ==
 
 1. Install and activate the Mincemeat Object Cache companion plugin.
-2. Ensure the PhpRedis PHP extension is loaded on your server.
+2. Ensure PhpRedis 6.3.0 or later is loaded on your server.
 3. Define the `MINCEMEAT_OBJECT_CACHE_CONFIG` array constant in wp-config.php with your Redis/Valkey connection details (host, port, database, credentials, and other supported keys).
 4. The standalone drop-in is generated at `wp-content/object-cache.php`. WordPress loads it automatically on every request.
 5. Verify connectivity in WordPress under Tools -> Site Health -> Info.

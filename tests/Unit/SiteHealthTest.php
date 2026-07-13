@@ -311,6 +311,7 @@ class SiteHealthTest extends TestCase
 		$fields = $info['mincemeat-object-cache']['fields'];
 
 		$this->assertSame( 'persistent', $fields['cache_state']['value'] );
+		$this->assertSame( '6.3.0', $fields['phpredis_minimum']['value'] );
 		$this->assertSame( '***', $fields['database']['value'] );
 		$this->assertStringContainsString( 'Redis 8.0.0', $fields['server_identity']['value'] );
 		$this->assertStringContainsString( 'tcp://127.0.0.1:***', $fields['endpoint']['value'] );

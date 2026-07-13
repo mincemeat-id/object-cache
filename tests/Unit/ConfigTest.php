@@ -59,6 +59,11 @@ class ConfigTest extends TestCase
         $this->assertNull($c->password());
         $this->assertSame(0.25, $c->connect_timeout());
         $this->assertSame(0.25, $c->read_timeout());
+        $this->assertSame(1, $c->max_retries());
+        $this->assertSame('decorrelated_jitter', $c->backoff_algorithm());
+        $this->assertSame(10, $c->backoff_base());
+        $this->assertSame(100, $c->backoff_cap());
+        $this->assertTrue($c->tcp_keepalive());
         $this->assertFalse($c->persistent());
         $this->assertSame(2592000, $c->max_ttl());
         $this->assertFalse($c->debug());
@@ -255,6 +260,51 @@ class ConfigTest extends TestCase
         $this->assertSame(1.0, $c->read_timeout());
     }
 
+    public function test_bounded_retry_configuration_is_accepted()
+    {
+        $c = new Config(array(
+            'namespace'         => 'ns',
+            'max_retries'      => 2,
+            'backoff_algorithm' => 'constant',
+            'backoff_base'     => 25,
+            'backoff_cap'      => 50,
+            'tcp_keepalive'    => false,
+        ));
+
+        $this->assertSame(2, $c->max_retries());
+        $this->assertSame('constant', $c->backoff_algorithm());
+        $this->assertSame(25, $c->backoff_base());
+        $this->assertSame(50, $c->backoff_cap());
+        $this->assertFalse($c->tcp_keepalive());
+    }
+
+    /**
+     * @dataProvider invalid_retry_configuration
+     */
+    public function test_retry_configuration_validation(array $values, string $reason)
+    {
+        try {
+            new Config(array_merge(array('namespace' => 'ns'), $values));
+            $this->fail('Expected ConfigException');
+        } catch (ConfigException $e) {
+            $this->assertSame($reason, $e->reason());
+        }
+    }
+
+    public function invalid_retry_configuration(): array
+    {
+        return array(
+            'negative retries' => array(array('max_retries' => -1), Config::REASON_MAX_RETRIES),
+            'excess retries' => array(array('max_retries' => 4), Config::REASON_MAX_RETRIES),
+            'retry float' => array(array('max_retries' => 1.5), Config::REASON_MAX_RETRIES),
+            'unknown algorithm' => array(array('backoff_algorithm' => 'random'), Config::REASON_BACKOFF),
+            'negative base' => array(array('backoff_base' => -1), Config::REASON_BACKOFF),
+            'excess cap' => array(array('backoff_cap' => 1001), Config::REASON_BACKOFF),
+            'cap below base' => array(array('backoff_base' => 100, 'backoff_cap' => 50), Config::REASON_BACKOFF),
+            'invalid keepalive' => array(array('tcp_keepalive' => 'yes'), Config::REASON_TCP_KEEPALIVE),
+        );
+    }
+
     public function test_persistent_must_be_bool()
     {
         $this->expectException(ConfigException::class);
@@ -373,6 +423,11 @@ class ConfigTest extends TestCase
         $this->assertSame('cache.internal', $d['host']);
         $this->assertSame(6379, $d['port']);
         $this->assertSame(0, $d['database']);
+        $this->assertSame(1, $d['max_retries']);
+        $this->assertSame('decorrelated_jitter', $d['backoff_algorithm']);
+        $this->assertSame(10, $d['backoff_base_ms']);
+        $this->assertSame(100, $d['backoff_cap_ms']);
+        $this->assertTrue($d['tcp_keepalive']);
 
         // Only the first 16 hex chars of the digest are exposed.
         $this->assertSame(substr(hash('sha256', 'secret-namespace'), 0, 16), $d['namespace_digest']);
@@ -415,6 +470,11 @@ class ConfigTest extends TestCase
         $this->assertContains('password', $keys);
         $this->assertContains('connect_timeout', $keys);
         $this->assertContains('read_timeout', $keys);
+        $this->assertContains('max_retries', $keys);
+        $this->assertContains('backoff_algorithm', $keys);
+        $this->assertContains('backoff_base', $keys);
+        $this->assertContains('backoff_cap', $keys);
+        $this->assertContains('tcp_keepalive', $keys);
         $this->assertContains('persistent', $keys);
         $this->assertContains('max_ttl', $keys);
         $this->assertContains('tls', $keys);

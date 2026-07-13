@@ -13,21 +13,30 @@ namespace Mincemeat\ObjectCache\Tests\Unit;
 use Mincemeat\ObjectCache\PhpRedisAdapter;
 use Mincemeat\ObjectCache\Config;
 use Mincemeat\ObjectCache\BackendException;
+use Mincemeat\ObjectCache\LuaScripts;
 use PHPUnit\Framework\TestCase;
 
 class TestablePhpRedisAdapter extends PhpRedisAdapter
 {
     private $mockRedis;
 
-    public function __construct($mockRedis)
+    private $version;
+
+    public function __construct($mockRedis, $version = '6.3.0')
     {
         parent::__construct();
         $this->mockRedis = $mockRedis;
+        $this->version = $version;
     }
 
     protected function create_redis_instance(): \Redis
     {
         return $this->mockRedis;
+    }
+
+    protected function phpredis_version()
+    {
+        return $this->version;
     }
 }
 
@@ -55,6 +64,18 @@ class PhpRedisAdapterTest extends TestCase
         ), $overrides));
     }
 
+    private function allowOptionConfiguration($redis): void
+    {
+        $options = array();
+        $redis->method('setOption')->willReturnCallback(function ($option, $value) use (&$options) {
+            $options[$option] = $value;
+            return true;
+        });
+        $redis->method('getOption')->willReturnCallback(function ($option) use (&$options) {
+            return $options[$option] ?? false;
+        });
+    }
+
     public function test_connect_with_tls_passes_stream_context()
     {
         if (!class_exists(\Redis::class)) {
@@ -78,10 +99,14 @@ class PhpRedisAdapterTest extends TestCase
         ));
 
         $mockRedis = $this->getMockBuilder(\Redis::class)
-            ->onlyMethods(array('connect', 'setOption'))
+            ->onlyMethods(array('connect', 'setOption', 'getOption', 'script', 'clearLastError'))
             ->getMock();
 
-        $mockRedis->method('setOption')->willReturn(true);
+        $this->allowOptionConfiguration($mockRedis);
+        $mockRedis->expects($this->once())
+            ->method('script')
+            ->with('load', LuaScripts::INCR_DECR)
+            ->willReturn(sha1(LuaScripts::INCR_DECR));
 
         $mockRedis->expects($this->once())
             ->method('connect')
@@ -130,14 +155,20 @@ class PhpRedisAdapterTest extends TestCase
             'namespace_digest'  => $config->namespace_digest(),
             'username'          => null,
             'tls_non_secret'    => array(),
+            'max_retries'       => 1,
+            'backoff_algorithm' => 'decorrelated_jitter',
+            'backoff_base'      => 10,
+            'backoff_cap'       => 100,
+            'tcp_keepalive'     => true,
         );
         $expectedId = 'mcoc:' . hash('sha256', serialize($canonical));
 
         $mockRedis = $this->getMockBuilder(\Redis::class)
-            ->onlyMethods(array('pconnect', 'setOption'))
+            ->onlyMethods(array('pconnect', 'setOption', 'getOption', 'script', 'clearLastError'))
             ->getMock();
 
-        $mockRedis->method('setOption')->willReturn(true);
+        $this->allowOptionConfiguration($mockRedis);
+        $mockRedis->method('script')->willReturn(false);
 
         $mockRedis->expects($this->once())
             ->method('pconnect')
@@ -209,9 +240,28 @@ class PhpRedisAdapterTest extends TestCase
     /** @dataProvider serverInfoProvider */
     public function test_server_info_identity(array $info, array $expected)
     {
-        $redis = $this->getMockBuilder(\Redis::class)->onlyMethods(array('info'))->getMock();
+        $redis = $this->getMockBuilder(\Redis::class)->onlyMethods(array('serverName', 'serverVersion', 'info'))->getMock();
+        $redis->method('serverName')->willReturn(false);
+        $redis->method('serverVersion')->willReturn(false);
         $redis->method('info')->willReturn($info);
         $this->assertSame($expected, $this->adapterWithRedis($redis)->server_info());
+    }
+
+    public function test_server_info_prefers_modern_identity_methods()
+    {
+        $redis = $this->getMockBuilder(\Redis::class)->onlyMethods(array('serverName', 'serverVersion', 'info'))->getMock();
+        $redis->expects($this->once())->method('serverName')->willReturn('valkey');
+        $redis->expects($this->once())->method('serverVersion')->willReturn('9.0.1');
+        $redis->method('info')->willReturn(array(
+            'redis_version' => '7.2.0',
+            'redis_mode' => 'standalone',
+            'maxmemory_policy' => 'allkeys-lru',
+        ));
+
+        $this->assertSame(
+            array('product' => 'valkey', 'version' => '9.0.1', 'mode' => 'standalone', 'os' => '', 'maxmemory_policy' => 'allkeys-lru'),
+            $this->adapterWithRedis($redis)->server_info()
+        );
     }
 
     public function serverInfoProvider(): array
@@ -225,7 +275,9 @@ class PhpRedisAdapterTest extends TestCase
 
     public function test_server_info_returns_null_on_error()
     {
-        $redis = $this->getMockBuilder(\Redis::class)->onlyMethods(array('info'))->getMock();
+        $redis = $this->getMockBuilder(\Redis::class)->onlyMethods(array('serverName', 'serverVersion', 'info'))->getMock();
+        $redis->method('serverName')->willReturn(false);
+        $redis->method('serverVersion')->willReturn(false);
         $redis->method('info')->willThrowException(new \RedisException('failed'));
         $this->assertNull($this->adapterWithRedis($redis)->server_info());
     }
@@ -233,7 +285,7 @@ class PhpRedisAdapterTest extends TestCase
     /** @dataProvider setOptionFailureProvider */
     public function test_connect_rejects_set_option_failure($result)
     {
-        $redis = $this->getMockBuilder(\Redis::class)->onlyMethods(array('connect', 'setOption'))->getMock();
+        $redis = $this->getMockBuilder(\Redis::class)->onlyMethods(array('connect', 'setOption', 'getOption'))->getMock();
         $redis->method('connect')->willReturn(true);
         if ($result instanceof \Throwable) {
             $redis->method('setOption')->willThrowException($result);
@@ -253,10 +305,11 @@ class PhpRedisAdapterTest extends TestCase
     /** @dataProvider connectionFailureProvider */
     public function test_connect_auth_and_select_failures(array $config, string $method, $failure, string $reason)
     {
-        $methods = array('connect', 'setOption', $method);
+        $methods = array('connect', 'setOption', 'getOption', 'script', 'clearLastError', $method);
         $redis = $this->getMockBuilder(\Redis::class)->onlyMethods(array_values(array_unique($methods)))->getMock();
         $redis->method('connect')->willReturn($method === 'connect' ? $failure : true);
-        $redis->method('setOption')->willReturn(true);
+        $this->allowOptionConfiguration($redis);
+        $redis->method('script')->willReturn(false);
         if ($method !== 'connect') {
             $redis->method($method)->willReturn($failure);
         }
@@ -329,6 +382,58 @@ class PhpRedisAdapterTest extends TestCase
         $this->assertFalse($adapter->is_connected());
     }
 
+    public function test_eval_uses_cached_sha_and_falls_back_to_eval_on_noscript()
+    {
+        $script = 'return ARGV[1]';
+        $sha = sha1($script);
+        $redis = $this->getMockBuilder(\Redis::class)
+            ->onlyMethods(array('evalSha', 'getLastError', 'clearLastError', 'eval'))
+            ->getMock();
+        $redis->expects($this->once())->method('evalSha')->with($sha, array('key', 'arg'), 1)->willReturn(false);
+        $redis->expects($this->once())->method('getLastError')->willReturn('NOSCRIPT No matching script.');
+        $redis->expects($this->once())->method('clearLastError')->willReturn(true);
+        $redis->expects($this->once())->method('eval')->with($script, array('key', 'arg'), 1)->willReturn(array('OK'));
+
+        $adapter = $this->adapterWithRedis($redis);
+        $property = new \ReflectionProperty(PhpRedisAdapter::class, 'script_shas');
+        $property->setAccessible(true);
+        $property->setValue($adapter, array($sha => $sha));
+
+        $this->assertSame(array('OK'), $adapter->eval($script, array('key'), array('arg')));
+    }
+
+    public function test_eval_does_not_fallback_for_non_noscript_error()
+    {
+        $script = 'return 1';
+        $sha = sha1($script);
+        $redis = $this->getMockBuilder(\Redis::class)
+            ->onlyMethods(array('evalSha', 'getLastError', 'eval'))
+            ->getMock();
+        $redis->method('evalSha')->willReturn(false);
+        $redis->method('getLastError')->willReturn('NOPERM denied');
+        $redis->expects($this->never())->method('eval');
+
+        $adapter = $this->adapterWithRedis($redis);
+        $property = new \ReflectionProperty(PhpRedisAdapter::class, 'script_shas');
+        $property->setAccessible(true);
+        $property->setValue($adapter, array($sha => $sha));
+
+        $this->assertFalse($adapter->eval($script));
+    }
+
+    public function test_connect_rejects_phpredis_older_than_minimum()
+    {
+        $redis = $this->getMockBuilder(\Redis::class)->getMock();
+
+        try {
+            (new TestablePhpRedisAdapter($redis, '6.2.0'))->connect($this->config());
+            $this->fail('Expected unsupported PhpRedis version to be rejected.');
+        } catch (BackendException $e) {
+            $this->assertSame('unsupported-extension', $e->reason());
+            $this->assertStringContainsString('PhpRedis >= 6.3.0', $e->getMessage());
+        }
+    }
+
     public function test_delete_uses_unlink_when_supported()
     {
         $redis = $this->getMockBuilder(\Redis::class)->onlyMethods(array('unlink'))->getMock();
@@ -344,7 +449,9 @@ class PhpRedisAdapterTest extends TestCase
 
     public function test_server_info_rejects_non_array_result()
     {
-        $redis = $this->getMockBuilder(\Redis::class)->onlyMethods(array('info'))->getMock();
+        $redis = $this->getMockBuilder(\Redis::class)->onlyMethods(array('serverName', 'serverVersion', 'info'))->getMock();
+        $redis->method('serverName')->willReturn(false);
+        $redis->method('serverVersion')->willReturn(false);
         $redis->method('info')->willReturn(false);
         $adapter = $this->adapterWithRedis($redis);
 

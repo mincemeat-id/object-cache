@@ -98,6 +98,11 @@ define('MINCEMEAT_OBJECT_CACHE_CONFIG', [
     'database'        => 0,
     'connect_timeout' => 1.0,
     'read_timeout'    => 1.0,
+    'max_retries'     => 1,
+    'backoff_algorithm' => 'decorrelated_jitter',
+    'backoff_base'    => 10,
+    'backoff_cap'     => 100,
+    'tcp_keepalive'   => true,
     'persistent'      => false,
     'max_ttl'         => 2592000,
     'debug'           => false,
@@ -118,6 +123,11 @@ Supported keys:
 | `password` | string | ACL password. |
 | `connect_timeout` | float | Connection timeout in seconds. |
 | `read_timeout` | float | Read timeout in seconds. |
+| `max_retries` | int | Bounded reconnect retries, from 0 through 3. |
+| `backoff_algorithm` | string | PhpRedis reconnect backoff algorithm. |
+| `backoff_base` | int | Backoff base in milliseconds, at most 1000. |
+| `backoff_cap` | int | Backoff cap in milliseconds, at most 1000. |
+| `tcp_keepalive` | bool | Whether TCP socket keepalive is enabled. |
 | `persistent` | bool | Whether to use persistent PhpRedis connections. |
 | `max_ttl` | int | Maximum TTL applied to entries. |
 | `tls` | array | PhpRedis TLS context options. |
@@ -183,6 +193,10 @@ The runtime must preserve exact WordPress cache semantics for falsey values and 
 ## Backend Adapter
 
 The PhpRedis adapter owns all direct Redis/Valkey calls.
+
+PhpRedis 6.3.0 is the minimum supported client version. The adapter uses its
+server identity methods, bounded retry/backoff options, and per-connection Lua
+script cache while preserving the same cache semantics for Redis and Valkey.
 
 Required behavior:
 

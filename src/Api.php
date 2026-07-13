@@ -135,6 +135,7 @@ final class Api {
 			'versions'              => self::version(),
 			'php_version'           => PHP_VERSION,
 			'phpredis_version'      => $redis_version,
+			'phpredis_minimum'      => PhpRedisAdapter::MINIMUM_VERSION,
 		);
 
 		if ( $cache ) {

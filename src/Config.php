@@ -36,6 +36,9 @@ final class Config {
 	public const REASON_PASSWORD        = 'config-password';
 	public const REASON_CONNECT_TIMEOUT = 'config-connect-timeout';
 	public const REASON_READ_TIMEOUT    = 'config-read-timeout';
+	public const REASON_MAX_RETRIES     = 'config-max-retries';
+	public const REASON_BACKOFF         = 'config-backoff';
+	public const REASON_TCP_KEEPALIVE   = 'config-tcp-keepalive';
 	public const REASON_PERSISTENT      = 'config-persistent';
 	public const REASON_MAX_TTL         = 'config-max-ttl';
 	public const REASON_TLS             = 'config-tls';
@@ -61,26 +64,50 @@ final class Config {
 	/** Default maximum TTL: 30 days in seconds. */
 	public const DEFAULT_MAX_TTL = 2592000;
 
+	/** Bounded PhpRedis reconnect defaults. */
+	public const DEFAULT_MAX_RETRIES       = 1;
+	public const MAX_RETRIES               = 3;
+	public const DEFAULT_BACKOFF_ALGORITHM = 'decorrelated_jitter';
+	public const DEFAULT_BACKOFF_BASE      = 10;
+	public const DEFAULT_BACKOFF_CAP       = 100;
+	public const MAX_BACKOFF               = 1000;
+
+	/** Supported PhpRedis reconnect algorithms. */
+	private const BACKOFF_ALGORITHMS = array(
+		'default',
+		'decorrelated_jitter',
+		'full_jitter',
+		'equal_jitter',
+		'exponential',
+		'uniform',
+		'constant',
+	);
+
 	/**
 	 * Known config keys, mapped to defaults applied when the key is absent.
 	 *
 	 * @var array<string,mixed>
 	 */
 	private const KNOWN_KEYS = array(
-		'namespace'       => null,
-		'scheme'          => self::SCHEME_TCP,
-		'host'            => '127.0.0.1',
-		'port'            => 6379,
-		'path'            => null,
-		'database'        => 0,
-		'username'        => null,
-		'password'        => null,
-		'connect_timeout' => 0.25,
-		'read_timeout'    => 0.25,
-		'persistent'      => false,
-		'max_ttl'         => self::DEFAULT_MAX_TTL,
-		'tls'             => array(),
-		'debug'           => false,
+		'namespace'         => null,
+		'scheme'            => self::SCHEME_TCP,
+		'host'              => '127.0.0.1',
+		'port'              => 6379,
+		'path'              => null,
+		'database'          => 0,
+		'username'          => null,
+		'password'          => null,
+		'connect_timeout'   => 0.25,
+		'read_timeout'      => 0.25,
+		'max_retries'       => self::DEFAULT_MAX_RETRIES,
+		'backoff_algorithm' => self::DEFAULT_BACKOFF_ALGORITHM,
+		'backoff_base'      => self::DEFAULT_BACKOFF_BASE,
+		'backoff_cap'       => self::DEFAULT_BACKOFF_CAP,
+		'tcp_keepalive'     => true,
+		'persistent'        => false,
+		'max_ttl'           => self::DEFAULT_MAX_TTL,
+		'tls'               => array(),
+		'debug'             => false,
 	);
 
 	/** @var string */
@@ -112,6 +139,21 @@ final class Config {
 
 	/** @var float */
 	private $read_timeout;
+
+	/** @var int */
+	private $max_retries;
+
+	/** @var string */
+	private $backoff_algorithm;
+
+	/** @var int */
+	private $backoff_base;
+
+	/** @var int */
+	private $backoff_cap;
+
+	/** @var bool */
+	private $tcp_keepalive;
 
 	/** @var bool */
 	private $persistent;
@@ -174,6 +216,22 @@ final class Config {
 		$rt = $input['read_timeout'] ?? self::KNOWN_KEYS['read_timeout'];
 		$this->validate_timeout( $rt, self::REASON_READ_TIMEOUT );
 		$this->read_timeout = (float) $rt;
+
+		$max_retries = $input['max_retries'] ?? self::KNOWN_KEYS['max_retries'];
+		$this->validate_bounded_integer( $max_retries, 0, self::MAX_RETRIES, self::REASON_MAX_RETRIES );
+		$this->max_retries = (int) $max_retries;
+
+		$backoff_algorithm = $input['backoff_algorithm'] ?? self::KNOWN_KEYS['backoff_algorithm'];
+		$backoff_base      = $input['backoff_base'] ?? self::KNOWN_KEYS['backoff_base'];
+		$backoff_cap       = $input['backoff_cap'] ?? self::KNOWN_KEYS['backoff_cap'];
+		$this->validate_backoff( $backoff_algorithm, $backoff_base, $backoff_cap );
+		$this->backoff_algorithm = (string) $backoff_algorithm;
+		$this->backoff_base      = (int) $backoff_base;
+		$this->backoff_cap       = (int) $backoff_cap;
+
+		$tcp_keepalive = $input['tcp_keepalive'] ?? self::KNOWN_KEYS['tcp_keepalive'];
+		$this->validate_bool( $tcp_keepalive, self::REASON_TCP_KEEPALIVE );
+		$this->tcp_keepalive = (bool) $tcp_keepalive;
 
 		$persistent = $input['persistent'] ?? self::KNOWN_KEYS['persistent'];
 		$this->validate_bool( $persistent, self::REASON_PERSISTENT );
@@ -267,6 +325,26 @@ final class Config {
 		return $this->read_timeout;
 	}
 
+	public function max_retries(): int {
+		return $this->max_retries;
+	}
+
+	public function backoff_algorithm(): string {
+		return $this->backoff_algorithm;
+	}
+
+	public function backoff_base(): int {
+		return $this->backoff_base;
+	}
+
+	public function backoff_cap(): int {
+		return $this->backoff_cap;
+	}
+
+	public function tcp_keepalive(): bool {
+		return $this->tcp_keepalive;
+	}
+
 	public function persistent(): bool {
 		return $this->persistent;
 	}
@@ -322,18 +400,23 @@ final class Config {
 		}
 
 		return array(
-			'scheme'           => $this->scheme,
-			'host'             => $this->scheme === self::SCHEME_UNIX ? '' : $host,
-			'port'             => $this->scheme === self::SCHEME_UNIX ? null : $port,
-			'path'             => $path,
-			'database'         => $database,
-			'namespace_digest' => substr( $this->namespace_digest, 0, 16 ),
-			'connect_timeout'  => $this->connect_timeout,
-			'read_timeout'     => $this->read_timeout,
-			'persistent'       => $this->persistent,
-			'max_ttl'          => $this->max_ttl,
-			'debug'            => $this->debug,
-			'tls'              => $tls_summary,
+			'scheme'            => $this->scheme,
+			'host'              => $this->scheme === self::SCHEME_UNIX ? '' : $host,
+			'port'              => $this->scheme === self::SCHEME_UNIX ? null : $port,
+			'path'              => $path,
+			'database'          => $database,
+			'namespace_digest'  => substr( $this->namespace_digest, 0, 16 ),
+			'connect_timeout'   => $this->connect_timeout,
+			'read_timeout'      => $this->read_timeout,
+			'max_retries'       => $this->max_retries,
+			'backoff_algorithm' => $this->backoff_algorithm,
+			'backoff_base_ms'   => $this->backoff_base,
+			'backoff_cap_ms'    => $this->backoff_cap,
+			'tcp_keepalive'     => $this->tcp_keepalive,
+			'persistent'        => $this->persistent,
+			'max_ttl'           => $this->max_ttl,
+			'debug'             => $this->debug,
+			'tls'               => $tls_summary,
 		);
 	}
 
@@ -529,6 +612,37 @@ final class Config {
 		$f = (float) $value;
 		if ($f <= 0 || $f > self::MAX_TIMEOUT) {
 			throw new ConfigException( $reason, 'Timeout must be greater than zero and at most 60 seconds.' );
+		}
+	}
+
+	/**
+	 * @param mixed  $value
+	 * @param int    $minimum
+	 * @param int    $maximum
+	 * @param string $reason
+	 */
+	private function validate_bounded_integer( $value, int $minimum, int $maximum, string $reason ): void {
+		$ok = is_int( $value ) || ( is_string( $value ) && ctype_digit( $value ) );
+		if ( ! $ok || (int) $value < $minimum || (int) $value > $maximum) {
+			throw new ConfigException( $reason, 'Value is outside the supported integer range.' );
+		}
+	}
+
+	/**
+	 * @param mixed $algorithm
+	 * @param mixed $base
+	 * @param mixed $cap
+	 */
+	private function validate_backoff( $algorithm, $base, $cap ): void {
+		if ( ! is_string( $algorithm ) || ! in_array( $algorithm, self::BACKOFF_ALGORITHMS, true )) {
+			throw new ConfigException( self::REASON_BACKOFF, 'Unsupported backoff algorithm.' );
+		}
+
+		$this->validate_bounded_integer( $base, 0, self::MAX_BACKOFF, self::REASON_BACKOFF );
+		$this->validate_bounded_integer( $cap, 0, self::MAX_BACKOFF, self::REASON_BACKOFF );
+
+		if ( (int) $cap < (int) $base) {
+			throw new ConfigException( self::REASON_BACKOFF, 'Backoff cap must be greater than or equal to its base.' );
 		}
 	}
 

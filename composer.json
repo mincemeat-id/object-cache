@@ -4,6 +4,7 @@
     "type": "wordpress-plugin",
     "license": "GPL-3.0-or-later",
     "require": {
+        "ext-redis": ">=6.3.0",
         "php": ">=7.4"
     },
     "require-dev": {

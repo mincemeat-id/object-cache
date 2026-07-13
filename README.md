@@ -6,7 +6,7 @@ A Redis/Valkey object-cache drop-in for WordPress, built on the PhpRedis extensi
 
 - PHP 7.4 through 8.5 tested (PHP 8.5 support also depends on the wider WordPress installation stack)
 - WordPress 6.9 or later
-- The PhpRedis PHP extension
+- PhpRedis 6.3.0 or later
 - Redis 8 or Valkey 9
 
 ### PHP Version Support Policy
@@ -27,6 +27,11 @@ Configure the drop-in by defining the `MINCEMEAT_OBJECT_CACHE_CONFIG` array cons
 - `password`: Redis ACL password, optional.
 - `connect_timeout`: Connect timeout in seconds.
 - `read_timeout`: Read timeout in seconds.
+- `max_retries`: Reconnect retries after an initial command failure, from `0` to `3`. Default `1`.
+- `backoff_algorithm`: `default`, `decorrelated_jitter`, `full_jitter`, `equal_jitter`, `exponential`, `uniform`, or `constant`. Default `decorrelated_jitter`.
+- `backoff_base`: Initial reconnect backoff in milliseconds, from `0` to `1000`. Default `10`.
+- `backoff_cap`: Maximum reconnect backoff in milliseconds, from `0` to `1000` and not less than `backoff_base`. Default `100`.
+- `tcp_keepalive`: Enable TCP socket keepalive. Default `true`.
 - `persistent`: Whether to use a persistent connection (boolean).
 - `max_ttl`: Maximum TTL applied to cached entries. Default `2592000` (30 days).
 - `tls`: TLS context array (peer name, verify peer, verify peer name, ca file, etc.) for `tls` scheme.
@@ -43,6 +48,11 @@ define('MINCEMEAT_OBJECT_CACHE_CONFIG', [
     'database'        => 0,
     'connect_timeout' => 1.0,
     'read_timeout'    => 1.0,
+    'max_retries'     => 1,
+    'backoff_algorithm' => 'decorrelated_jitter',
+    'backoff_base'    => 10,
+    'backoff_cap'     => 100,
+    'tcp_keepalive'   => true,
     'persistent'      => false,
     'max_ttl'         => 2592000,
     'debug'           => false,

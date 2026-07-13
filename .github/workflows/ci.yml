@@ -40,6 +40,7 @@ jobs:
         uses: shivammathur/setup-php@v2
         with:
           php-version: ${{ matrix.php }}
+          extensions: redis-6.3.0
           coverage: xdebug
           ini-values: zend.assertions=1, error_reporting=-1
 
@@ -88,6 +89,7 @@ jobs:
         uses: shivammathur/setup-php@v2
         with:
           php-version: '7.4'
+          extensions: redis-6.3.0
           coverage: none
 
       - name: Get composer cache key
@@ -184,6 +186,7 @@ jobs:
         uses: shivammathur/setup-php@v2
         with:
           php-version: ${{ matrix.php }}
+          extensions: redis-6.3.0
           coverage: pcov
           ini-values: zend.assertions=1, error_reporting=-1
 
@@ -270,6 +273,7 @@ jobs:
         uses: shivammathur/setup-php@v2
         with:
           php-version: '7.4'
+          extensions: redis-6.3.0
           coverage: none
 
       - name: Get composer cache key

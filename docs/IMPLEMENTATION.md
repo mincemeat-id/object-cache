@@ -18,7 +18,11 @@ Verified during the 2026-07-13 improvement-plan review:
 Current improvement targets:
 
 - Continued performance, stability, and compatibility work.
-- PhpRedis 6.3.0 capability utilization.
+
+PhpRedis 6.3.0 is the minimum required extension version and is installed
+explicitly in CI. Connection setup verifies serializer, compression, prefix,
+reply, timeout, retry/backoff, and keepalive options. Numeric Lua operations use
+per-connection `SCRIPT LOAD`/`EVALSHA` with `EVAL` fallback after `NOSCRIPT`.
 
 The WordPress 6.9 compatibility surface includes public `cache_hits` and
 `cache_misses` counters, magic read access to `global_groups` and `blog_prefix`,

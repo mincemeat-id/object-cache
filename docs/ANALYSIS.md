@@ -117,9 +117,9 @@ Additional compatibility surface deserves attention:
 - WordPress version strings in `_doing_it_wrong()` and `_deprecated_function()` calls
 - default non-persistent groups used by WordPress tests and bootstrap
 
-### PhpRedis 6.3.0 Opens Practical Improvements
+### PhpRedis 6.3.0 Modernization Is Complete
 
-The most relevant PhpRedis 6.3.0 opportunities are:
+The implemented PhpRedis 6.3.0 capabilities are:
 
 - `serverName()` and `serverVersion()` for cleaner diagnostics.
 - bounded retry/backoff configuration through `OPT_MAX_RETRIES` and `OPT_BACKOFF_*`.
@@ -127,7 +127,7 @@ The most relevant PhpRedis 6.3.0 opportunities are:
 - `SCRIPT LOAD` plus `EVALSHA` for the numeric Lua script, with `NOSCRIPT` fallback.
 - option verification after connect so serializer, compression, and prefix assumptions remain true.
 
-Hash field expiration, vector commands, and Valkey `DELIFEQ` are real 6.3.0 features, but they are not automatically useful for a WordPress object-cache drop-in. Evaluate them only when they simplify a real cache behavior.
+Hash field expiration, vector commands, `getWithMeta`, and Valkey `DELIFEQ` were reviewed but intentionally not added to hot-path behavior because they do not simplify the current object-cache contract.
 
 ## Current Strengths
 
@@ -144,11 +144,9 @@ Hash field expiration, vector commands, and Valkey `DELIFEQ` are real 6.3.0 feat
 
 ## Current Risks
 
-- E2E coverage is not yet present.
-- Backend, adapter, object-cache, and lifecycle coverage now have explicit regression thresholds.
-- WordPress compatibility for direct `$wp_object_cache` property access has not been fully proven.
-- PhpRedis 6.3.0 is installed locally but not yet fully reflected in support policy, diagnostics, or retry/script strategy.
+- Performance baselines and command-count guardrails are not yet present.
+- Broader backend fault injection remains incomplete.
 
 ## Recommendation
 
-Use `docs/IMPROVEMENT_PLAN.md` as the next work queue. Continue with WordPress compatibility and E2E coverage before adding larger PhpRedis behavior changes.
+Use `docs/IMPROVEMENT_PLAN.md` as the next work queue. Continue with performance guardrails and fault-injection coverage before adding larger cache behavior changes.
