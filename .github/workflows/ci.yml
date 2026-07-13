@@ -18,8 +18,19 @@ concurrency:
 
 jobs:
   lint-and-unit:
-    name: Lint and Unit Tests (PHP 7.4)
+    name: Lint and Unit Tests (PHP ${{ matrix.php }})
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        php:
+          - '7.4'
+          - '8.0'
+          - '8.1'
+          - '8.2'
+          - '8.3'
+          - '8.4'
+          - '8.5'
 
     steps:
       - name: Checkout
@@ -28,7 +39,7 @@ jobs:
       - name: Setup PHP
         uses: shivammathur/setup-php@v2
         with:
-          php-version: '7.4'
+          php-version: ${{ matrix.php }}
           coverage: xdebug
           ini-values: zend.assertions=1, error_reporting=-1
 
@@ -104,6 +115,8 @@ jobs:
         php:
           - '7.4'
           - '8.3'
+          - '8.4'
+          - '8.5'
         backend:
           - redis8
           - valkey9
@@ -172,17 +185,28 @@ jobs:
       - name: Composer install
         run: composer install --prefer-dist --no-interaction
 
-      - name: Build drop-in
-        run: php tools/build-dropin.php
+      - name: Build plugin package ZIP
+        run: php tools/build-package.php
 
       - name: Install WordPress Test Infrastructure
         run: bash tools/install-wp-tests.sh
+
+      - name: Setup connection scenario test services
+        run: bash tools/setup-test-services.sh
 
       - name: Run Test Suite with Coverage
         env:
           MINCEMEAT_TEST_REDIS_HOST: 127.0.0.1
           MINCEMEAT_REQUIRE_INTEGRATION: 1
           MINCEMEAT_EXPECTED_BACKEND: ${{ matrix.backend == 'redis8' && 'redis' || 'valkey' }}
+          MINCEMEAT_RELEASE_CI: 1
+          MINCEMEAT_TEST_UNIX_SOCKET: /tmp/redis-socket/redis.sock
+          MINCEMEAT_TEST_ACL_PORT: 6381
+          MINCEMEAT_TEST_ACL_USER: myuser
+          MINCEMEAT_TEST_ACL_PASS: mypassword
+          MINCEMEAT_TEST_TLS_PORT: 6382
+          MINCEMEAT_TEST_TLS_CA: ${{ github.workspace }}/tests/certs/ca.crt
+          MINCEMEAT_TEST_TLS_UNTRUSTED_CA: ${{ github.workspace }}/tests/certs/untrusted-ca.crt
         run: vendor/bin/phpunit --coverage-clover build/logs/clover.xml
 
       - name: Verify Code Coverage Thresholds

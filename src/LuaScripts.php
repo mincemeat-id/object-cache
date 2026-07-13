@@ -122,8 +122,73 @@ local function encode_double(value)
     return string.char(bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], b7, b8)
 end
 
+local function cmp_str(a, b)
+    if #a ~= #b then
+        return #a > #b and 1 or -1
+    end
+    if a == b then
+        return 0
+    end
+    return a > b and 1 or -1
+end
+
+local function add_str(a, b)
+    local res = {}
+    local carry = 0
+    local i = #a
+    local j = #b
+    while i > 0 or j > 0 or carry > 0 do
+        local sum = carry
+        if i > 0 then
+            sum = sum + string.byte(a, i) - 48
+            i = i - 1
+        end
+        if j > 0 then
+            sum = sum + string.byte(b, j) - 48
+            j = j - 1
+        end
+        carry = math.floor(sum / 10)
+        table.insert(res, 1, string.char((sum % 10) + 48))
+    end
+    return table.concat(res)
+end
+
+local function sub_str(a, b)
+    local res = {}
+    local borrow = 0
+    local i = #a
+    local j = #b
+    while i > 0 do
+        local val = string.byte(a, i) - 48 - borrow
+        i = i - 1
+        local sub_val = 0
+        if j > 0 then
+            sub_val = string.byte(b, j) - 48
+            j = j - 1
+        end
+        if val < sub_val then
+            val = val + 10
+            borrow = 1
+        else
+            borrow = 0
+        end
+        table.insert(res, 1, string.char((val - sub_val) + 48))
+    end
+    local s = table.concat(res)
+    s = s:gsub("^0+", "")
+    if s == "" then
+        return "0"
+    end
+    return s
+end
+
 local key = KEYS[1]
-local offset = tonumber(ARGV[1])
+local offset_str = ARGV[1]
+local is_negative = false
+if string.sub(offset_str, 1, 1) == '-' then
+    is_negative = true
+    offset_str = string.sub(offset_str, 2)
+end
 
 local raw = redis.call('GET', key)
 if raw == false then
@@ -156,49 +221,87 @@ if string.len(payload) ~= length then
     return {'CORRUPT'}
 end
 
-local current = 0
-
-if tag == 1 then
-    current = tonumber(payload)
-    if current == nil then
-        return {'CORRUPT'}
-    end
-elseif tag == 2 then
-    if string.len(payload) ~= 8 then
-        return {'CORRUPT'}
-    end
-    current = decode_double(payload)
-elseif tag == 3 then
-    current = tonumber(payload)
-    if current == nil then
-        current = 0
-    end
-elseif tag == 4 then
-    if payload == string.char(1) then
-        current = 1
-    else
-        current = 0
-    end
-elseif tag == 5 then
-    current = 0
-else
-    current = 0
-end
-
-local new_value = current + offset
-if new_value < 0 then
-    new_value = 0
-end
+local is_int_payload = (tag == 1) or (tag == 4) or (tag == 5) or (tag == 3 and string.match(payload, "^%-?%d+$") ~= nil)
 
 local new_tag = 1
 local new_payload = ''
+local display_val = ''
 
-if new_value % 1 == 0 then
-    new_tag = 1
-    new_payload = string.format('%.0f', new_value)
+if is_int_payload then
+    local current_str = "0"
+    local is_current_negative = false
+
+    if tag == 1 or tag == 3 then
+        local raw_payload = payload
+        if string.sub(raw_payload, 1, 1) == '-' then
+            is_current_negative = true
+            current_str = string.sub(raw_payload, 2)
+        else
+            current_str = raw_payload
+        end
+    elseif tag == 4 then
+        current_str = (payload == string.char(1)) and "1" or "0"
+    end
+
+    local new_val_str = ""
+    if is_current_negative then
+        if is_negative then
+            new_val_str = "0"
+        else
+            if cmp_str(offset_str, current_str) <= 0 then
+                new_val_str = "0"
+            else
+                new_val_str = sub_str(offset_str, current_str)
+            end
+        end
+    else
+        if not is_negative then
+            new_val_str = add_str(current_str, offset_str)
+        else
+            if cmp_str(current_str, offset_str) <= 0 then
+                new_val_str = "0"
+            else
+                new_val_str = sub_str(current_str, offset_str)
+            end
+        end
+    end
+
+    if #new_val_str < 19 or (#new_val_str == 19 and cmp_str(new_val_str, "9223372036854775807") <= 0) then
+        new_tag = 1
+        new_payload = new_val_str
+        display_val = new_val_str
+    else
+        new_tag = 2
+        local new_val_num = tonumber(new_val_str)
+        new_payload = encode_double(new_val_num)
+        display_val = string.format('%.17g', new_val_num)
+    end
 else
-    new_tag = 2
-    new_payload = encode_double(new_value)
+    local current = 0
+    if tag == 2 then
+        if string.len(payload) ~= 8 then
+            return {'CORRUPT'}
+        end
+        current = decode_double(payload)
+    else
+        current = tonumber(payload) or 0
+    end
+
+    local offset = tonumber(ARGV[1])
+    local new_value = current + offset
+    if new_value < 0 then
+        new_value = 0
+    end
+
+    if new_value % 1 == 0 and new_value <= 9007199254740992 and new_value >= -9007199254740992 then
+        new_tag = 1
+        new_payload = string.format('%.0f', new_value)
+        display_val = new_payload
+    else
+        new_tag = 2
+        new_payload = encode_double(new_value)
+        display_val = string.format('%.17g', new_value)
+    end
 end
 
 local new_len = string.len(new_payload)
@@ -220,7 +323,7 @@ else
     return {'MISSING'}
 end
 
-return {'OK', tostring(new_value)}
+return {'OK', display_val}
 LUA;
 
 	private function __construct() {

@@ -22,6 +22,9 @@ class ConnectionScenariosTest extends TestCase
     {
         parent::setUp();
         if (!class_exists(\Redis::class)) {
+            if (getenv('MINCEMEAT_RELEASE_CI')) {
+                $this->fail('PhpRedis extension not available in release CI.');
+            }
             $this->markTestSkipped('PhpRedis extension not available.');
         }
     }
@@ -30,6 +33,9 @@ class ConnectionScenariosTest extends TestCase
     {
         $socket_path = getenv('MINCEMEAT_TEST_UNIX_SOCKET');
         if (!$socket_path) {
+            if (getenv('MINCEMEAT_RELEASE_CI')) {
+                $this->fail('MINCEMEAT_TEST_UNIX_SOCKET env var not set in release CI.');
+            }
             $this->markTestSkipped('MINCEMEAT_TEST_UNIX_SOCKET env var not set.');
         }
 
@@ -60,6 +66,9 @@ class ConnectionScenariosTest extends TestCase
         $password = getenv('MINCEMEAT_TEST_ACL_PASS');
 
         if (!$port || !$username || !$password) {
+            if (getenv('MINCEMEAT_RELEASE_CI')) {
+                $this->fail('MINCEMEAT_TEST_ACL_* env vars not fully set in release CI.');
+            }
             $this->markTestSkipped('MINCEMEAT_TEST_ACL_* env vars not fully set.');
         }
 
@@ -90,6 +99,9 @@ class ConnectionScenariosTest extends TestCase
     {
         $port = getenv('MINCEMEAT_TEST_TLS_PORT');
         if (!$port) {
+            if (getenv('MINCEMEAT_RELEASE_CI')) {
+                $this->fail('MINCEMEAT_TEST_TLS_PORT env var not set in release CI.');
+            }
             $this->markTestSkipped('MINCEMEAT_TEST_TLS_PORT env var not set.');
         }
 
@@ -117,6 +129,76 @@ class ConnectionScenariosTest extends TestCase
         $this->assertSame('bar', $cache->get('foo', 'options'));
 
         $be->close();
+    }
+
+    public function test_tls_connection_verified()
+    {
+        $port = getenv('MINCEMEAT_TEST_TLS_PORT');
+        $ca_file = getenv('MINCEMEAT_TEST_TLS_CA');
+        if (!$port || !$ca_file) {
+            if (getenv('MINCEMEAT_RELEASE_CI')) {
+                $this->fail('MINCEMEAT_TEST_TLS_PORT / CA env vars not set in release CI.');
+            }
+            $this->markTestSkipped('MINCEMEAT_TEST_TLS_PORT or CA env var not set.');
+        }
+
+        // Configure connection with CA certificate verification enabled
+        $config = new Config(array(
+            'namespace' => 'test-tls-verify',
+            'scheme'    => 'tls',
+            'host'      => '127.0.0.1',
+            'port'      => (int)$port,
+            'database'  => 0,
+            'tls'       => array(
+                'verify_peer'      => true,
+                'verify_peer_name' => true,
+                'cafile'           => $ca_file,
+            ),
+        ));
+
+        $ks = new KeySpace(false, 1);
+        $be = new Backend($ks);
+        $be->initialize($config);
+
+        $this->assertTrue($be->is_persistent(), 'Verified TLS backend is not persistent.');
+
+        $cache = new ObjectCache($ks, $be);
+        $this->assertTrue($cache->set('foo', 'bar', 'options'));
+        $this->assertSame('bar', $cache->get('foo', 'options'));
+
+        $be->close();
+    }
+
+    public function test_tls_connection_fails_with_untrusted_ca()
+    {
+        $port = getenv('MINCEMEAT_TEST_TLS_PORT');
+        $untrusted_ca = getenv('MINCEMEAT_TEST_TLS_UNTRUSTED_CA');
+        if (!$port || !$untrusted_ca) {
+            if (getenv('MINCEMEAT_RELEASE_CI')) {
+                $this->fail('MINCEMEAT_TEST_TLS_PORT / UNTRUSTED CA env vars not set in release CI.');
+            }
+            $this->markTestSkipped('MINCEMEAT_TEST_TLS_PORT or UNTRUSTED CA env var not set.');
+        }
+
+        $config = new Config(array(
+            'namespace' => 'test-tls-fail',
+            'scheme'    => 'tls',
+            'host'      => '127.0.0.1',
+            'port'      => (int)$port,
+            'database'  => 0,
+            'tls'       => array(
+                'verify_peer'      => true,
+                'verify_peer_name' => true,
+                'cafile'           => $untrusted_ca,
+            ),
+        ));
+
+        $ks = new KeySpace(false, 1);
+        $be = new Backend($ks);
+        $be->initialize($config);
+
+        $this->assertSame(ObjectCache::STATE_RUNTIME_ONLY, $be->state());
+        $this->assertSame('connect-failed', $be->reason());
     }
 
     public function test_persistent_pooling_connection_isolation()

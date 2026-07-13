@@ -227,12 +227,20 @@ class GatesValidationTest extends TestCase
             : "$wp_tests_dir/phpunit.xml.dist";
 
         $bootstrap = "$wp_tests_dir/tests/phpunit/includes/bootstrap.php";
-        $test_file = "$wp_tests_dir/tests/phpunit/tests/cache.php";
+        $test_files = array(
+            "$wp_tests_dir/tests/phpunit/tests/cache.php",
+            "$wp_tests_dir/tests/phpunit/tests/functions/wpCacheGetSalted.php",
+            "$wp_tests_dir/tests/phpunit/tests/functions/wpCacheGetMultipleSalted.php",
+            "$wp_tests_dir/tests/phpunit/tests/functions/wpCacheSetSalted.php",
+            "$wp_tests_dir/tests/phpunit/tests/functions/wpCacheSetMultipleSalted.php",
+            dirname(__FILE__) . '/WordPressQueryCacheSmoke.php',
+        );
 
         $bootstrap_wrapper = dirname(__FILE__) . '/bootstrap-wrapper.php';
         $env['MINCEMEAT_REAL_BOOTSTRAP'] = $bootstrap;
 
-        $cmd = "$phpunit_bin --bootstrap " . escapeshellarg($bootstrap_wrapper) . " --configuration " . escapeshellarg($config_xml) . " " . escapeshellarg($test_file);
+        $escaped_files = array_map('escapeshellarg', $test_files);
+        $cmd = "$phpunit_bin --bootstrap " . escapeshellarg($bootstrap_wrapper) . " --configuration " . escapeshellarg($config_xml) . " " . implode(' ', $escaped_files);
 
         $descriptors = array(
             0 => array('pipe', 'r'), // stdin

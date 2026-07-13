@@ -471,6 +471,54 @@ class CompatibilityTest extends IntegrationTestCase
         $this->assertNotEmpty($this->logged_messages);
         $this->assertStringContainsString('Value codec decode failed: decode-magic', $this->logged_messages[count($this->logged_messages) - 1]);
     }
+
+    public function test_package_zip_lifecycle()
+    {
+        $zip_file = dirname(__FILE__, 3) . '/mincemeat-object-cache.zip';
+        $manifest_file = dirname(__FILE__, 3) . '/manifest.json';
+
+        // 1. Assert ZIP and manifest files exist
+        $this->assertTrue(file_exists($zip_file), 'Package ZIP not found. Build it first.');
+        $this->assertTrue(file_exists($manifest_file), 'Manifest JSON not found.');
+
+        // 2. Validate manifest format
+        $manifest = json_decode(file_get_contents($manifest_file), true);
+        $this->assertIsArray($manifest);
+        $this->assertSame('mincemeat-object-cache', $manifest['name']);
+        $this->assertSame(hash_file('sha256', $zip_file), $manifest['zip_sha256']);
+
+        // 3. Extract to a temp directory to verify contents
+        $temp_dir = sys_get_temp_dir() . '/mcoc-zip-test-' . bin2hex(random_bytes(8));
+        mkdir($temp_dir, 0755, true);
+
+        $zip = new \ZipArchive();
+        $this->assertTrue($zip->open($zip_file));
+        $this->assertTrue($zip->extractTo($temp_dir));
+        $zip->close();
+
+        // 4. Assert all manifest files exist in extract path and match hashes/sizes
+        foreach ($manifest['files'] as $rel_path => $meta) {
+            $extracted_path = $temp_dir . '/mincemeat-object-cache/' . $rel_path;
+            $this->assertTrue(file_exists($extracted_path), "File missing in ZIP: {$rel_path}");
+            
+            $content = file_get_contents($extracted_path);
+            $content = str_replace("\r\n", "\n", $content); // normalize line endings
+            
+            $this->assertSame($meta['sha256'], hash('sha256', $content), "Checksum mismatch: {$rel_path}");
+            $this->assertSame($meta['size'], strlen($content), "Size mismatch: {$rel_path}");
+        }
+
+        // 5. Clean up
+        $files = new \RecursiveIteratorIterator(
+            new \RecursiveDirectoryIterator($temp_dir, \RecursiveDirectoryIterator::SKIP_DOTS),
+            \RecursiveIteratorIterator::CHILD_FIRST
+        );
+        foreach ($files as $fileinfo) {
+            $todo = ($fileinfo->isDir() ? 'rmdir' : 'unlink');
+            $todo($fileinfo->getRealPath());
+        }
+        rmdir($temp_dir);
+    }
 }
 
 class CompatibilityMockPhpRedisAdapter extends PhpRedisAdapter

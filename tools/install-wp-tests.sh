@@ -67,12 +67,13 @@ mkdir -p "$TARGET_DIR/src/wp-content/plugins"
 # Download pinned or recent stable versions of WooCommerce, Yoast SEO, and EDD for compatibility smoke testing
 PLUGINS_DIR="$TARGET_DIR/src/wp-content/plugins"
 
-# Helper to download and unzip a plugin
+# Helper to download and unzip a plugin with exact version pinning
 download_plugin() {
     local name=$1
+    local version=$2
     if [ ! -d "$PLUGINS_DIR/$name" ]; then
-        echo "Downloading plugin $name..."
-        curl -sL "https://downloads.wordpress.org/plugin/$name.zip" -o "/tmp/$name.zip"
+        echo "Downloading plugin $name $version..."
+        curl -sL "https://downloads.wordpress.org/plugin/$name.$version.zip" -o "/tmp/$name.zip"
         unzip -q "/tmp/$name.zip" -d "$PLUGINS_DIR"
         rm -f "/tmp/$name.zip"
     else
@@ -80,9 +81,9 @@ download_plugin() {
     fi
 }
 
-# We use latest stable versions for smoke testing
-download_plugin "woocommerce"
-download_plugin "wordpress-seo"
-download_plugin "easy-digital-downloads"
+# We use pinned stable versions for smoke testing
+download_plugin "woocommerce" "8.9.1"
+download_plugin "wordpress-seo" "22.8"
+download_plugin "easy-digital-downloads" "3.6.9"
 
 echo "WordPress $WP_VERSION test infrastructure set up successfully!"

@@ -126,11 +126,11 @@ class AtomicNumericTest extends IntegrationTestCase
 
         // 3. Large integer boundaries (2^53 + 1)
         $this->cache->set('k-large-53', 9007199254740993, 'options');
-        $this->assertEqualsWithDelta(9007199254740994, $this->cache->incr('k-large-53', 1, 'options'), 8);
+        $this->assertSame(9007199254740994, $this->cache->incr('k-large-53', 1, 'options'));
 
         // 4. PHP_INT_MAX, PHP_INT_MIN, and boundary-crossing
         $this->cache->set('k-int-max', PHP_INT_MAX, 'options');
-        $this->assertEqualsWithDelta((float)PHP_INT_MAX + 1, $this->cache->incr('k-int-max', 1, 'options'), 1e13);
+        $this->assertSame((float)PHP_INT_MAX + 1, $this->cache->incr('k-int-max', 1, 'options'));
     }
 
     public function test_incr_preserves_finite_ttl()
