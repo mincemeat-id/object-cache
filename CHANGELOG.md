@@ -2,16 +2,10 @@
 
 ## [Unreleased]
 
-- Added isolated WordPress browser/WP-CLI E2E coverage for lifecycle, Site Health, outage recovery, ownership safety, and multisite.
-- Registered the documented hyphenated WP-CLI lifecycle subcommands explicitly.
-- Added repeatable hot-path benchmarks with local JSON baselines, latency comparisons, and exact backend round-trip guardrails.
+- No changes yet.
 
-## [1.0.0-rc1] - 2026-07-13
+## [0.1.0-rc1] - 2026-07-13
 
-- Replaced serialized test configuration injection with validated JSON decoding.
-- Cleaned up local credential handling, certificate storage, and hardened cert permissions.
-- Expanded CI coverage and verification matrix to PHP 7.4 through 8.5.
-- Fixed stray root credential file (`mypassword`) and moved TLS material to ignore paths.
-- Updated version metadata to `1.0.0-rc1`.
+- Initial release.
 
-All notable changes are documented here. The project follows Semantic Versioning.
+This project uses ZeroVer while the public API and operational behavior settle.

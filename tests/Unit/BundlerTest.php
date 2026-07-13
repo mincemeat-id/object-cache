@@ -49,8 +49,8 @@ class BundlerTest extends TestCase
 
         // Verify markers in the comment block.
         $this->assertMatchesRegularExpression('/Owner:\s*mincemeat-object-cache/', $content1, 'Header must contain correct Owner ID.');
-        $this->assertMatchesRegularExpression('/Version:\s*\d+\.\d+\.\d+/', $content1, 'Header must contain Version marker.');
-        $this->assertMatchesRegularExpression('/Drop-in Version:\s*\d+\.\d+\.\d+/', $content1, 'Header must contain Drop-in Version marker.');
+        $this->assertMatchesRegularExpression('/Version:\s*0\.\d+\.\d+(?:-rc\d+)?/', $content1, 'Header must contain ZeroVer Version marker.');
+        $this->assertMatchesRegularExpression('/Drop-in Version:\s*0\.\d+\.\d+(?:-rc\d+)?/', $content1, 'Header must contain ZeroVer Drop-in Version marker.');
         $this->assertMatchesRegularExpression('/Schema Version:\s*\d+/', $content1, 'Header must contain Schema Version.');
         $this->assertMatchesRegularExpression('/Build Hash:\s*[a-f0-9]{64}/', $content1, 'Header must contain valid 64-character SHA-256 build hash.');
     }

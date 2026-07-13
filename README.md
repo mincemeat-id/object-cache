@@ -1,146 +1,102 @@
 # Mincemeat Object Cache
 
-A Redis/Valkey object-cache drop-in for WordPress, built on the PhpRedis extension. Mincemeat Object Cache replaces the WordPress object cache with a Redis- or Valkey-backed implementation. The runtime lives in a generated standalone `object-cache.php` drop-in; this package provides the companion plugin (lifecycle, Site Health, and minimal WP-CLI).
+Mincemeat Object Cache is a Redis/Valkey object-cache drop-in for WordPress, built on the PhpRedis extension. It provides a generated standalone `object-cache.php` runtime plus a small companion plugin for drop-in lifecycle, Site Health diagnostics, and WP-CLI operations.
+
+Status: `0.1.0-rc1` public testing release candidate. The project uses ZeroVer while the public API and operational behavior settle.
 
 ## Requirements
 
-- PHP 7.4 through 8.5 tested (PHP 8.5 support also depends on the wider WordPress installation stack)
 - WordPress 6.9 or later
+- PHP 7.4 through PHP 8.5, as validated by CI
 - PhpRedis 6.3.0 or later
 - Redis 8 or Valkey 9
 
-### PHP Version Support Policy
-
-Official support is strictly limited to PHP versions actively tested and validated in the Mincemeat continuous integration (CI) matrix (currently PHP 7.4 through PHP 8.5). While the Composer requirements allow PHP `>=7.4`, future major or minor versions of PHP (e.g., 8.6+) are not officially supported or guaranteed to function correctly until they have been integrated and validated in the test suite.
+Future PHP, Redis, Valkey, or WordPress versions are supported only after they are added to the test matrix.
 
 ## Configuration
 
-Configure the drop-in by defining the `MINCEMEAT_OBJECT_CACHE_CONFIG` array constant in wp-config.php before WordPress loads. Supported keys:
-
-- `namespace` (required): Cache key namespace/segment used to isolate keys on a shared Redis instance.
-- `scheme`: Connection scheme. One of `tcp`, `tls`, or `unix`. Defaults to `tcp`.
-- `host`: Redis/Valkey host (for `tcp` and `tls`).
-- `port`: Redis/Valkey port (for `tcp` and `tls`).
-- `path`: Unix socket path (for `unix`).
-- `database`: Redis logical database index.
-- `username`: Redis ACL username, optional.
-- `password`: Redis ACL password, optional.
-- `connect_timeout`: Connect timeout in seconds.
-- `read_timeout`: Read timeout in seconds.
-- `max_retries`: Reconnect retries after an initial command failure, from `0` to `3`. Default `1`.
-- `backoff_algorithm`: `default`, `decorrelated_jitter`, `full_jitter`, `equal_jitter`, `exponential`, `uniform`, or `constant`. Default `decorrelated_jitter`.
-- `backoff_base`: Initial reconnect backoff in milliseconds, from `0` to `1000`. Default `10`.
-- `backoff_cap`: Maximum reconnect backoff in milliseconds, from `0` to `1000` and not less than `backoff_base`. Default `100`.
-- `tcp_keepalive`: Enable TCP socket keepalive. Default `true`.
-- `persistent`: Whether to use a persistent connection (boolean).
-- `max_ttl`: Maximum TTL applied to cached entries. Default `2592000` (30 days).
-- `tls`: TLS context array (peer name, verify peer, verify peer name, ca file, etc.) for `tls` scheme.
-- `debug`: Enable debug diagnostics (boolean).
-
-Example:
+Configuration lives in `wp-config.php` as a PHP array constant. There is intentionally no admin settings screen for credentials.
 
 ```php
 define('MINCEMEAT_OBJECT_CACHE_CONFIG', [
-    'namespace'       => 'mysite',
-    'scheme'          => 'tcp',
-    'host'            => '127.0.0.1',
-    'port'            => 6379,
-    'database'        => 0,
-    'connect_timeout' => 1.0,
-    'read_timeout'    => 1.0,
-    'max_retries'     => 1,
+    'namespace'         => 'my-site',
+    'scheme'            => 'tcp',
+    'host'              => '127.0.0.1',
+    'port'              => 6379,
+    'database'          => 0,
+    'connect_timeout'   => 1.0,
+    'read_timeout'      => 1.0,
+    'max_retries'       => 1,
     'backoff_algorithm' => 'decorrelated_jitter',
-    'backoff_base'    => 10,
-    'backoff_cap'     => 100,
-    'tcp_keepalive'   => true,
-    'persistent'      => false,
-    'max_ttl'         => 2592000,
-    'debug'           => false,
+    'backoff_base'      => 10,
+    'backoff_cap'       => 100,
+    'tcp_keepalive'     => true,
+    'persistent'        => false,
+    'max_ttl'           => 2592000,
+    'debug'             => false,
 ]);
 ```
 
-## Scope
+Supported keys include `namespace`, `scheme`, `host`, `port`, `path`, `database`, `username`, `password`, `connect_timeout`, `read_timeout`, `max_retries`, `backoff_algorithm`, `backoff_base`, `backoff_cap`, `tcp_keepalive`, `persistent`, `max_ttl`, `tls`, and `debug`. Use `scheme => 'tls'` for TLS connections and `scheme => 'unix'` plus `path` for Unix sockets.
 
-Mincemeat Object Cache is an object cache only. It caches database query results, option preloads, and similar transient data. It is not a page cache and does not serve cached HTML responses.
+## Operation
 
-The global `$wp_object_cache` object preserves WordPress's commonly inspected
-compatibility surface: hit/miss counters, global-group and blog-prefix views,
-`isset()` checks for those properties, and `stats()` output.
+Mincemeat Object Cache is an object cache only. It caches values stored through the WordPress object-cache API; it is not a page cache and does not serve cached HTML.
 
-## Diagnostics
+Diagnostics are available in WordPress under Tools -> Site Health -> Info. The companion plugin reports cache state, drop-in integrity, supported features, backend product/version when safe, and redacted connection context.
 
-There is no settings page. All runtime diagnostics are surfaced through WordPress Site Health (Tools -> Site Health -> Info).
-
-Request metrics include the current cache state and stable reason code so
-configuration, connection, authentication, and mid-request command failures can
-be distinguished without exposing exception traces or connection credentials.
-
-## Development & Testing Ports
-
-For local development and testing, non-default ports are used to prevent conflicts with other local databases or services. The Docker Compose endpoints are automatic fallbacks; helper-service values are exported when those optional scenarios are enabled:
-
-| Service | Environment variable | Local default |
-| --- | --- | --- |
-| Redis 8 | `MINCEMEAT_TEST_REDIS_PORT` | `6383` |
-| Valkey 9 | `MINCEMEAT_TEST_VALKEY_PORT` | `6384` |
-| MariaDB 11.8 | `MINCEMEAT_TEST_DB_PORT` | `33076` |
-| Redis ACL helper | `MINCEMEAT_TEST_ACL_PORT` | `6381` |
-| Redis TLS helper | `MINCEMEAT_TEST_TLS_PORT` | `6382` |
-| Redis Unix socket helper | `MINCEMEAT_TEST_UNIX_SOCKET` | `/tmp/redis-socket/redis.sock` |
-| ACL test username | `MINCEMEAT_TEST_ACL_USER` | `myuser` |
-| ACL test password | `MINCEMEAT_TEST_ACL_PASS` | `mypassword` (local test only) |
-| Trusted test CA | `MINCEMEAT_TEST_TLS_CA` | `tests/certs/ca.crt` |
-| Untrusted test CA | `MINCEMEAT_TEST_TLS_UNTRUSTED_CA` | `tests/certs/untrusted-ca.crt` |
-
-The default host is `127.0.0.1` and can be overridden with `MINCEMEAT_TEST_REDIS_HOST`. CI exports its own isolated service ports explicitly.
-
-To set up the containers and run the test suite locally:
-1. Start the Docker services: `docker compose up -d`
-2. Run the PHPUnit test suite or generate and verify coverage:
+WP-CLI command group:
 
 ```bash
-composer test
-composer test:coverage
+wp mincemeat-cache status
+wp mincemeat-cache install-dropin
+wp mincemeat-cache remove-dropin
 ```
 
-Optional Unix socket, ACL, and TLS scenarios are started with `bash tools/setup-test-services.sh`. Export the helper variables from the table to enable those tests locally.
+The lifecycle code installs and removes only the managed drop-in. It refuses to overwrite or remove a foreign `wp-content/object-cache.php`.
 
-The helper services also provision isolated ACL fault users used by the test
-suite to verify denied `EVAL`, `SCRIPT`, `UNLINK`, and `INFO` behavior. These
-fixed credentials are local-test-only and are not runtime configuration.
+## Development
 
-### Performance baselines
+Install dependencies and start local services:
 
-The benchmark suite uses fixed hot-path workloads and exact backend round-trip
-guardrails. Baselines are local and ignored because wall-clock comparisons are
-meaningful only on the same controlled runner and software versions:
+```bash
+composer install
+docker compose up -d
+```
+
+Common checks:
+
+```bash
+composer validate --strict --no-check-lock
+composer lint -- --report=summary
+composer stan -- --error-format=raw
+composer test
+composer test:coverage
+composer test:e2e
+```
+
+Local Docker defaults use Redis 8 on `6383`, Valkey 9 on `6384`, and MariaDB on `33076`. Optional ACL, TLS, and Unix-socket helper services are created by `bash tools/setup-test-services.sh` for integration scenarios.
+
+Performance guardrails:
 
 ```bash
 composer benchmark -- 127.0.0.1 6383 --save-baseline
 composer benchmark -- 127.0.0.1 6383 --compare
 ```
 
-Pass `--json` for the versioned machine-readable report. Reports identify PHP,
-PhpRedis, and the backend product/version but omit the connection target.
+Benchmark reports include PHP, PhpRedis, backend product, and backend version, but omit connection targets.
 
-## End-to-End Tests
+## Release Builds
 
-The browser and WP-CLI suite creates an isolated WordPress 6.9 install with its own MariaDB and authenticated Redis containers. It covers admin activation, drop-in lifecycle commands, Site Health redaction, normal admin/frontend requests, backend outage and recovery, foreign drop-in protection, managed deactivation, and multisite network activation.
-
-Docker with Compose is the only host requirement; Playwright and PhpRedis run inside purpose-built containers:
+The drop-in is generated from `src/`; do not edit `stubs/object-cache.php` by hand.
 
 ```bash
-composer test:e2e
+php tools/build-dropin.php
+php tools/build-package.php
 ```
 
-The suite removes its containers and volumes after each run. Set `MINCEMEAT_E2E_KEEP_ENV=1` to preserve a failing environment for local debugging, or `MINCEMEAT_E2E_PORT` to use a host port other than `8091`. Browser traces and screenshots on failure are written under `tests/e2e/test-results/` and are ignored by Git.
-
-For the current improvement roadmap, see the [Improvement Plan](docs/IMPROVEMENT_PLAN.md).
+Package builds produce `mincemeat-object-cache.zip`, `mincemeat-object-cache.zip.sha256`, and `manifest.json`. These release artifacts are deterministic outputs and are ignored in normal development.
 
 ## License
 
-GPL-3.0-or-later. See LICENSE.
-
-## Status
-
-1.0.0-rc1. Release candidate.
+GPL-3.0-or-later. See [LICENSE](LICENSE).

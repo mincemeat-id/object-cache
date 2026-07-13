@@ -73,7 +73,7 @@ Companion plugin: mincemeat-object-cache.php
 | `tools/build-dropin.php` | Builds the standalone drop-in from source. |
 | `tools/build-package.php` | Builds release package artifacts. |
 | `tests/` | Unit, contract, compatibility, lifecycle, integration, and smoke tests. |
-| `docs/` | Design, implementation, analysis, and improvement planning documents. |
+| `docs/` | Design, implementation, and release documentation. |
 
 ## Boot Sequence
 
@@ -351,7 +351,7 @@ Generated files must be treated explicitly:
 
 AI agents working on this repository should:
 
-- Read this file, `docs/IMPLEMENTATION.md`, and `docs/IMPROVEMENT_PLAN.md` before changing runtime behavior.
+- Read this file, `docs/IMPLEMENTATION.md`, `docs/RELEASE.md`, `README.md`, and `composer.json` before changing runtime behavior.
 - Change source under `src/`, then regenerate the drop-in.
 - Never edit `stubs/object-cache.php` by hand.
 - Preserve PHP 7.4 syntax.

@@ -5,20 +5,9 @@ Audience: maintainers, contributors, release engineers, and AI agents.
 
 ## Current Status
 
-The implementation is release-candidate quality after the production-readiness remediation work. No current P0 release blockers are documented.
+The implementation is public-testing release-candidate quality. No release-blocking issues are documented in this repository.
 
-Verified during the 2026-07-13 improvement-plan review:
-
-- Composer metadata, PHPCS, PHPStan level 8, PHPUnit, generated artifact parity, package determinism, and the broader Redis/Valkey matrix are covered by CI.
-- Local PHPUnit with the Docker Compose and helper fault services passed on PHP 8.4.23: `463 tests`, `1561 assertions`, `1 skipped`.
-- PCOV is available locally and produces `86.40%` (`1995/2309`) line coverage over `src/`.
-- The coverage verifier enforces the overall target plus critical baselines for Backend, PhpRedisAdapter, ObjectCache, Lifecycle, KeySpace, ValueCodec, and Config.
-- PHPStan level 8 is the configured default and passes without baselines or ignore comments.
-
-Current improvement targets:
-
-- Continued compatibility and release hardening after completion of the
-  stability and fault-injection milestone.
+The maintained validation surface includes Composer metadata, PHPCS, PHPStan level 8, PHPUnit, PCOV coverage thresholds, generated artifact parity, deterministic package builds, browser/WP-CLI E2E tests, benchmark guardrails, and a Redis/Valkey CI matrix.
 
 PhpRedis 6.3.0 is the minimum required extension version and is installed
 explicitly in CI. Connection setup verifies serializer, compression, prefix,
@@ -58,7 +47,7 @@ multisite scope decisions.
 | `tools/install-wp-tests.sh` | WordPress test-suite setup. |
 | `tools/setup-test-services.sh` | Local Redis/Valkey/TLS helper. |
 | `tests/` | PHPUnit coverage. |
-| `docs/` | Design, implementation, analysis, and improvement planning docs. |
+| `docs/` | Design, implementation, and release docs. |
 | `AGENTS.md` | Root instructions for future coding agents. |
 
 ## Development Rules
@@ -96,8 +85,8 @@ The local defaults intentionally avoid common service ports. The Docker Compose 
 | Redis ACL helper | `MINCEMEAT_TEST_ACL_PORT` | `6381` |
 | Redis TLS helper | `MINCEMEAT_TEST_TLS_PORT` | `6382` |
 | Redis Unix socket helper | `MINCEMEAT_TEST_UNIX_SOCKET` | `/tmp/redis-socket/redis.sock` |
-| ACL test username | `MINCEMEAT_TEST_ACL_USER` | `myuser` |
-| ACL test password | `MINCEMEAT_TEST_ACL_PASS` | `mypassword` (local test only) |
+| ACL test username | `MINCEMEAT_TEST_ACL_USER` | exported by helper service |
+| ACL test password | `MINCEMEAT_TEST_ACL_PASS` | exported by helper service |
 | Trusted test CA | `MINCEMEAT_TEST_TLS_CA` | `tests/certs/ca.crt` |
 | Untrusted test CA | `MINCEMEAT_TEST_TLS_UNTRUSTED_CA` | `tests/certs/untrusted-ca.crt` |
 
@@ -212,11 +201,11 @@ Do not add test-name-specific branches to runtime code. If a WordPress core comp
 
 Before a public release or stable tag:
 
-1. Review `docs/IMPROVEMENT_PLAN.md` for any release-bound items.
-2. Update plugin header version and readme stable tag.
+1. Review `docs/RELEASE.md`.
+2. Update plugin header version, `src/Api.php`, `readme.txt`, `README.md`, and `CHANGELOG.md`.
 3. Verify `readme.txt` metadata for WordPress.org conventions.
-4. Run full CI.
-5. Build release package in a clean environment.
+4. Run full local validation and CI.
+5. Build the release package in a clean environment.
 6. Verify package checksum, manifest, deterministic rebuild, and ZIP allowlist.
 7. Smoke-test install, activation, Site Health, WP-CLI status, drop-in install, drop-in removal, and checksum mismatch handling.
 
