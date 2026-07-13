@@ -609,6 +609,9 @@ final class ObjectCache {
 	public function decr( $key, $offset = 1, $group = '' ) {
 		$offset = (int) $offset;
 		$group  = (string) $group;
+		if ($offset === PHP_INT_MIN) {
+			return $this->delta( $key, PHP_INT_MIN, $group );
+		}
 		return $this->delta( $key, -$offset, $group );
 	}
 
@@ -1052,7 +1055,8 @@ final class ObjectCache {
 			foreach ($missing as $key) {
 				$storage_id_d = $this->key_space->storage_id( $key, $group );
 				if ($this->exists( $storage_id_d, $group )) {
-					$values[ $key ] = $this->cache[ $group ][ $storage_id_d ];
+					$value          = $this->cache[ $group ][ $storage_id_d ];
+					$values[ $key ] = is_object( $value ) ? clone $value : $value;
 					$this->hits    += 1;
 				} else {
 					$this->misses += 1;

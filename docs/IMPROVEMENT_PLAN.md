@@ -1,7 +1,7 @@
 # Mincemeat Object Cache - Improvement Plan
 
 Date: 2026-07-13
-Status: post-remediation, release-candidate quality; Milestones 1 and 2 complete.
+Status: post-remediation, release-candidate quality; Milestones 1 through 3 complete.
 Scope: next engineering improvements after the production-readiness remediation work was completed and pushed.
 
 This replaces the old production-readiness remediation plan. The previous blocker set is closed: the test-specific `wp_cache_flush_group()` branch is gone, package artifacts are ignored rather than committed, package determinism is checked, artifact parity CI has been expanded, JSON test configuration is in place, and local credential/certificate hygiene has improved.
@@ -130,7 +130,9 @@ Both should pass on a fresh checkout with PhpRedis and PCOV installed.
 
 Goal: use PCOV as the normal local and CI coverage driver, then raise coverage only where it increases confidence.
 
-Current coverage snapshot:
+Status: complete on 2026-07-13.
+
+Completed coverage snapshot:
 
 | Component | Line coverage |
 | --- | ---: |
@@ -138,18 +140,19 @@ Current coverage snapshot:
 | `src/Config.php` | `97.66%` |
 | `src/ValueCodec.php` | `94.51%` |
 | `src/SiteHealth.php` | `84.69%` |
-| `src/ObjectCache.php` | `78.25%` |
-| `src/Lifecycle.php` | `69.57%` |
-| `src/PhpRedisAdapter.php` | `64.65%` |
-| `src/Backend.php` | `64.05%` |
+| `src/ObjectCache.php` | `78.89%` |
+| `src/Lifecycle.php` | `83.70%` |
+| `src/PhpRedisAdapter.php` | `87.78%` |
+| `src/Backend.php` | `95.79%` |
 
-Recommended coverage targets:
+Implemented:
 
-- Overall line coverage: raise from `77%` to `85%`.
-- `Backend`: cover token initialization races, degraded transitions, script failures, and server identity fallback.
-- `PhpRedisAdapter`: cover connect options, `setOption()` failures, pipeline dispatch, `evalsha` fallback once added, and `serverName()`/`serverVersion()` capability probing.
-- `ObjectCache`: cover mid-request degradation for multiple operations, non-persistent groups, object cloning through batch paths, and numeric edge cases.
-- `Lifecycle`: cover permissions, unreadable files, checksums, atomic temp cleanup, and WP-CLI messages without touching real user drop-ins.
+1. Raised overall line coverage from `77.02%` to `85.13%` (`1832/2152`) and made `85%` the default verifier threshold.
+2. Added critical-file regression thresholds for `Backend`, `PhpRedisAdapter`, `ObjectCache`, and `Lifecycle` alongside the existing pure-component thresholds.
+3. Covered backend token races and retry exhaustion, command and pipeline degradation, script failures, and per-key batch fallbacks.
+4. Covered PhpRedis connection setup failures, safe option configuration, command defaults/results, pipeline dispatch, and sanitized server identity fallback.
+5. Covered non-persistent batch semantics, object clone isolation, numeric boundaries, and request-local fallback behavior in `ObjectCache`.
+6. Expanded lifecycle marker, ownership, unreadable/non-file, checksum, permissions, atomic installation/removal, and WP-CLI result coverage without touching real user drop-ins.
 
 Acceptance criteria:
 

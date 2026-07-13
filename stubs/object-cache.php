@@ -7,7 +7,7 @@
  * Version: 1.0.0-rc1
  * Drop-in Version: 1.0.0-rc1
  * Schema Version: 1
- * Build Hash: 2b6a99bfc47a11df332f4b576c38f7b55cc3204eb38e10d4c8b585c2bc70eafb
+ * Build Hash: 4b0b48ef9385ce47d31d66b0c6231001cee2f3f87526a4ad2b5a986da829cdd5
  *
  * @package Mincemeat\ObjectCache
  */
@@ -3027,6 +3027,9 @@ namespace Mincemeat\ObjectCache {
 		public function decr( $key, $offset = 1, $group = '' ) {
 			$offset = (int) $offset;
 			$group  = (string) $group;
+			if ($offset === PHP_INT_MIN) {
+				return $this->delta( $key, PHP_INT_MIN, $group );
+			}
 			return $this->delta( $key, -$offset, $group );
 		}
 
@@ -3470,7 +3473,8 @@ namespace Mincemeat\ObjectCache {
 				foreach ($missing as $key) {
 					$storage_id_d = $this->key_space->storage_id( $key, $group );
 					if ($this->exists( $storage_id_d, $group )) {
-						$values[ $key ] = $this->cache[ $group ][ $storage_id_d ];
+						$value          = $this->cache[ $group ][ $storage_id_d ];
+						$values[ $key ] = is_object( $value ) ? clone $value : $value;
 						$this->hits    += 1;
 					} else {
 						$this->misses += 1;
@@ -3935,11 +3939,18 @@ namespace Mincemeat\ObjectCache {
 				throw new BackendException( 'connect-failed', 'Connection attempt failed.' );
 			}
 
-			// Disable PhpRedis serializer/compressor so the plugin owns the wire format.
-			$this->redis->setOption( Redis::OPT_SERIALIZER, Redis::SERIALIZER_NONE );
-			$this->redis->setOption( Redis::OPT_COMPRESSION, Redis::COMPRESSION_NONE );
-			// No automatic prefix; key-space layout is in the KeySpace component.
-			$this->redis->setOption( Redis::OPT_PREFIX, '' );
+			// Disable PhpRedis wire-format features so the plugin owns the format and key layout.
+			try {
+				$options_set = $this->redis->setOption( Redis::OPT_SERIALIZER, Redis::SERIALIZER_NONE )
+					&& $this->redis->setOption( Redis::OPT_COMPRESSION, Redis::COMPRESSION_NONE )
+					&& $this->redis->setOption( Redis::OPT_PREFIX, '' );
+			} catch (\Throwable $e) {
+				throw new BackendException( 'connect-failed', 'Connection option configuration failed.', 0, $e );
+			}
+
+			if ( ! $options_set) {
+				throw new BackendException( 'connect-failed', 'Connection option configuration failed.' );
+			}
 
 			// Auth (ACL username + password, or just password).
 			if ($config->username() !== null || $config->password() !== null) {
@@ -3995,7 +4006,8 @@ namespace Mincemeat\ObjectCache {
 			}
 
 			try {
-				return $this->redis->ping() === true || $this->redis->ping() === '+PONG';
+				$result = $this->redis->ping();
+				return $result === true || $result === '+PONG';
 			} catch (\Throwable $e) {
 				return false;
 			}

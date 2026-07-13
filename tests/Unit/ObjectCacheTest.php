@@ -207,6 +207,45 @@ class ObjectCacheTest extends TestCase
         $this->assertSame(6, $this->cache->incr('k', 1, 'counts'));
     }
 
+    public function test_non_persistent_batch_operations_clone_objects_and_never_call_backend()
+    {
+        $this->cache->add_non_persistent_groups('local-batch');
+        $object = (object) array('value' => 'original');
+
+        $this->assertSame(
+            array('object' => true, 'number' => true),
+            $this->cache->set_multiple(array('object' => $object, 'number' => 4), 'local-batch')
+        );
+        $values = $this->cache->get_multiple(array('object', 'number', 'missing'), 'local-batch');
+        $this->assertEquals($object, $values['object']);
+        $this->assertNotSame($object, $values['object']);
+        $values['object']->value = 'mutated';
+
+        $again = $this->cache->get_multiple(array('object'), 'local-batch');
+        $this->assertSame('original', $again['object']->value);
+        $this->assertSame(4, $values['number']);
+        $this->assertFalse($values['missing']);
+        $this->assertSame(
+            array('object' => true, 'missing' => false),
+            $this->cache->delete_multiple(array('object', 'missing'), 'local-batch')
+        );
+        $this->assertSame(0, $this->cache->backend_calls());
+    }
+
+    public function test_numeric_operations_clamp_integer_boundaries_without_overflow()
+    {
+        $this->cache->add_non_persistent_groups('numbers');
+        $this->cache->set('minimum-offset', PHP_INT_MAX, 'numbers');
+        $this->assertSame(0, $this->cache->decr('minimum-offset', PHP_INT_MIN, 'numbers'));
+
+        $this->cache->set('maximum', PHP_INT_MAX, 'numbers');
+        $this->assertSame(PHP_INT_MAX, $this->cache->incr('maximum', 1, 'numbers'));
+        $this->cache->set('negative', -10, 'numbers');
+        $this->assertSame(0, $this->cache->incr('negative', 1, 'numbers'));
+        $this->cache->set('not-numeric', 'word', 'numbers');
+        $this->assertSame(2, $this->cache->incr('not-numeric', 2, 'numbers'));
+    }
+
     public function test_switch_to_blog_back_restores_scope()
     {
         $multisite_cache = new ObjectCache(new KeySpace(true, 2));

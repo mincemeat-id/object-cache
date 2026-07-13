@@ -73,6 +73,15 @@ namespace Mincemeat\ObjectCache\Tests\Lifecycle {
 			}
 
 			$this->assertSame(Lifecycle::STATE_ABSENT, Lifecycle::get_dropin_state());
+			$this->assertTrue(Lifecycle::remove_dropin());
+		}
+
+		public function test_get_dropin_state_treats_non_files_as_foreign()
+		{
+			$target = WP_CONTENT_DIR . '/object-cache.php';
+			mkdir($target);
+			$this->assertSame(Lifecycle::STATE_FOREIGN, Lifecycle::get_dropin_state());
+			rmdir($target);
 		}
 
 		public function test_get_dropin_state_unreadable()
@@ -111,6 +120,45 @@ namespace Mincemeat\ObjectCache\Tests\Lifecycle {
 			file_put_contents($target, "<?php\n/**\n * Owner: mincemeat-object-cache\n * Version: 1.0.0-dev\n * Build Hash: wronghash\n */\n");
 
 			$this->assertSame(Lifecycle::STATE_OWNED_STALE, Lifecycle::get_dropin_state());
+		}
+
+		public function test_parse_markers_reads_complete_header()
+		{
+			$path = WP_CONTENT_DIR . '/markers.php';
+			file_put_contents($path, "Owner: mincemeat-object-cache\nVersion: 1.2.3\nDrop-in Version: 4\nSchema Version: 5\nBuild Hash: abc123\n");
+
+			$this->assertSame(array(
+				'owner' => 'mincemeat-object-cache',
+				'version' => '1.2.3',
+				'dropin_version' => '4',
+				'schema_version' => '5',
+				'build_hash' => 'abc123',
+			), Lifecycle::parse_markers($path));
+			unlink($path);
+		}
+
+		public function test_parse_markers_returns_nulls_for_partial_and_missing_files()
+		{
+			$path = WP_CONTENT_DIR . '/markers.php';
+			file_put_contents($path, "Owner: example-owner\n");
+			$partial = Lifecycle::parse_markers($path);
+
+			$this->assertSame('example-owner', $partial['owner']);
+			$this->assertNull($partial['schema_version']);
+			$this->assertNull($partial['version']);
+			$this->assertNull($partial['dropin_version']);
+			$this->assertNull($partial['build_hash']);
+			unlink($path);
+			$this->assertSame(array_fill_keys(array('owner', 'version', 'dropin_version', 'schema_version', 'build_hash'), null), Lifecycle::parse_markers($path));
+		}
+
+		public function test_parse_markers_does_not_read_beyond_header_limit()
+		{
+			$path = WP_CONTENT_DIR . '/markers.php';
+			file_put_contents($path, str_repeat('x', 8192) . "\nOwner: too-late\n");
+
+			$this->assertNull(Lifecycle::parse_markers($path)['owner']);
+			unlink($path);
 		}
 
 		public function test_has_direct_access_basic()

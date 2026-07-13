@@ -352,6 +352,264 @@ class FailureTest extends TestCase
         $this->assertStringNotContainsString('/path/to/my-secret-ca.pem', $last_err);
         $this->assertStringContainsString('[REDACTED]', $last_err);
     }
+
+    public function test_token_creator_and_race_loser_paths()
+    {
+        $adapter = new MockPhpRedisAdapter();
+        $calls = 0;
+        $adapter->set_callback = function () use (&$calls) {
+            ++$calls;
+            return $calls === 1;
+        };
+        $adapter->get_callback = function () { return ' winner-token '; };
+        $backend = new Backend(new KeySpace(false, 1), $adapter);
+        $backend->initialize($this->get_config());
+
+        $creator = $backend->namespace_token();
+        $this->assertMatchesRegularExpression('/^[a-f0-9]{32}$/', $creator);
+        $this->assertSame($creator, $backend->namespace_token(), 'Creator token is memoized.');
+        $this->assertSame('winner-token', $backend->group_token('race'));
+        $this->assertSame(2, $calls);
+    }
+
+    public function test_token_eviction_retry_uses_second_creator_or_winner()
+    {
+        $adapter = new MockPhpRedisAdapter();
+        $sets = 0;
+        $adapter->set_callback = function () use (&$sets) { return ++$sets === 2; };
+        $adapter->get_callback = function () { return false; };
+        $backend = new Backend(new KeySpace(false, 1), $adapter);
+        $backend->initialize($this->get_config());
+        $this->assertMatchesRegularExpression('/^[a-f0-9]{32}$/', $backend->group_token('evicted'));
+        $this->assertSame(2, $sets);
+
+        $adapter2 = new MockPhpRedisAdapter();
+        $gets = 0;
+        $adapter2->set_callback = function () { return false; };
+        $adapter2->get_callback = function () use (&$gets) { return ++$gets === 1 ? false : 'retry-winner'; };
+        $backend2 = new Backend(new KeySpace(false, 1), $adapter2);
+        $backend2->initialize($this->get_config());
+        $this->assertSame('retry-winner', $backend2->group_token('evicted'));
+    }
+
+    public function test_token_command_exception_degrades_backend()
+    {
+        $adapter = new MockPhpRedisAdapter();
+        $adapter->set_callback = function () { throw new \RedisException('set failed'); };
+        $backend = new Backend(new KeySpace(false, 1), $adapter);
+        $backend->initialize($this->get_config());
+        $this->assertMatchesRegularExpression('/^[a-f0-9]{32}$/', $backend->namespace_token());
+        $this->assertSame(ObjectCache::STATE_DEGRADED, $backend->state());
+        $this->assertSame(Backend::REASON_COMMAND_FAILED, $backend->reason());
+    }
+
+    public function test_group_tokens_batch_resolves_cached_missing_and_mget_failure()
+    {
+        $adapter = new MockPhpRedisAdapter();
+        $adapter->get_callback = function () { return 'cached'; };
+        $adapter->mget_callback = function () { return array('batch-token', false); };
+        $adapter->set_callback = function () { return false; };
+        $backend = new Backend(new KeySpace(false, 1), $adapter);
+        $backend->initialize($this->get_config());
+        $this->assertSame('cached', $backend->group_token('cached-group'));
+        $tokens = $backend->group_tokens(array('cached-group', 'batch', 'new'));
+        $this->assertSame('cached', $tokens['cached-group']);
+        $this->assertSame('batch-token', $tokens['batch']);
+        $this->assertSame('cached', $tokens['new']);
+
+        $adapter2 = new MockPhpRedisAdapter();
+        $adapter2->mget_callback = function () { throw new \RedisException('mget failed'); };
+        $backend2 = new Backend(new KeySpace(false, 1), $adapter2);
+        $backend2->initialize($this->get_config());
+        $this->assertSame(array(), $backend2->group_tokens(array('group')));
+        $this->assertSame(ObjectCache::STATE_DEGRADED, $backend2->state());
+    }
+
+    public function test_eval_and_eval_incr_failure_and_malformed_results()
+    {
+        $adapter = new MockPhpRedisAdapter();
+        $adapter->eval_callback = function () { return 'raw-result'; };
+        $backend = new Backend(new KeySpace(false, 1), $adapter);
+        $backend->initialize($this->get_config());
+        $this->assertSame('raw-result', $backend->eval('return 1'));
+        $this->assertSame(array('CORRUPT', null), $backend->eval_incr('key', 1));
+
+        $adapter->eval_callback = function () { throw new \RedisException('eval failed'); };
+        $this->assertFalse($backend->eval('return 1'));
+        $this->assertSame(ObjectCache::STATE_DEGRADED, $backend->state());
+    }
+
+    public function test_backend_pipeline_results_and_unlink_fallback()
+    {
+        $adapter = new MockPhpRedisAdapter();
+        $pipelines = array();
+        $adapter->pipeline_callback = function (array $commands) use (&$pipelines) {
+            $pipelines[] = $commands;
+            if ($commands[0][0] === 'unlink') {
+                return array(false, true);
+            }
+            if ($commands[0][0] === 'del') {
+                return array(1, 0);
+            }
+            return array(true, false);
+        };
+        $backend = new Backend(new KeySpace(false, 1), $adapter);
+        $backend->initialize($this->get_config());
+
+        $this->assertSame(array(true, false), $backend->del_pipeline(array('one', 'two')));
+        $this->assertSame('unlink', $pipelines[0][0][0]);
+        $this->assertSame('del', $pipelines[1][0][0]);
+        $this->assertSame(array(true, false), $backend->set_pipeline(array(
+            array('one', 'value', null),
+            array('two', 'value', 100),
+        )));
+        $this->assertSame(array(true, false), $backend->set_conditional_pipeline(array(
+            array('one', 'value', null, true, false),
+            array('two', 'value', 100, false, true),
+        )));
+    }
+
+    /** @dataProvider failingPipelineProvider */
+    public function test_backend_pipeline_exception_degrades(string $method, array $arguments)
+    {
+        $adapter = new MockPhpRedisAdapter();
+        $adapter->pipeline_callback = function () { throw new \RedisException('pipeline failed'); };
+        $backend = new Backend(new KeySpace(false, 1), $adapter);
+        $backend->initialize($this->get_config());
+
+        $this->assertSame(array(false), $backend->$method($arguments));
+        $this->assertSame(ObjectCache::STATE_DEGRADED, $backend->state());
+    }
+
+    public function failingPipelineProvider(): array
+    {
+        return array(
+            'delete' => array('del_pipeline', array('key')),
+            'set' => array('set_pipeline', array(array('key', 'value', null))),
+            'conditional set' => array('set_conditional_pipeline', array(array('key', 'value', null, true, false))),
+        );
+    }
+
+    public function test_runtime_only_backend_command_defaults()
+    {
+        $backend = new Backend(new KeySpace(false, 1), new MockPhpRedisAdapter());
+
+        $this->assertSame(array(false, false), $backend->mget(array('one', 'two')));
+        $this->assertFalse($backend->set('key', 'value'));
+        $this->assertFalse($backend->set_unconditional('key', 'value'));
+        $this->assertSame(0, $backend->del('key'));
+        $this->assertSame(array(false), $backend->del_pipeline(array('key')));
+        $this->assertSame(array(false), $backend->set_pipeline(array(array('key', 'value', null))));
+        $this->assertSame(array(false), $backend->set_conditional_pipeline(array(array('key', 'value', null, true, false))));
+        $this->assertFalse($backend->eval('return 1'));
+        $this->assertSame(array('MISSING', null), $backend->eval_incr('key', 1));
+        $this->assertSame('', $backend->namespace_token());
+    }
+
+    /** @dataProvider tokenRetryExceptionProvider */
+    public function test_token_retry_exceptions_degrade_backend(string $failingOperation)
+    {
+        $adapter = new MockPhpRedisAdapter();
+        $sets = 0;
+        $gets = 0;
+        $adapter->set_callback = function () use (&$sets, $failingOperation) {
+            $sets++;
+            if ($failingOperation === 'second-set' && $sets === 2) {
+                throw new \RedisException('retry set failed');
+            }
+            return false;
+        };
+        $adapter->get_callback = function () use (&$gets, $failingOperation) {
+            $gets++;
+            if ($failingOperation === 'second-get' && $gets === 2) {
+                throw new \RedisException('retry get failed');
+            }
+            return false;
+        };
+        $backend = new Backend(new KeySpace(false, 1), $adapter);
+        $backend->initialize($this->get_config());
+
+        $this->assertMatchesRegularExpression('/^[a-f0-9]{32}$/', $backend->group_token('retry'));
+        $this->assertSame(ObjectCache::STATE_DEGRADED, $backend->state());
+    }
+
+    public function tokenRetryExceptionProvider(): array
+    {
+        return array('second set' => array('second-set'), 'second get' => array('second-get'));
+    }
+
+    /** @dataProvider backendCommandExceptionProvider */
+    public function test_backend_command_exceptions_open_circuit(string $method, array $arguments, string $callback)
+    {
+        $adapter = new MockPhpRedisAdapter();
+        $adapter->$callback = function () { throw new \RedisException('command failed'); };
+        $backend = new Backend(new KeySpace(false, 1), $adapter);
+        $backend->initialize($this->get_config());
+
+        $backend->$method(...$arguments);
+        $this->assertSame(ObjectCache::STATE_DEGRADED, $backend->state());
+        $this->assertSame(Backend::REASON_COMMAND_FAILED, $backend->reason());
+    }
+
+    public function backendCommandExceptionProvider(): array
+    {
+        return array(
+            'get' => array('get', array('key'), 'get_callback'),
+            'set' => array('set', array('key', 'value'), 'set_callback'),
+            'unconditional set' => array('set_unconditional', array('key', 'value'), 'set_callback'),
+            'delete' => array('del', array('key'), 'del_callback'),
+        );
+    }
+
+    public function test_token_retry_exhaustion_returns_request_token()
+    {
+        $adapter = new MockPhpRedisAdapter();
+        $adapter->set_callback = function () { return false; };
+        $adapter->get_callback = function () { return false; };
+        $backend = new Backend(new KeySpace(false, 1), $adapter);
+        $backend->initialize($this->get_config());
+
+        $this->assertMatchesRegularExpression('/^[a-f0-9]{32}$/', $backend->group_token('exhausted'));
+        $this->assertSame(ObjectCache::STATE_PERSISTENT, $backend->state());
+    }
+
+    public function test_backend_mget_exception_returns_per_key_misses()
+    {
+        $adapter = new MockPhpRedisAdapter();
+        $adapter->mget_callback = function () { throw new \RedisException('mget failed'); };
+        $backend = new Backend(new KeySpace(false, 1), $adapter);
+        $backend->initialize($this->get_config());
+
+        $this->assertSame(array(false, false), $backend->mget(array('one', 'two')));
+        $this->assertSame(ObjectCache::STATE_DEGRADED, $backend->state());
+    }
+
+    public function test_backend_delete_fallback_exception_returns_per_key_failures()
+    {
+        $adapter = new MockPhpRedisAdapter();
+        $calls = 0;
+        $adapter->pipeline_callback = function () use (&$calls) {
+            if (++$calls === 1) {
+                return array(false, false);
+            }
+            throw new \RedisException('del fallback failed');
+        };
+        $backend = new Backend(new KeySpace(false, 1), $adapter);
+        $backend->initialize($this->get_config());
+
+        $this->assertSame(array(false, false), $backend->del_pipeline(array('one', 'two')));
+        $this->assertSame(ObjectCache::STATE_DEGRADED, $backend->state());
+    }
+
+    public function test_external_initialization_failure_sets_runtime_only_reason()
+    {
+        $backend = new Backend(new KeySpace(false, 1), new MockPhpRedisAdapter());
+        $backend->degrade_to_runtime_only(Backend::REASON_CONFIG_INVALID, new ConfigException('invalid config'));
+
+        $this->assertSame(ObjectCache::STATE_RUNTIME_ONLY, $backend->state());
+        $this->assertSame(Backend::REASON_CONFIG_INVALID, $backend->reason());
+        $this->assertSame('invalid config', $backend->last_error());
+    }
 }
 
 class MockPhpRedisAdapter extends PhpRedisAdapter

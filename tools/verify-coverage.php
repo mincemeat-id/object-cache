@@ -35,7 +35,7 @@ if ($total_statements === 0) {
 $overall_coverage = ($covered_statements / $total_statements) * 100;
 echo sprintf("Overall line/statement coverage: %.2f%% (%d/%d)\n", $overall_coverage, $covered_statements, $total_statements);
 
-$overall_threshold = (float) (getenv('MINCEMEAT_COVERAGE_MIN') ?: '75.0');
+$overall_threshold = (float) (getenv('MINCEMEAT_COVERAGE_MIN') ?: '85.0');
 
 if ($overall_coverage < $overall_threshold) {
     fwrite(STDERR, sprintf("Error: Overall coverage of %.2f%% is below the required %.2f%% threshold!\n", $overall_coverage, $overall_threshold));
@@ -44,10 +44,13 @@ if ($overall_coverage < $overall_threshold) {
 
 // 2. Check critical component coverage against current baselines.
 $critical_files = array(
-    'src/KeySpace.php'   => 100.0,
-    'src/ValueCodec.php' => 90.0,
-    'src/Config.php'     => 95.0,
-    'src/Lifecycle.php'  => 65.0,
+    'src/KeySpace.php'        => 100.0,
+    'src/ValueCodec.php'      => 90.0,
+    'src/Config.php'          => 95.0,
+    'src/Backend.php'         => 94.0,
+    'src/PhpRedisAdapter.php' => 87.0,
+    'src/ObjectCache.php'     => 78.0,
+    'src/Lifecycle.php'       => 83.0,
 );
 
 $missing_files = array();

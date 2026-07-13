@@ -147,11 +147,18 @@ class PhpRedisAdapter {
 			throw new BackendException( 'connect-failed', 'Connection attempt failed.' );
 		}
 
-		// Disable PhpRedis serializer/compressor so the plugin owns the wire format.
-		$this->redis->setOption( Redis::OPT_SERIALIZER, Redis::SERIALIZER_NONE );
-		$this->redis->setOption( Redis::OPT_COMPRESSION, Redis::COMPRESSION_NONE );
-		// No automatic prefix; key-space layout is in the KeySpace component.
-		$this->redis->setOption( Redis::OPT_PREFIX, '' );
+		// Disable PhpRedis wire-format features so the plugin owns the format and key layout.
+		try {
+			$options_set = $this->redis->setOption( Redis::OPT_SERIALIZER, Redis::SERIALIZER_NONE )
+				&& $this->redis->setOption( Redis::OPT_COMPRESSION, Redis::COMPRESSION_NONE )
+				&& $this->redis->setOption( Redis::OPT_PREFIX, '' );
+		} catch (\Throwable $e) {
+			throw new BackendException( 'connect-failed', 'Connection option configuration failed.', 0, $e );
+		}
+
+		if ( ! $options_set) {
+			throw new BackendException( 'connect-failed', 'Connection option configuration failed.' );
+		}
 
 		// Auth (ACL username + password, or just password).
 		if ($config->username() !== null || $config->password() !== null) {
@@ -207,7 +214,8 @@ class PhpRedisAdapter {
 		}
 
 		try {
-			return $this->redis->ping() === true || $this->redis->ping() === '+PONG';
+			$result = $this->redis->ping();
+			return $result === true || $result === '+PONG';
 		} catch (\Throwable $e) {
 			return false;
 		}

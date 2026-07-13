@@ -12,7 +12,7 @@ The next useful work is not another blocker burn-down. It is improving confidenc
 
 - Maintaining PHPStan level 8 as runtime source evolves.
 - True E2E tests.
-- Stronger PCOV-based coverage.
+- Maintain the expanded PCOV-based coverage baselines.
 - Maintaining one-command local test and coverage workflows.
 - WordPress compatibility surface hardening.
 - PhpRedis 6.3.0 modernization.
@@ -34,22 +34,22 @@ vendor/bin/phpunit --coverage-clover build/logs/clover.xml --coverage-text
 
 Result:
 
-- `384 tests`
-- `1211 assertions`
+- `427 tests`
+- `1355 assertions`
 - `7 skipped`
 - pass
 
 Coverage:
 
-- overall line coverage: `77.02%`
+- overall line coverage: `85.13%` (`1832/2152`)
 - `src/KeySpace.php`: `100.00%`
 - `src/Config.php`: `97.66%`
 - `src/ValueCodec.php`: `94.51%`
 - `src/SiteHealth.php`: `84.69%`
-- `src/ObjectCache.php`: `78.25%`
-- `src/Lifecycle.php`: `69.57%`
-- `src/PhpRedisAdapter.php`: `64.65%`
-- `src/Backend.php`: `64.05%`
+- `src/ObjectCache.php`: `78.89%`
+- `src/Lifecycle.php`: `83.70%`
+- `src/PhpRedisAdapter.php`: `87.78%`
+- `src/Backend.php`: `95.79%`
 
 The existing coverage verifier passed:
 
@@ -145,10 +145,10 @@ Hash field expiration, vector commands, and Valkey `DELIFEQ` are real 6.3.0 feat
 ## Current Risks
 
 - E2E coverage is not yet present.
-- Backend and adapter coverage are lower than the most security-sensitive pure components.
+- Backend, adapter, object-cache, and lifecycle coverage now have explicit regression thresholds.
 - WordPress compatibility for direct `$wp_object_cache` property access has not been fully proven.
 - PhpRedis 6.3.0 is installed locally but not yet fully reflected in support policy, diagnostics, or retry/script strategy.
 
 ## Recommendation
 
-Use `docs/IMPROVEMENT_PLAN.md` as the next work queue. Continue with PCOV threshold expansion and WordPress compatibility coverage before adding larger PhpRedis behavior changes.
+Use `docs/IMPROVEMENT_PLAN.md` as the next work queue. Continue with WordPress compatibility and E2E coverage before adding larger PhpRedis behavior changes.

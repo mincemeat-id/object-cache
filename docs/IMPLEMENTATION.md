@@ -10,15 +10,14 @@ The implementation is release-candidate quality after the production-readiness r
 Verified during the 2026-07-13 improvement-plan review:
 
 - Composer metadata, PHPCS, PHPStan level 8, PHPUnit, generated artifact parity, package determinism, and the broader Redis/Valkey matrix are covered by CI.
-- Local PHPUnit with explicit docker compose ports passed on PHP 8.4.23: `384 tests`, `1211 assertions`, `7 skipped`.
-- PCOV is available locally and produced `77.02%` line coverage over `src/`.
-- The existing coverage verifier passed.
+- Local PHPUnit against the Docker Compose defaults passed on PHP 8.4.23: `427 tests`, `1355 assertions`, `7 skipped`.
+- PCOV is available locally and produces `85.13%` (`1832/2152`) line coverage over `src/`.
+- The coverage verifier enforces the overall target plus critical baselines for Backend, PhpRedisAdapter, ObjectCache, Lifecycle, KeySpace, ValueCodec, and Config.
 - PHPStan level 8 is the configured default and passes without baselines or ignore comments.
 
 Current improvement targets:
 
 - Browser/WP-CLI E2E tests.
-- More complete PCOV coverage thresholds.
 - Continued performance, stability, and compatibility work.
 - PhpRedis 6.3.0 capability utilization.
 
