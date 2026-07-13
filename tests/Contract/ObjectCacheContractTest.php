@@ -460,4 +460,19 @@ class ObjectCacheContractTest extends TestCase
         $this->assertFalse(wp_cache_get($key, 'facade-group-flush'));
         $this->assertSame($val, wp_cache_get($key, 'facade-group-keep'));
     }
+
+    public function test_wp_cache_close_delegates_to_object_cache()
+    {
+        $adapter = $this->createMock(\Mincemeat\ObjectCache\PhpRedisAdapter::class);
+        $adapter->expects($this->once())
+            ->method('close');
+
+        $ks = new \Mincemeat\ObjectCache\KeySpace(false, 1);
+        $backend = new \Mincemeat\ObjectCache\Backend($ks, $adapter);
+        $cache = new ObjectCache($ks, $backend);
+
+        $GLOBALS['wp_object_cache'] = $cache;
+
+        $this->assertTrue(wp_cache_close());
+    }
 }

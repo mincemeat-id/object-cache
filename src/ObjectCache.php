@@ -166,9 +166,9 @@ final class ObjectCache {
 	/**
 	 * Adds multiple values in one call.
 	 *
-	 * @param array  $data   Key/value pairs to add.
-	 * @param string $group  Optional. The cache group. Default empty.
-	 * @param int    $expire Optional. TTL in seconds.
+	 * @param array<string|int,mixed> $data   Key/value pairs to add.
+	 * @param string                  $group  Optional. The cache group. Default empty.
+	 * @param int                     $expire Optional. TTL in seconds.
 	 * @return bool[] Per-key results.
 	 */
 	public function add_multiple( array $data, $group = '', $expire = 0): array {
@@ -342,9 +342,9 @@ final class ObjectCache {
 	/**
 	 * Stores multiple values in one call.
 	 *
-	 * @param array  $data   Key/value pairs to store.
-	 * @param string $group  Optional. The cache group. Default empty.
-	 * @param int    $expire Optional. TTL in seconds.
+	 * @param array<string|int,mixed> $data   Key/value pairs to store.
+	 * @param string                  $group  Optional. The cache group. Default empty.
+	 * @param int                     $expire Optional. TTL in seconds.
 	 * @return bool[] Per-key results.
 	 */
 	public function set_multiple( array $data, $group = '', $expire = 0): array {
@@ -461,10 +461,10 @@ final class ObjectCache {
 	/**
 	 * Retrieves multiple values in one call.
 	 *
-	 * @param array  $keys  The cache keys.
-	 * @param string $group Optional. The cache group. Default empty.
-	 * @param bool   $force Optional. Force reads past the runtime tier.
-	 * @return array<string,mixed> Per-key values; misses are false.
+	 * @param array<int,string|int> $keys  The cache keys.
+	 * @param string                $group Optional. The cache group. Default empty.
+	 * @param bool                  $force Optional. Force reads past the runtime tier.
+	 * @return array<string|int,mixed> Per-key values; misses are false.
 	 */
 	public function get_multiple( array $keys, $group = '', bool $force = false): array {
 		$group = (string) $group;
@@ -515,8 +515,8 @@ final class ObjectCache {
 	/**
 	 * Deletes multiple values in one call.
 	 *
-	 * @param array  $keys  The cache keys.
-	 * @param string $group Optional. The cache group. Default empty.
+	 * @param array<int,string|int> $keys  The cache keys.
+	 * @param string                $group Optional. The cache group. Default empty.
 	 * @return bool[] Per-key results.
 	 */
 	public function delete_multiple( array $keys, $group = ''): array {
@@ -873,6 +873,11 @@ final class ObjectCache {
 
 	/**
 	 * Stores a value in request memory, cloning objects.
+	 *
+	 * @param string $storage_id
+	 * @param string $group
+	 * @param mixed  $data
+	 * @return bool
 	 */
 	private function set_in_memory( string $storage_id, string $group, $data): bool {
 		if (is_object( $data )) {
@@ -935,6 +940,13 @@ final class ObjectCache {
 
 	/**
 	 * Persistent GET: reads from backend, populates memory, sets $found.
+	 *
+	 * @param mixed  $key
+	 * @param string $group
+	 * @param bool   $force
+	 * @param bool   $found
+	 * @param string $storage_id
+	 * @return mixed|false
 	 */
 	private function persistent_get( $key, string $group, bool $force, &$found, string $storage_id) {
 		$ns_tok   = $this->backend->namespace_token();
@@ -976,6 +988,11 @@ final class ObjectCache {
 
 	/**
 	 * Persistent GET_MULTIPLE: serves from memory, MGETs missing keys.
+	 *
+	 * @param array<int,string|int> $keys
+	 * @param string                $group
+	 * @param bool                  $force
+	 * @return array<string|int,mixed>
 	 */
 	private function persistent_get_multiple( array $keys, string $group, bool $force): array {
 		$values   = array();
@@ -1060,6 +1077,13 @@ final class ObjectCache {
 
 	/**
 	 * Persistent SET: encodes and writes to backend, updates memory on success.
+	 *
+	 * @param mixed  $key
+	 * @param mixed  $data
+	 * @param string $group
+	 * @param int    $expire
+	 * @param string $storage_id
+	 * @return bool
 	 */
 	private function persistent_set( $key, $data, string $group, int $expire, string $storage_id): bool {
 		try {
@@ -1091,6 +1115,13 @@ final class ObjectCache {
 
 	/**
 	 * Persistent ADD: atomic SET NX, update memory only on success.
+	 *
+	 * @param mixed  $key
+	 * @param mixed  $data
+	 * @param string $group
+	 * @param int    $expire
+	 * @param string $storage_id
+	 * @return bool
 	 */
 	private function persistent_add( $key, $data, string $group, int $expire, string $storage_id): bool {
 		try {
@@ -1131,6 +1162,13 @@ final class ObjectCache {
 
 	/**
 	 * Persistent REPLACE: atomic SET XX, update memory only on success.
+	 *
+	 * @param mixed  $key
+	 * @param mixed  $data
+	 * @param string $group
+	 * @param int    $expire
+	 * @param string $storage_id
+	 * @return bool
 	 */
 	private function persistent_replace( $key, $data, string $group, int $expire, string $storage_id): bool {
 		try {
@@ -1166,6 +1204,11 @@ final class ObjectCache {
 
 	/**
 	 * Persistent DELETE: DEL from backend, then memory.
+	 *
+	 * @param mixed  $key
+	 * @param string $group
+	 * @param string $storage_id
+	 * @return bool
 	 */
 	private function persistent_delete( $key, string $group, string $storage_id): bool {
 		$ns_tok   = $this->backend->namespace_token();
@@ -1196,6 +1239,11 @@ final class ObjectCache {
 
 	/**
 	 * Runtime-only GET fallback when the backend degrades mid-request.
+	 *
+	 * @param string    $storage_id
+	 * @param string    $group
+	 * @param bool|null $found
+	 * @return mixed|false
 	 */
 	private function runtime_fallback_get( string $storage_id, string $group, &$found) {
 		if ($this->exists( $storage_id, $group )) {

@@ -125,7 +125,11 @@ class ApiTest extends TestCase
         $key_space = new KeySpace(false, 1);
         $adapter = $this->createMock(PhpRedisAdapter::class);
         $adapter->method('is_connected')->willReturn(true);
-        $adapter->method('server_info')->willReturn(array('maxmemory_policy' => 'allkeys-lru'));
+        $adapter->method('server_info')->willReturn(array(
+            'product' => 'redis',
+            'version' => '8.0',
+            'maxmemory_policy' => 'allkeys-lru'
+        ));
 
         $backend = new Backend($key_space, $adapter);
         $config = new Config(array(
@@ -139,13 +143,27 @@ class ApiTest extends TestCase
         $cache = new ObjectCache($key_space, $backend);
         $GLOBALS['wp_object_cache'] = $cache;
 
-        $diag = Api::diagnostics();
+        // 1. Public Mode (default)
+        $diag = Api::diagnostics(true);
         $this->assertSame('persistent', $diag['state']);
         $this->assertSame('tcp', $diag['scheme']);
-        $this->assertSame('127.0.0.1', $diag['host']);
-        $this->assertSame(6379, $diag['port']);
+        $this->assertSame('127.0.0.1', $diag['host']); // Localhost/loopback IP not masked
+        $this->assertSame('***', $diag['port']);
+        $this->assertSame('***', $diag['database']);
         $this->assertNotSame('test-ns', $diag['namespace_digest']);
-        $this->assertSame(array('maxmemory_policy' => 'allkeys-lru'), $diag['server']);
+        // Sanitized to product and version only
+        $this->assertSame(array('product' => 'redis', 'version' => '8.0'), $diag['server']);
+
+        // 2. Debug Mode
+        $diag_debug = Api::diagnostics(false);
+        $this->assertSame('127.0.0.1', $diag_debug['host']);
+        $this->assertSame(6379, $diag_debug['port']);
+        $this->assertSame(0, $diag_debug['database']);
+        $this->assertSame(array(
+            'product' => 'redis',
+            'version' => '8.0',
+            'maxmemory_policy' => 'allkeys-lru'
+        ), $diag_debug['server']);
     }
 
     public function test_api_diagnostics_filter_applied()

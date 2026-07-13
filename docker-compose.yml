@@ -4,10 +4,18 @@ services:
     image: redis:8-alpine
     command: redis-server --save "" --appendonly no
     ports:
-      - "6379:6379"
+      - "6383:6379"
 
   valkey9:
     image: valkey/valkey:9-alpine
     command: valkey-server --save "" --appendonly no
     ports:
-      - "6380:6379"
+      - "6384:6379"
+
+  mariadb:
+    image: mariadb:11.8
+    environment:
+      MARIADB_ROOT_PASSWORD: root
+      MARIADB_DATABASE: wordpress_test
+    ports:
+      - "33076:3306"

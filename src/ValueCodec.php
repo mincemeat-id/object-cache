@@ -170,6 +170,10 @@ final class ValueCodec {
 		return (string) $value;
 	}
 
+	/**
+	 * @param string $payload
+	 * @return array{0:bool,1:int|false,2:string|null}
+	 */
 	private static function decode_int( string $payload): array {
 		if ($payload === '') {
 			return array( false, false, 'decode-int-empty' );
@@ -185,6 +189,10 @@ final class ValueCodec {
 		return array( true, (int) $payload, null );
 	}
 
+	/**
+	 * @param string $payload
+	 * @return array{0:bool,1:float|false,2:string|null}
+	 */
 	private static function decode_double( string $payload): array {
 		if (strlen( $payload ) !== 8) {
 			return array( false, false, 'decode-double-length' );
@@ -196,6 +204,11 @@ final class ValueCodec {
 		return array( true, $unpacked[1], null );
 	}
 
+	/**
+	 * @param mixed $value
+	 * @return string
+	 * @throws ValueCodecException
+	 */
 	private static function encode_serialized( $value): string {
 		$payload = null;
 		$prev    = error_reporting( 0 );
@@ -215,6 +228,10 @@ final class ValueCodec {
 		return self::header( self::TAG_SERIALIZED, strlen( $payload ) ) . $payload;
 	}
 
+	/**
+	 * @param string $payload
+	 * @return array{0:bool,1:mixed,2:string|null}
+	 */
 	private static function decode_serialized( string $payload): array {
 		if ($payload === '') {
 			return array( false, false, 'decode-serialized-empty' );

@@ -159,11 +159,17 @@ class GatesValidationTest extends TestCase
         }
 
         $host = getenv('MINCEMEAT_TEST_REDIS_HOST') ?: '127.0.0.1';
-        $port = (int)(getenv('MINCEMEAT_TEST_REDIS_PORT') ?: 6379);
+        $port = (int)(getenv('MINCEMEAT_TEST_REDIS_PORT') ?: 6383);
 
         // Connect directly to Redis to write unrelated keys
         $redis = new \Redis();
-        if (!@$redis->connect($host, $port, 1.0)) {
+        $connected = false;
+        try {
+            $connected = @$redis->connect($host, $port, 1.0);
+        } catch (\Exception $e) {
+            $connected = false;
+        }
+        if (!$connected) {
             $this->markTestSkipped('No Redis server reachable.');
         }
 
@@ -255,11 +261,16 @@ class GatesValidationTest extends TestCase
                 $process_env[$k] = (string) $v;
             }
         }
-        // Force the DB host to point to our container port (detect local 33066 first, fallback to 3306)
-        $mysql_port = 3306;
-        $connection = @fsockopen('127.0.0.1', 33066, $errno, $errstr, 0.2);
-        if (is_resource($connection)) {
-            $mysql_port = 33066;
+        // Force the DB host to point to our container port (detect local 33076 first, fallback to 3306)
+        $mysql_port = (int)(getenv('MINCEMEAT_TEST_DB_PORT') ?: 33076);
+        $connection = @fsockopen('127.0.0.1', $mysql_port, $errno, $errstr, 0.2);
+        if (!is_resource($connection) && $mysql_port === 33076) {
+            $connection3306 = @fsockopen('127.0.0.1', 3306, $errno, $errstr, 0.2);
+            if (is_resource($connection3306)) {
+                $mysql_port = 3306;
+                fclose($connection3306);
+            }
+        } elseif (is_resource($connection)) {
             fclose($connection);
         }
         $process_env['DB_HOST'] = '127.0.0.1:' . $mysql_port;
@@ -326,7 +337,7 @@ class GatesValidationTest extends TestCase
             'MINCEMEAT_OBJECT_CACHE_CONFIG' => serialize(array(
                 'scheme'          => 'tcp',
                 'host'            => '127.0.0.1',
-                'port'            => 6379, // Redis 8
+                'port'            => (int)(getenv('MINCEMEAT_TEST_REDIS_PORT') ?: 6383), // Redis 8
                 'database'         => 0,
                 'connect_timeout' => 1.0,
                 'read_timeout'    => 1.0,
@@ -351,7 +362,7 @@ class GatesValidationTest extends TestCase
             'MINCEMEAT_OBJECT_CACHE_CONFIG' => serialize(array(
                 'scheme'          => 'tcp',
                 'host'            => '127.0.0.1',
-                'port'            => 6380, // Valkey 9
+                'port'            => (int)(getenv('MINCEMEAT_TEST_VALKEY_PORT') ?: 6384), // Valkey 9
                 'database'         => 0,
                 'connect_timeout' => 1.0,
                 'read_timeout'    => 1.0,
@@ -376,7 +387,7 @@ class GatesValidationTest extends TestCase
             'MINCEMEAT_OBJECT_CACHE_CONFIG' => serialize(array(
                 'scheme'          => 'tcp',
                 'host'            => '127.0.0.1',
-                'port'            => 6379, // Redis 8
+                'port'            => (int)(getenv('MINCEMEAT_TEST_REDIS_PORT') ?: 6383), // Redis 8
                 'database'         => 0,
                 'connect_timeout' => 1.0,
                 'read_timeout'    => 1.0,
@@ -401,7 +412,7 @@ class GatesValidationTest extends TestCase
             'MINCEMEAT_OBJECT_CACHE_CONFIG' => serialize(array(
                 'scheme'          => 'tcp',
                 'host'            => '127.0.0.1',
-                'port'            => 6380, // Valkey 9
+                'port'            => (int)(getenv('MINCEMEAT_TEST_VALKEY_PORT') ?: 6384), // Valkey 9
                 'database'         => 0,
                 'connect_timeout' => 1.0,
                 'read_timeout'    => 1.0,

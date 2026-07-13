@@ -201,7 +201,9 @@ final class KeySpace {
 			: sprintf( 'Cache key must be an integer or a non-empty string, %s given.', gettype( $key ) );
 
 		$caller = $this->invalid_key_caller();
-		_doing_it_wrong( $caller, $message, '1.0.0' );
+		if ( function_exists( '_doing_it_wrong' ) ) {
+			_doing_it_wrong( $caller, $message, '1.0.0' );
+		}
 
 		return false;
 	}

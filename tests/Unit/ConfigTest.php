@@ -358,7 +358,8 @@ class ConfigTest extends TestCase
             ),
         ));
 
-        $d       = $c->redacted_diagnostics();
+        // 1. Test Debug mode diagnostics (default is false if we call redacted_diagnostics(false))
+        $d       = $c->redacted_diagnostics(false);
         $dump    = serialize($d);
 
         $this->assertStringNotContainsString('secret-namespace', $dump);
@@ -368,10 +369,36 @@ class ConfigTest extends TestCase
         $this->assertStringNotContainsString('cert.pem', $dump);
         $this->assertStringNotContainsString('key.pem', $dump);
 
+        // Debug mode exposes actual host, port, database
+        $this->assertSame('cache.internal', $d['host']);
+        $this->assertSame(6379, $d['port']);
+        $this->assertSame(0, $d['database']);
+
         // Only the first 16 hex chars of the digest are exposed.
         $this->assertSame(substr(hash('sha256', 'secret-namespace'), 0, 16), $d['namespace_digest']);
         $this->assertFalse($d['tls']['verify_peer']);
         $this->assertFalse($d['tls']['verify_peer_name']);
+
+        // 2. Test Public mode diagnostics (when $public is true)
+        $d_public = $c->redacted_diagnostics(true);
+        $this->assertSame('ca***al', $d_public['host']);
+        $this->assertSame('***', $d_public['port']);
+        $this->assertSame('***', $d_public['database']);
+        
+        // Loopback / local hosts are not masked
+        $c_local = new Config(array('namespace' => 'ns', 'host' => '127.0.0.1'));
+        $d_local = $c_local->redacted_diagnostics(true);
+        $this->assertSame('127.0.0.1', $d_local['host']);
+        
+        // Remote IPs are masked
+        $c_remote_ip = new Config(array('namespace' => 'ns', 'host' => '10.0.0.5'));
+        $d_remote_ip = $c_remote_ip->redacted_diagnostics(true);
+        $this->assertSame('10.***.***.5', $d_remote_ip['host']);
+
+        // Unix path is masked
+        $c_unix = new Config(array('namespace' => 'ns', 'scheme' => 'unix', 'path' => '/var/run/redis.sock'));
+        $d_unix = $c_unix->redacted_diagnostics(true);
+        $this->assertSame('/****/redis.sock', $d_unix['path']);
     }
 
     public function test_known_keys_returns_expected_set()

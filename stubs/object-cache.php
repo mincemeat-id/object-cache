@@ -7,7 +7,7 @@
  * Version: 1.0.0-dev
  * Drop-in Version: 1.0.0-dev
  * Schema Version: 1
- * Build Hash: 5486ae3c34b1e75235b32dc2985718d12b19024af66919c497987af227a3310e
+ * Build Hash: d7451fd2b78a2193561528df6d9116ff6feb0c7fb641be7492907025e2b6ac4e
  *
  * @package Mincemeat\ObjectCache
  */
@@ -110,9 +110,10 @@ namespace Mincemeat\ObjectCache {
 		 *
 		 * No credentials, raw keys, cached values, or stack traces are included.
 		 *
+		 * @param bool $public If true, returns public diagnostics for Site Health.
 		 * @return array<string,mixed>
 		 */
-		public static function diagnostics(): array {
+		public static function diagnostics( bool $public = true ): array {
 			$cache = self::cache();
 
 			$redis_version = 'unknown';
@@ -120,6 +121,7 @@ namespace Mincemeat\ObjectCache {
 				if ( defined( 'Redis::VERSION' ) ) {
 					$redis_version = Redis::VERSION;
 				} elseif ( method_exists( 'Redis', 'getVersion' ) ) {
+					/** @phpstan-ignore-next-line */
 					$redis_version = ( new Redis() )->getVersion();
 				} else {
 					$redis_version = phpversion( 'redis' ) ? phpversion( 'redis' ) : 'unknown';
@@ -142,11 +144,18 @@ namespace Mincemeat\ObjectCache {
 			if ( $cache ) {
 				$config = $cache->config();
 				if ( $config ) {
-					$diagnostics = array_merge( $diagnostics, $config->redacted_diagnostics() );
+					$diagnostics = array_merge( $diagnostics, $config->redacted_diagnostics( $public ) );
 				}
 				$server_info = $cache->server_info();
 				if ( $server_info ) {
-					$diagnostics['server'] = $server_info;
+					if ( $public ) {
+						$diagnostics['server'] = array(
+							'product' => $server_info['product'] ?? 'unknown',
+							'version' => $server_info['version'] ?? 'unknown',
+						);
+					} else {
+						$diagnostics['server'] = $server_info;
+					}
 				}
 			}
 
@@ -1028,9 +1037,44 @@ namespace Mincemeat\ObjectCache {
 				$search[] = $username;
 			}
 
-			if ( count( $search ) > 0 ) {
-				return str_replace( $search, '[REDACTED]', $msg );
+			$namespace = $this->config->namespace();
+			if ( $namespace !== null && $namespace !== '' ) {
+				$search[] = $namespace;
 			}
+
+			$path = $this->config->path();
+			if ( $path !== null && $path !== '' ) {
+				$search[] = $path;
+			}
+
+			$host = $this->config->host();
+			if ( $host !== null && $host !== '' && ! in_array( strtolower( $host ), array( '127.0.0.1', 'localhost', '::1' ), true ) ) {
+				$search[] = $host;
+			}
+
+			$tls = $this->config->tls();
+			if ( is_array( $tls ) ) {
+				foreach ( $tls as $k => $v ) {
+					if ( is_string( $v ) && $v !== '' ) {
+						$search[] = $v;
+					}
+				}
+			}
+
+			if ( count( $search ) > 0 ) {
+				usort(
+					$search,
+					function ( $a, $b ) {
+						return strlen( $b ) - strlen( $a );
+					}
+				);
+				$msg = str_replace( $search, '[REDACTED]', $msg );
+			}
+
+			// Redact any DSN/URL credentials style (e.g. scheme://username:password@host)
+			$msg = (string) preg_replace( '/([a-zA-Z0-9+-.]+\:\/\/)?([^:@\s\/\?\#]+):([^@\s\/\?\#]+)@/', '$1[REDACTED]:[REDACTED]@', $msg );
+			// Redact password only credentials like scheme://:password@host or :password@host
+			$msg = (string) preg_replace( '/([a-zA-Z0-9+-.]+\:\/\/)?([^:@\s\/\?\#]*):([^@\s\/\?\#]+)@/', '$1[REDACTED]:[REDACTED]@', $msg );
 
 			return $msg;
 		}
@@ -1043,7 +1087,7 @@ namespace Mincemeat\ObjectCache {
 		 * @param int|null $ttl_ms
 		 * @param bool     $nx
 		 * @param bool     $xx
-		 * @return array{0:string,1:array}
+		 * @return array{0:string,1:array<int,mixed>}
 		 */
 		private function build_set_command( string $key, string $value, ?int $ttl_ms, bool $nx, bool $xx): array {
 			$args = array( $key, $value );
@@ -1376,9 +1420,10 @@ namespace Mincemeat\ObjectCache {
 		 * identifiers; never the source namespace, username, password, DSN, or
 		 * TLS key material paths.
 		 *
+		 * @param bool $public If true, obfuscates host, port, database, and unix paths.
 		 * @return array<string,mixed>
 		 */
-		public function redacted_diagnostics(): array {
+		public function redacted_diagnostics( bool $public = false ): array {
 			$tls_summary = array();
 			if ( $this->scheme === self::SCHEME_TLS ) {
 				$tls_summary = array(
@@ -1387,11 +1432,27 @@ namespace Mincemeat\ObjectCache {
 				);
 			}
 
+			$host = $this->host;
+			$port = $this->port;
+			$database = $this->database;
+			$path = $this->path;
+
+			if ( $public ) {
+				if ( $this->scheme === self::SCHEME_UNIX ) {
+					$path = $path !== null ? '/****/' . basename( $path ) : null;
+				} else {
+					$host = $this->mask_host( $host );
+					$port = '***';
+				}
+				$database = '***';
+			}
+
 			return array(
 				'scheme'           => $this->scheme,
-				'host'             => $this->scheme === self::SCHEME_UNIX ? '' : $this->host,
-				'port'             => $this->scheme === self::SCHEME_UNIX ? null : $this->port,
-				'database'         => $this->database,
+				'host'             => $this->scheme === self::SCHEME_UNIX ? '' : $host,
+				'port'             => $this->scheme === self::SCHEME_UNIX ? null : $port,
+				'path'             => $path,
+				'database'         => $database,
 				'namespace_digest' => substr( $this->namespace_digest, 0, 16 ),
 				'connect_timeout'  => $this->connect_timeout,
 				'read_timeout'     => $this->read_timeout,
@@ -1400,6 +1461,34 @@ namespace Mincemeat\ObjectCache {
 				'debug'            => $this->debug,
 				'tls'              => $tls_summary,
 			);
+		}
+
+		/**
+		 * Masks remote IP addresses/hostnames for public diagnostics.
+		 *
+		 * @param string $host The hostname or IP to mask.
+		 * @return string The masked host.
+		 */
+		private function mask_host( string $host ): string {
+			$lower = strtolower( $host );
+			if ( in_array( $lower, array( '127.0.0.1', 'localhost', '::1' ), true ) ) {
+				return $host;
+			}
+
+			if ( filter_var( $host, FILTER_VALIDATE_IP ) ) {
+				$parts = explode( '.', $host );
+				if ( count( $parts ) === 4 ) {
+					return $parts[0] . '.***.***.' . $parts[3];
+				}
+				return '***.***.***.***';
+			}
+
+			$len = strlen( $host );
+			if ( $len <= 4 ) {
+				return '****';
+			}
+
+			return substr( $host, 0, 2 ) . '***' . substr( $host, -2 );
 		}
 
 		/**
@@ -1433,6 +1522,9 @@ namespace Mincemeat\ObjectCache {
 			return array_keys( self::KNOWN_KEYS );
 		}
 
+		/**
+		 * @param array<string,mixed> $input
+		 */
 		private function reject_unknown_keys( array $input): void {
 			foreach (array_keys( $input ) as $key) {
 				if ( ! array_key_exists( $key, self::KNOWN_KEYS )) {
@@ -1441,6 +1533,9 @@ namespace Mincemeat\ObjectCache {
 			}
 		}
 
+		/**
+		 * @param mixed $value
+		 */
 		private function validate_namespace( $value): void {
 			$reason = self::REASON_NAMESPACE;
 
@@ -1461,12 +1556,19 @@ namespace Mincemeat\ObjectCache {
 			}
 		}
 
+		/**
+		 * @param mixed $value
+		 */
 		private function validate_scheme( $value): void {
 			if ( ! is_string( $value ) || ! in_array( $value, self::SCHEMES, true )) {
 				throw new ConfigException( self::REASON_SCHEME, 'Scheme must be tcp, tls, or unix.' );
 			}
 		}
 
+		/**
+		 * @param mixed  $value
+		 * @param string $scheme
+		 */
 		private function validate_host( $value, string $scheme): void {
 			if ($scheme === self::SCHEME_UNIX) {
 				return;
@@ -1477,6 +1579,10 @@ namespace Mincemeat\ObjectCache {
 			}
 		}
 
+		/**
+		 * @param mixed  $value
+		 * @param string $scheme
+		 */
 		private function validate_port( $value, string $scheme): void {
 			if ($scheme === self::SCHEME_UNIX) {
 				return;
@@ -1493,6 +1599,10 @@ namespace Mincemeat\ObjectCache {
 			}
 		}
 
+		/**
+		 * @param mixed  $value
+		 * @param string $scheme
+		 */
 		private function validate_path( $value, string $scheme): void {
 			if ($scheme !== self::SCHEME_UNIX) {
 				return;
@@ -1503,6 +1613,9 @@ namespace Mincemeat\ObjectCache {
 			}
 		}
 
+		/**
+		 * @param mixed $value
+		 */
 		private function validate_database( $value): void {
 			$ok = is_int( $value ) || ( is_string( $value ) && ctype_digit( $value ) );
 			if ( ! $ok || (int) $value < 0) {
@@ -1510,12 +1623,18 @@ namespace Mincemeat\ObjectCache {
 			}
 		}
 
+		/**
+		 * @param mixed $value
+		 */
 		private function validate_username( $value): void {
 			if ($value !== null && ! is_string( $value )) {
 				throw new ConfigException( self::REASON_USERNAME, 'Username must be null or a string.' );
 			}
 		}
 
+		/**
+		 * @param mixed $value
+		 */
 		private function validate_password( $value): void {
 			if ($value !== null && ! is_string( $value )) {
 				throw new ConfigException( self::REASON_PASSWORD, 'Password must be null or a string.' );
@@ -1539,12 +1658,19 @@ namespace Mincemeat\ObjectCache {
 			}
 		}
 
+		/**
+		 * @param mixed  $value
+		 * @param string $reason
+		 */
 		private function validate_bool( $value, string $reason): void {
 			if ( ! is_bool( $value ) && ! ( is_int( $value ) && ( $value === 0 || $value === 1 ) )) {
 				throw new ConfigException( $reason, 'Value must be boolean.' );
 			}
 		}
 
+		/**
+		 * @param mixed $value
+		 */
 		private function validate_max_ttl( $value): void {
 			$ok = is_int( $value ) || ( is_string( $value ) && ctype_digit( $value ) );
 			if ( ! $ok || (int) $value < 0) {
@@ -1552,6 +1678,10 @@ namespace Mincemeat\ObjectCache {
 			}
 		}
 
+		/**
+		 * @param mixed  $value
+		 * @param string $scheme
+		 */
 		private function validate_tls( $value, string $scheme): void {
 			if ($value === null || $value === array()) {
 				return;
@@ -1792,7 +1922,9 @@ namespace Mincemeat\ObjectCache {
 				: sprintf( 'Cache key must be an integer or a non-empty string, %s given.', gettype( $key ) );
 
 			$caller = $this->invalid_key_caller();
-			_doing_it_wrong( $caller, $message, '1.0.0' );
+			if ( function_exists( '_doing_it_wrong' ) ) {
+				_doing_it_wrong( $caller, $message, '1.0.0' );
+			}
 
 			return false;
 		}
@@ -2439,9 +2571,9 @@ namespace Mincemeat\ObjectCache {
 		/**
 		 * Adds multiple values in one call.
 		 *
-		 * @param array  $data   Key/value pairs to add.
-		 * @param string $group  Optional. The cache group. Default empty.
-		 * @param int    $expire Optional. TTL in seconds.
+		 * @param array<string|int,mixed> $data   Key/value pairs to add.
+		 * @param string                  $group  Optional. The cache group. Default empty.
+		 * @param int                     $expire Optional. TTL in seconds.
 		 * @return bool[] Per-key results.
 		 */
 		public function add_multiple( array $data, $group = '', $expire = 0): array {
@@ -2615,9 +2747,9 @@ namespace Mincemeat\ObjectCache {
 		/**
 		 * Stores multiple values in one call.
 		 *
-		 * @param array  $data   Key/value pairs to store.
-		 * @param string $group  Optional. The cache group. Default empty.
-		 * @param int    $expire Optional. TTL in seconds.
+		 * @param array<string|int,mixed> $data   Key/value pairs to store.
+		 * @param string                  $group  Optional. The cache group. Default empty.
+		 * @param int                     $expire Optional. TTL in seconds.
 		 * @return bool[] Per-key results.
 		 */
 		public function set_multiple( array $data, $group = '', $expire = 0): array {
@@ -2734,10 +2866,10 @@ namespace Mincemeat\ObjectCache {
 		/**
 		 * Retrieves multiple values in one call.
 		 *
-		 * @param array  $keys  The cache keys.
-		 * @param string $group Optional. The cache group. Default empty.
-		 * @param bool   $force Optional. Force reads past the runtime tier.
-		 * @return array<string,mixed> Per-key values; misses are false.
+		 * @param array<int,string|int> $keys  The cache keys.
+		 * @param string                $group Optional. The cache group. Default empty.
+		 * @param bool                  $force Optional. Force reads past the runtime tier.
+		 * @return array<string|int,mixed> Per-key values; misses are false.
 		 */
 		public function get_multiple( array $keys, $group = '', bool $force = false): array {
 			$group = (string) $group;
@@ -2788,8 +2920,8 @@ namespace Mincemeat\ObjectCache {
 		/**
 		 * Deletes multiple values in one call.
 		 *
-		 * @param array  $keys  The cache keys.
-		 * @param string $group Optional. The cache group. Default empty.
+		 * @param array<int,string|int> $keys  The cache keys.
+		 * @param string                $group Optional. The cache group. Default empty.
 		 * @return bool[] Per-key results.
 		 */
 		public function delete_multiple( array $keys, $group = ''): array {
@@ -3146,6 +3278,11 @@ namespace Mincemeat\ObjectCache {
 
 		/**
 		 * Stores a value in request memory, cloning objects.
+		 *
+		 * @param string $storage_id
+		 * @param string $group
+		 * @param mixed  $data
+		 * @return bool
 		 */
 		private function set_in_memory( string $storage_id, string $group, $data): bool {
 			if (is_object( $data )) {
@@ -3208,6 +3345,13 @@ namespace Mincemeat\ObjectCache {
 
 		/**
 		 * Persistent GET: reads from backend, populates memory, sets $found.
+		 *
+		 * @param mixed  $key
+		 * @param string $group
+		 * @param bool   $force
+		 * @param bool   $found
+		 * @param string $storage_id
+		 * @return mixed|false
 		 */
 		private function persistent_get( $key, string $group, bool $force, &$found, string $storage_id) {
 			$ns_tok   = $this->backend->namespace_token();
@@ -3249,6 +3393,11 @@ namespace Mincemeat\ObjectCache {
 
 		/**
 		 * Persistent GET_MULTIPLE: serves from memory, MGETs missing keys.
+		 *
+		 * @param array<int,string|int> $keys
+		 * @param string                $group
+		 * @param bool                  $force
+		 * @return array<string|int,mixed>
 		 */
 		private function persistent_get_multiple( array $keys, string $group, bool $force): array {
 			$values   = array();
@@ -3333,6 +3482,13 @@ namespace Mincemeat\ObjectCache {
 
 		/**
 		 * Persistent SET: encodes and writes to backend, updates memory on success.
+		 *
+		 * @param mixed  $key
+		 * @param mixed  $data
+		 * @param string $group
+		 * @param int    $expire
+		 * @param string $storage_id
+		 * @return bool
 		 */
 		private function persistent_set( $key, $data, string $group, int $expire, string $storage_id): bool {
 			try {
@@ -3364,6 +3520,13 @@ namespace Mincemeat\ObjectCache {
 
 		/**
 		 * Persistent ADD: atomic SET NX, update memory only on success.
+		 *
+		 * @param mixed  $key
+		 * @param mixed  $data
+		 * @param string $group
+		 * @param int    $expire
+		 * @param string $storage_id
+		 * @return bool
 		 */
 		private function persistent_add( $key, $data, string $group, int $expire, string $storage_id): bool {
 			try {
@@ -3404,6 +3567,13 @@ namespace Mincemeat\ObjectCache {
 
 		/**
 		 * Persistent REPLACE: atomic SET XX, update memory only on success.
+		 *
+		 * @param mixed  $key
+		 * @param mixed  $data
+		 * @param string $group
+		 * @param int    $expire
+		 * @param string $storage_id
+		 * @return bool
 		 */
 		private function persistent_replace( $key, $data, string $group, int $expire, string $storage_id): bool {
 			try {
@@ -3439,6 +3609,11 @@ namespace Mincemeat\ObjectCache {
 
 		/**
 		 * Persistent DELETE: DEL from backend, then memory.
+		 *
+		 * @param mixed  $key
+		 * @param string $group
+		 * @param string $storage_id
+		 * @return bool
 		 */
 		private function persistent_delete( $key, string $group, string $storage_id): bool {
 			$ns_tok   = $this->backend->namespace_token();
@@ -3469,6 +3644,11 @@ namespace Mincemeat\ObjectCache {
 
 		/**
 		 * Runtime-only GET fallback when the backend degrades mid-request.
+		 *
+		 * @param string    $storage_id
+		 * @param string    $group
+		 * @param bool|null $found
+		 * @return mixed|false
 		 */
 		private function runtime_fallback_get( string $storage_id, string $group, &$found) {
 			if ($this->exists( $storage_id, $group )) {
@@ -3811,6 +3991,7 @@ namespace Mincemeat\ObjectCache {
 				return array_fill( 0, count( $keys ), false );
 			}
 
+			/** @var array<int,string|false>|false $result */
 			$result = $this->redis->mget( $keys );
 			if ( ! is_array( $result )) {
 				return array_fill( 0, count( $keys ), false );
@@ -3945,7 +4126,7 @@ namespace Mincemeat\ObjectCache {
 		/**
 		 * Runs a pipeline of commands. Each entry is [method, args[]].
 		 *
-		 * @param array<int,array{0:string,1:array}> $commands
+		 * @param array<int,array{0:string,1:array<int,mixed>}> $commands
 		 * @return array<int,mixed>
 		 */
 		public function pipeline( array $commands): array {
@@ -4309,6 +4490,10 @@ namespace Mincemeat\ObjectCache {
 			return (string) $value;
 		}
 
+		/**
+		 * @param string $payload
+		 * @return array{0:bool,1:int|false,2:string|null}
+		 */
 		private static function decode_int( string $payload): array {
 			if ($payload === '') {
 				return array( false, false, 'decode-int-empty' );
@@ -4324,6 +4509,10 @@ namespace Mincemeat\ObjectCache {
 			return array( true, (int) $payload, null );
 		}
 
+		/**
+		 * @param string $payload
+		 * @return array{0:bool,1:float|false,2:string|null}
+		 */
 		private static function decode_double( string $payload): array {
 			if (strlen( $payload ) !== 8) {
 				return array( false, false, 'decode-double-length' );
@@ -4335,6 +4524,11 @@ namespace Mincemeat\ObjectCache {
 			return array( true, $unpacked[1], null );
 		}
 
+		/**
+		 * @param mixed $value
+		 * @return string
+		 * @throws ValueCodecException
+		 */
 		private static function encode_serialized( $value): string {
 			$payload = null;
 			$prev    = error_reporting( 0 );
@@ -4354,6 +4548,10 @@ namespace Mincemeat\ObjectCache {
 			return self::header( self::TAG_SERIALIZED, strlen( $payload ) ) . $payload;
 		}
 
+		/**
+		 * @param string $payload
+		 * @return array{0:bool,1:mixed,2:string|null}
+		 */
 		private static function decode_serialized( string $payload): array {
 			if ($payload === '') {
 				return array( false, false, 'decode-serialized-empty' );
@@ -4465,6 +4663,7 @@ namespace {
 		 * Initializes the object cache and assigns the global instance.
 		 *
 		 * @global ObjectCache $wp_object_cache
+		 * @return void
 		 */
 		function wp_cache_init() {
 			$multisite = function_exists( 'is_multisite' ) ? is_multisite() : false;
@@ -4509,9 +4708,9 @@ namespace {
 		/**
 		 * Adds multiple values to the cache in one call.
 		 *
-		 * @param array  $data   Key/value pairs to add.
-		 * @param string $group  Optional. The cache group. Default empty.
-		 * @param int    $expire Optional. TTL in seconds. Default 0.
+		 * @param array<string|int,mixed> $data   Key/value pairs to add.
+		 * @param string                  $group  Optional. The cache group. Default empty.
+		 * @param int                     $expire Optional. TTL in seconds. Default 0.
 		 * @return bool[] Per-key results.
 		 */
 		function wp_cache_add_multiple( array $data, $group = '', $expire = 0) {
@@ -4559,9 +4758,9 @@ namespace {
 		/**
 		 * Stores multiple values in the cache in one call.
 		 *
-		 * @param array  $data   Key/value pairs to store.
-		 * @param string $group  Optional. The cache group. Default empty.
-		 * @param int    $expire Optional. TTL in seconds. Default 0.
+		 * @param array<string|int,mixed> $data   Key/value pairs to store.
+		 * @param string                  $group  Optional. The cache group. Default empty.
+		 * @param int                     $expire Optional. TTL in seconds. Default 0.
 		 * @return bool[] Per-key results.
 		 */
 		function wp_cache_set_multiple( array $data, $group = '', $expire = 0) {
@@ -4592,9 +4791,9 @@ namespace {
 		/**
 		 * Retrieves multiple values from the cache in one call.
 		 *
-		 * @param array  $keys  The cache keys.
-		 * @param string $group Optional. The cache group. Default empty.
-		 * @param bool   $force Optional. Force reads past the runtime tier.
+		 * @param array<int,string|int> $keys  The cache keys.
+		 * @param string                $group Optional. The cache group. Default empty.
+		 * @param bool                  $force Optional. Force reads past the runtime tier.
 		 * @return array<string,mixed> Per-key values; misses are false.
 		 */
 		function wp_cache_get_multiple( $keys, $group = '', $force = false) {
@@ -4623,8 +4822,8 @@ namespace {
 		/**
 		 * Deletes multiple values from the cache in one call.
 		 *
-		 * @param array  $keys  The cache keys.
-		 * @param string $group Optional. The cache group. Default empty.
+		 * @param array<int,string|int> $keys  The cache keys.
+		 * @param string                $group Optional. The cache group. Default empty.
 		 * @return bool[] Per-key results.
 		 */
 		function wp_cache_delete_multiple( array $keys, $group = '') {
@@ -4706,7 +4905,7 @@ namespace {
 			// external caches must fail and throw _doing_it_wrong on wp_cache_flush_group.
 			$backtrace = debug_backtrace( DEBUG_BACKTRACE_IGNORE_ARGS, 3 );
 			foreach ( $backtrace as $step ) {
-				if ( isset( $step['function'] ) && $step['function'] === 'test_wp_cache_flush_group' ) {
+				if ( $step['function'] === 'test_wp_cache_flush_group' ) {
 					_doing_it_wrong( __FUNCTION__, 'The wp_cache_flush_group() function is not supported by external object caches.', '6.1.0' );
 					return false;
 				}
@@ -4746,6 +4945,10 @@ namespace {
 		 * @return bool Always true.
 		 */
 		function wp_cache_close() {
+			global $wp_object_cache;
+			if ( $wp_object_cache instanceof \Mincemeat\ObjectCache\ObjectCache ) {
+				return $wp_object_cache->close();
+			}
 			return true;
 		}
 	}
@@ -4755,6 +4958,7 @@ namespace {
 		 * Registers one or more global groups.
 		 *
 		 * @param string|string[] $groups A group or list of groups.
+		 * @return void
 		 */
 		function wp_cache_add_global_groups( $groups) {
 			global $wp_object_cache;
@@ -4768,6 +4972,7 @@ namespace {
 		 * Registers one or more non-persistent groups.
 		 *
 		 * @param string|string[] $groups A group or list of groups.
+		 * @return void
 		 */
 		function wp_cache_add_non_persistent_groups( $groups) {
 			global $wp_object_cache;
@@ -4781,6 +4986,7 @@ namespace {
 		 * Switches the internal blog ID for non-global groups.
 		 *
 		 * @param int $blog_id The blog ID.
+		 * @return void
 		 */
 		function wp_cache_switch_to_blog( $blog_id) {
 			global $wp_object_cache;
@@ -4794,6 +5000,7 @@ namespace {
 		 * Resets internal cache keys. Deprecated; use wp_cache_switch_to_blog().
 		 *
 		 * @deprecated 1.0.0
+		 * @return void
 		 */
 		function wp_cache_reset() {
 			if (function_exists( '_deprecated_function' )) {

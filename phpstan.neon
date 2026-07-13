@@ -1,9 +1,7 @@
 parameters:
-    level: 1
+    level: 6
     paths:
         - src
-    excludePaths:
-        - src/functions.php
     treatPhpDocTypesAsCertain: false
     reportUnmatchedIgnoredErrors: false
     scanFiles:

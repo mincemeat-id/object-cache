@@ -29,7 +29,7 @@ if (!copy($dropin_src, $dropin_dest)) {
 
 // 2. Define object cache config (point to local Redis on port 6379)
 $redis_host = getenv('MINCEMEAT_TEST_REDIS_HOST') ?: '127.0.0.1';
-$redis_port = (int) (getenv('MINCEMEAT_TEST_REDIS_PORT') ?: 6379);
+$redis_port = (int) (getenv('MINCEMEAT_TEST_REDIS_PORT') ?: 6383);
 
 define('MINCEMEAT_OBJECT_CACHE_CONFIG', array(
     'scheme'          => 'tcp',
@@ -41,11 +41,16 @@ define('MINCEMEAT_OBJECT_CACHE_CONFIG', array(
     'namespace'       => 'smoke-test-ns',
 ));
 
-// Force DB host to point to our container port (detect local 33066 first, fallback to 3306)
-$mysql_port = 3306;
-$connection = @fsockopen('127.0.0.1', 33066, $errno, $errstr, 0.2);
-if (is_resource($connection)) {
-    $mysql_port = 33066;
+// Force DB host to point to our container port (detect local 33076 first, fallback to 3306)
+$mysql_port = (int)(getenv('MINCEMEAT_TEST_DB_PORT') ?: 33076);
+$connection = @fsockopen('127.0.0.1', $mysql_port, $errno, $errstr, 0.2);
+if (!is_resource($connection) && $mysql_port === 33076) {
+    $connection3306 = @fsockopen('127.0.0.1', 3306, $errno, $errstr, 0.2);
+    if (is_resource($connection3306)) {
+        $mysql_port = 3306;
+        fclose($connection3306);
+    }
+} elseif (is_resource($connection)) {
     fclose($connection);
 }
 $_ENV['DB_HOST'] = '127.0.0.1:' . $mysql_port;

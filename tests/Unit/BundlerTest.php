@@ -73,4 +73,21 @@ class BundlerTest extends TestCase
         $this->assertStringNotContainsString('class SiteHealth', $content, 'Drop-in must not contain SiteHealth class.');
         $this->assertStringNotContainsString('class CliCommand', $content, 'Drop-in must not contain CliCommand class.');
     }
+
+    public function test_generated_file_is_runnable_without_wordpress_stubs()
+    {
+        $this->assertFileExists($this->outputFile);
+
+        // Run a small script that includes the drop-in and instantiates KeySpace
+        // and calls is_valid_key('') where _doing_it_wrong is NOT defined.
+        $code = 'require ' . escapeshellarg($this->outputFile) . '; ' .
+                '$ks = new \\Mincemeat\\ObjectCache\\KeySpace(false, 1); ' .
+                'var_dump($ks->is_valid_key(""));';
+
+        exec('php -r ' . escapeshellarg($code), $output, $returnCode);
+
+        $this->assertSame(0, $returnCode, 'Drop-in should execute without crashes.');
+        $outputStr = implode("\n", $output);
+        $this->assertStringContainsString('bool(false)', $outputStr, 'KeySpace should return false for invalid keys.');
+    }
 }

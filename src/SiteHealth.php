@@ -23,8 +23,8 @@ final class SiteHealth {
 	 *
 	 * Callback for the WordPress `site_status_tests` filter.
 	 *
-	 * @param array $tests Existing Site Health tests.
-	 * @return array Updated Site Health tests.
+	 * @param array<string,mixed> $tests Existing Site Health tests.
+	 * @return array<string,mixed> Updated Site Health tests.
 	 */
 	public static function register_tests( array $tests ): array {
 		$tests['direct']['mincemeat_object_cache_dropin'] = array(
@@ -58,7 +58,7 @@ final class SiteHealth {
 	/**
 	 * Tests the object-cache.php drop-in file state and ownership.
 	 *
-	 * @return array Test result details.
+	 * @return array<string,mixed> Test result details.
 	 */
 	public static function test_dropin(): array {
 		$state = Lifecycle::get_dropin_state();
@@ -121,7 +121,7 @@ final class SiteHealth {
 	/**
 	 * Tests backend persistence reachability and server configuration.
 	 *
-	 * @return array Test result details.
+	 * @return array<string,mixed> Test result details.
 	 */
 	public static function test_connection(): array {
 		if ( ! extension_loaded( 'redis' ) ) {
@@ -246,7 +246,7 @@ final class SiteHealth {
 	/**
 	 * Tests TLS peer verification state when TLS is configured.
 	 *
-	 * @return array Test result details.
+	 * @return array<string,mixed> Test result details.
 	 */
 	public static function test_tls_verification(): array {
 		$diagnostics = Api::diagnostics();
@@ -297,7 +297,7 @@ final class SiteHealth {
 	 * Unbounded TTL (max_ttl = 0) poses an orphan risk when using logical
 	 * namespace flushes.
 	 *
-	 * @return array Test result details.
+	 * @return array<string,mixed> Test result details.
 	 */
 	public static function test_ttl(): array {
 		$cache = self::cache();
@@ -356,7 +356,7 @@ final class SiteHealth {
 	 *
 	 * A maxmemory-policy of noeviction risks write failures under memory pressure.
 	 *
-	 * @return array Test result details.
+	 * @return array<string,mixed> Test result details.
 	 */
 	public static function test_eviction_policy(): array {
 		$cache = self::cache();
@@ -408,8 +408,8 @@ final class SiteHealth {
 	 *
 	 * Callback for the WordPress `debug_information` filter.
 	 *
-	 * @param array $info Existing Site Health debug information.
-	 * @return array Updated Site Health debug information.
+	 * @param array<string,mixed> $info Existing Site Health debug information.
+	 * @return array<string,mixed> Updated Site Health debug information.
 	 */
 	public static function debug_information( array $info ): array {
 		$diagnostics    = Api::diagnostics();
@@ -549,7 +549,7 @@ final class SiteHealth {
 	/**
 	 * Returns the site health badge structure.
 	 *
-	 * @return array Badge info.
+	 * @return array{label:string,color:string} Badge info.
 	 */
 	private static function badge(): array {
 		return array(

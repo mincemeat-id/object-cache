@@ -23,8 +23,8 @@ final class CliCommand {
 	 *
 	 *     wp mincemeat-cache status
 	 *
-	 * @param array $args       Command arguments.
-	 * @param array $assoc_args Command associative arguments.
+	 * @param array<int,string>     $args       Command arguments.
+	 * @param array<string,string>  $assoc_args Command associative arguments.
 	 */
 	public function status( array $args, array $assoc_args ): void {
 		$state       = Lifecycle::get_dropin_state();
@@ -52,8 +52,8 @@ final class CliCommand {
 	 *
 	 *     wp mincemeat-cache install-dropin
 	 *
-	 * @param array $args       Command arguments.
-	 * @param array $assoc_args Command associative arguments.
+	 * @param array<int,string>     $args       Command arguments.
+	 * @param array<string,string>  $assoc_args Command associative arguments.
 	 */
 	public function install_dropin( array $args, array $assoc_args ): void {
 		$state = Lifecycle::get_dropin_state();
@@ -85,8 +85,8 @@ final class CliCommand {
 	 *
 	 *     wp mincemeat-cache update-dropin
 	 *
-	 * @param array $args       Command arguments.
-	 * @param array $assoc_args Command associative arguments.
+	 * @param array<int,string>     $args       Command arguments.
+	 * @param array<string,string>  $assoc_args Command associative arguments.
 	 */
 	public function update_dropin( array $args, array $assoc_args ): void {
 		$state = Lifecycle::get_dropin_state();
@@ -123,8 +123,8 @@ final class CliCommand {
 	 *
 	 *     wp mincemeat-cache remove-dropin
 	 *
-	 * @param array $args       Command arguments.
-	 * @param array $assoc_args Command associative arguments.
+	 * @param array<int,string>     $args       Command arguments.
+	 * @param array<string,string>  $assoc_args Command associative arguments.
 	 */
 	public function remove_dropin( array $args, array $assoc_args ): void {
 		$state = Lifecycle::get_dropin_state();

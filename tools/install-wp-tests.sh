@@ -35,7 +35,7 @@ $content = file_get_contents($file);
 $content = str_replace("youremptytestdbnamehere", "wordpress_test", $content);
 $content = str_replace("yourusernamehere", "root", $content);
 $content = str_replace("yourpasswordhere", "root", $content);
-$content = str_replace(chr(39)."localhost".chr(39), "getenv( ".chr(39)."DB_HOST".chr(39)." ) ?: ".chr(39)."127.0.0.1".chr(39), $content);
+$content = str_replace(chr(39)."localhost".chr(39), "getenv( ".chr(39)."DB_HOST".chr(39)." ) ?: ".chr(39)."127.0.0.1:33076".chr(39), $content);
 
 // Ensure we define object cache constants or configurations
 // We will define MINCEMEAT_OBJECT_CACHE_CONFIG constant dynamically if present in env
@@ -46,7 +46,7 @@ $config_injection = "\n" .
 "    define( \"MINCEMEAT_OBJECT_CACHE_CONFIG\", array(\n" .
 "        \"scheme\" => \"tcp\",\n" .
 "        \"host\" => \"127.0.0.1\",\n" .
-"        \"port\" => 6379,\n" .
+"        \"port\" => 6383,\n" .
 "        \"database\" => 0,\n" .
 "        \"connect_timeout\" => 1.0,\n" .
 "        \"read_timeout\" => 1.0,\n" .

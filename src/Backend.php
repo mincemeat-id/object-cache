@@ -852,9 +852,44 @@ final class Backend {
 			$search[] = $username;
 		}
 
-		if ( count( $search ) > 0 ) {
-			return str_replace( $search, '[REDACTED]', $msg );
+		$namespace = $this->config->namespace();
+		if ( $namespace !== null && $namespace !== '' ) {
+			$search[] = $namespace;
 		}
+
+		$path = $this->config->path();
+		if ( $path !== null && $path !== '' ) {
+			$search[] = $path;
+		}
+
+		$host = $this->config->host();
+		if ( $host !== null && $host !== '' && ! in_array( strtolower( $host ), array( '127.0.0.1', 'localhost', '::1' ), true ) ) {
+			$search[] = $host;
+		}
+
+		$tls = $this->config->tls();
+		if ( is_array( $tls ) ) {
+			foreach ( $tls as $k => $v ) {
+				if ( is_string( $v ) && $v !== '' ) {
+					$search[] = $v;
+				}
+			}
+		}
+
+		if ( count( $search ) > 0 ) {
+			usort(
+				$search,
+				function ( $a, $b ) {
+					return strlen( $b ) - strlen( $a );
+				}
+			);
+			$msg = str_replace( $search, '[REDACTED]', $msg );
+		}
+
+		// Redact any DSN/URL credentials style (e.g. scheme://username:password@host)
+		$msg = (string) preg_replace( '/([a-zA-Z0-9+-.]+\:\/\/)?([^:@\s\/\?\#]+):([^@\s\/\?\#]+)@/', '$1[REDACTED]:[REDACTED]@', $msg );
+		// Redact password only credentials like scheme://:password@host or :password@host
+		$msg = (string) preg_replace( '/([a-zA-Z0-9+-.]+\:\/\/)?([^:@\s\/\?\#]*):([^@\s\/\?\#]+)@/', '$1[REDACTED]:[REDACTED]@', $msg );
 
 		return $msg;
 	}
@@ -867,7 +902,7 @@ final class Backend {
 	 * @param int|null $ttl_ms
 	 * @param bool     $nx
 	 * @param bool     $xx
-	 * @return array{0:string,1:array}
+	 * @return array{0:string,1:array<int,mixed>}
 	 */
 	private function build_set_command( string $key, string $value, ?int $ttl_ms, bool $nx, bool $xx): array {
 		$args = array( $key, $value );

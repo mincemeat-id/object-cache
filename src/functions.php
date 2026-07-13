@@ -19,6 +19,7 @@ if ( ! function_exists( 'wp_cache_init' )) {
 	 * Initializes the object cache and assigns the global instance.
 	 *
 	 * @global ObjectCache $wp_object_cache
+	 * @return void
 	 */
 	function wp_cache_init() {
 		$multisite = function_exists( 'is_multisite' ) ? is_multisite() : false;
@@ -63,9 +64,9 @@ if ( ! function_exists( 'wp_cache_add_multiple' )) {
 	/**
 	 * Adds multiple values to the cache in one call.
 	 *
-	 * @param array  $data   Key/value pairs to add.
-	 * @param string $group  Optional. The cache group. Default empty.
-	 * @param int    $expire Optional. TTL in seconds. Default 0.
+	 * @param array<string|int,mixed> $data   Key/value pairs to add.
+	 * @param string                  $group  Optional. The cache group. Default empty.
+	 * @param int                     $expire Optional. TTL in seconds. Default 0.
 	 * @return bool[] Per-key results.
 	 */
 	function wp_cache_add_multiple( array $data, $group = '', $expire = 0) {
@@ -113,9 +114,9 @@ if ( ! function_exists( 'wp_cache_set_multiple' )) {
 	/**
 	 * Stores multiple values in the cache in one call.
 	 *
-	 * @param array  $data   Key/value pairs to store.
-	 * @param string $group  Optional. The cache group. Default empty.
-	 * @param int    $expire Optional. TTL in seconds. Default 0.
+	 * @param array<string|int,mixed> $data   Key/value pairs to store.
+	 * @param string                  $group  Optional. The cache group. Default empty.
+	 * @param int                     $expire Optional. TTL in seconds. Default 0.
 	 * @return bool[] Per-key results.
 	 */
 	function wp_cache_set_multiple( array $data, $group = '', $expire = 0) {
@@ -146,9 +147,9 @@ if ( ! function_exists( 'wp_cache_get_multiple' )) {
 	/**
 	 * Retrieves multiple values from the cache in one call.
 	 *
-	 * @param array  $keys  The cache keys.
-	 * @param string $group Optional. The cache group. Default empty.
-	 * @param bool   $force Optional. Force reads past the runtime tier.
+	 * @param array<int,string|int> $keys  The cache keys.
+	 * @param string                $group Optional. The cache group. Default empty.
+	 * @param bool                  $force Optional. Force reads past the runtime tier.
 	 * @return array<string,mixed> Per-key values; misses are false.
 	 */
 	function wp_cache_get_multiple( $keys, $group = '', $force = false) {
@@ -177,8 +178,8 @@ if ( ! function_exists( 'wp_cache_delete_multiple' )) {
 	/**
 	 * Deletes multiple values from the cache in one call.
 	 *
-	 * @param array  $keys  The cache keys.
-	 * @param string $group Optional. The cache group. Default empty.
+	 * @param array<int,string|int> $keys  The cache keys.
+	 * @param string                $group Optional. The cache group. Default empty.
 	 * @return bool[] Per-key results.
 	 */
 	function wp_cache_delete_multiple( array $keys, $group = '') {
@@ -260,7 +261,7 @@ if ( ! function_exists( 'wp_cache_flush_group' )) {
 		// external caches must fail and throw _doing_it_wrong on wp_cache_flush_group.
 		$backtrace = debug_backtrace( DEBUG_BACKTRACE_IGNORE_ARGS, 3 );
 		foreach ( $backtrace as $step ) {
-			if ( isset( $step['function'] ) && $step['function'] === 'test_wp_cache_flush_group' ) {
+			if ( $step['function'] === 'test_wp_cache_flush_group' ) {
 				_doing_it_wrong( __FUNCTION__, 'The wp_cache_flush_group() function is not supported by external object caches.', '6.1.0' );
 				return false;
 			}
@@ -300,6 +301,10 @@ if ( ! function_exists( 'wp_cache_close' )) {
 	 * @return bool Always true.
 	 */
 	function wp_cache_close() {
+		global $wp_object_cache;
+		if ( $wp_object_cache instanceof \Mincemeat\ObjectCache\ObjectCache ) {
+			return $wp_object_cache->close();
+		}
 		return true;
 	}
 }
@@ -309,6 +314,7 @@ if ( ! function_exists( 'wp_cache_add_global_groups' )) {
 	 * Registers one or more global groups.
 	 *
 	 * @param string|string[] $groups A group or list of groups.
+	 * @return void
 	 */
 	function wp_cache_add_global_groups( $groups) {
 		global $wp_object_cache;
@@ -322,6 +328,7 @@ if ( ! function_exists( 'wp_cache_add_non_persistent_groups' )) {
 	 * Registers one or more non-persistent groups.
 	 *
 	 * @param string|string[] $groups A group or list of groups.
+	 * @return void
 	 */
 	function wp_cache_add_non_persistent_groups( $groups) {
 		global $wp_object_cache;
@@ -335,6 +342,7 @@ if ( ! function_exists( 'wp_cache_switch_to_blog' )) {
 	 * Switches the internal blog ID for non-global groups.
 	 *
 	 * @param int $blog_id The blog ID.
+	 * @return void
 	 */
 	function wp_cache_switch_to_blog( $blog_id) {
 		global $wp_object_cache;
@@ -348,6 +356,7 @@ if ( ! function_exists( 'wp_cache_reset' )) {
 	 * Resets internal cache keys. Deprecated; use wp_cache_switch_to_blog().
 	 *
 	 * @deprecated 1.0.0
+	 * @return void
 	 */
 	function wp_cache_reset() {
 		if (function_exists( '_deprecated_function' )) {

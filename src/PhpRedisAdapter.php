@@ -240,6 +240,7 @@ class PhpRedisAdapter {
 			return array_fill( 0, count( $keys ), false );
 		}
 
+		/** @var array<int,string|false>|false $result */
 		$result = $this->redis->mget( $keys );
 		if ( ! is_array( $result )) {
 			return array_fill( 0, count( $keys ), false );
@@ -374,7 +375,7 @@ class PhpRedisAdapter {
 	/**
 	 * Runs a pipeline of commands. Each entry is [method, args[]].
 	 *
-	 * @param array<int,array{0:string,1:array}> $commands
+	 * @param array<int,array{0:string,1:array<int,mixed>}> $commands
 	 * @return array<int,mixed>
 	 */
 	public function pipeline( array $commands): array {

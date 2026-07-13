@@ -300,6 +300,58 @@ class FailureTest extends TestCase
         $expected_key = $cache->key_space()->item_key($ns_tok, $grp_tok, 'group1', 'corrupt_key');
         $this->assertSame($expected_key, $deleted_keys[0]);
     }
+
+    public function test_advanced_credential_and_dsn_redaction()
+    {
+        $config = new Config(array(
+            'namespace' => 'my-secret-ns',
+            'scheme'    => 'tcp',
+            'host'      => 'my-secret-redis-host.com',
+            'port'      => 6389,
+            'password'  => 'secret-p@ssword',
+            'username'  => 'secret-user',
+            'debug'     => true,
+            'tls'       => array(
+                'cafile' => '/path/to/my-secret-ca.pem'
+            )
+        ));
+
+        $key_space = new KeySpace(false, 1);
+        $adapter = new MockPhpRedisAdapter();
+        $adapter->connect_callback = function ($cfg) {
+            // Emulate an exception throwing secrets including DSN style url
+            throw new BackendException('connect-failed', 'Could not connect to redis://secret-user:secret-p%40ssword@my-secret-redis-host.com:6389/0. Namespace: my-secret-ns. SSL file: /path/to/my-secret-ca.pem');
+        };
+
+        $backend = new Backend($key_space, $adapter);
+        $backend->initialize($config);
+
+        $this->assertCount(1, $this->logged_messages);
+        $log = $this->logged_messages[0];
+
+        // Ensure all sensitive parts are redacted
+        $this->assertStringNotContainsString('my-secret-ns', $log);
+        $this->assertStringNotContainsString('my-secret-redis-host.com', $log);
+        $this->assertStringNotContainsString('secret-p@ssword', $log);
+        $this->assertStringNotContainsString('secret-p%40ssword', $log); // urlencoded pass
+        $this->assertStringNotContainsString('secret-user', $log);
+        $this->assertStringNotContainsString('/path/to/my-secret-ca.pem', $log);
+
+        // Ensure that DSN credentials pattern is matched and replaced
+        $this->assertStringNotContainsString('secret-user:secret-p%40ssword@', $log);
+        $this->assertStringContainsString('[REDACTED]', $log);
+
+        // Verify last_error() on the backend is also redacted
+        $last_err = $backend->last_error();
+        $this->assertNotEmpty($last_err);
+        $this->assertStringNotContainsString('my-secret-ns', $last_err);
+        $this->assertStringNotContainsString('my-secret-redis-host.com', $last_err);
+        $this->assertStringNotContainsString('secret-p@ssword', $last_err);
+        $this->assertStringNotContainsString('secret-p%40ssword', $last_err);
+        $this->assertStringNotContainsString('secret-user', $last_err);
+        $this->assertStringNotContainsString('/path/to/my-secret-ca.pem', $last_err);
+        $this->assertStringContainsString('[REDACTED]', $last_err);
+    }
 }
 
 class MockPhpRedisAdapter extends PhpRedisAdapter

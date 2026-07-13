@@ -106,9 +106,10 @@ final class Api {
 	 *
 	 * No credentials, raw keys, cached values, or stack traces are included.
 	 *
+	 * @param bool $public If true, returns public diagnostics for Site Health.
 	 * @return array<string,mixed>
 	 */
-	public static function diagnostics(): array {
+	public static function diagnostics( bool $public = true ): array {
 		$cache = self::cache();
 
 		$redis_version = 'unknown';
@@ -116,6 +117,7 @@ final class Api {
 			if ( defined( 'Redis::VERSION' ) ) {
 				$redis_version = Redis::VERSION;
 			} elseif ( method_exists( 'Redis', 'getVersion' ) ) {
+				/** @phpstan-ignore-next-line */
 				$redis_version = ( new Redis() )->getVersion();
 			} else {
 				$redis_version = phpversion( 'redis' ) ? phpversion( 'redis' ) : 'unknown';
@@ -138,11 +140,18 @@ final class Api {
 		if ( $cache ) {
 			$config = $cache->config();
 			if ( $config ) {
-				$diagnostics = array_merge( $diagnostics, $config->redacted_diagnostics() );
+				$diagnostics = array_merge( $diagnostics, $config->redacted_diagnostics( $public ) );
 			}
 			$server_info = $cache->server_info();
 			if ( $server_info ) {
-				$diagnostics['server'] = $server_info;
+				if ( $public ) {
+					$diagnostics['server'] = array(
+						'product' => $server_info['product'] ?? 'unknown',
+						'version' => $server_info['version'] ?? 'unknown',
+					);
+				} else {
+					$diagnostics['server'] = $server_info;
+				}
 			}
 		}
 

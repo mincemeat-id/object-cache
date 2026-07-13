@@ -311,9 +311,9 @@ class SiteHealthTest extends TestCase
 		$fields = $info['mincemeat-object-cache']['fields'];
 
 		$this->assertSame( 'persistent', $fields['cache_state']['value'] );
-		$this->assertSame( '3', $fields['database']['value'] );
+		$this->assertSame( '***', $fields['database']['value'] );
 		$this->assertStringContainsString( 'Redis 8.0.0', $fields['server_identity']['value'] );
-		$this->assertStringContainsString( 'tcp://127.0.0.1:6379', $fields['endpoint']['value'] );
+		$this->assertStringContainsString( 'tcp://127.0.0.1:***', $fields['endpoint']['value'] );
 		$this->assertSame( 'absent', $fields['dropin_status']['value'] );
 	}
 }

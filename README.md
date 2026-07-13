@@ -53,6 +53,19 @@ Mincemeat Object Cache is an object cache only. It caches database query results
 
 There is no settings page. All runtime diagnostics are surfaced through WordPress Site Health (Tools -> Site Health -> Info).
 
+## Development & Testing Ports
+
+For local development and testing, non-default ports are used to prevent conflicts with other local databases or services:
+- **Redis 8**: mapped to host port `6383` (configured as default fallback in test configurations and scripts).
+- **Valkey 9**: mapped to host port `6384` (configured as default fallback in test configurations and scripts).
+- **MariaDB 11.8**: mapped to host port `33076` (configured as default fallback in test configurations and scripts).
+
+To set up the containers and run the test suite locally:
+1. Start the Docker services: `docker compose up -d`
+2. Run the PHPUnit test suite: `composer test`
+
+For details on the project's production readiness roadmap, see the [Production Readiness Remediation Plan](file:///home/nerdv2/work/Mincemeat/object-cache/docs/PRODUCTION_READINESS_REMEDIATION_PLAN.md).
+
 ## License
 
 GPL-3.0-or-later. See LICENSE.
