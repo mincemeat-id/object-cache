@@ -64,7 +64,7 @@ To set up the containers and run the test suite locally:
 1. Start the Docker services: `docker compose up -d`
 2. Run the PHPUnit test suite: `composer test`
 
-For details on the project's production readiness roadmap, see the [Production Readiness Remediation Plan](file:///home/nerdv2/work/Mincemeat/object-cache/docs/PRODUCTION_READINESS_REMEDIATION_PLAN.md).
+For details on the project's production readiness roadmap, see the [Production Readiness Remediation Plan](docs/PRODUCTION_READINESS_REMEDIATION_PLAN.md).
 
 ## License
 
