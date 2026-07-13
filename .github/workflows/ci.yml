@@ -114,6 +114,9 @@ jobs:
       matrix:
         php:
           - '7.4'
+          - '8.0'
+          - '8.1'
+          - '8.2'
           - '8.3'
           - '8.4'
           - '8.5'
@@ -217,6 +220,21 @@ jobs:
           MINCEMEAT_TEST_REDIS_HOST: 127.0.0.1
         run: php tools/run-smoke-tests.php
 
+      - name: Capture logs on failure
+        if: failure()
+        run: |
+          mkdir -p build/logs
+          docker logs redis-unix > build/logs/redis-unix.log 2>&1 || true
+          docker logs redis-acl > build/logs/redis-acl.log 2>&1 || true
+          docker logs redis-tls > build/logs/redis-tls.log 2>&1 || true
+
+      - name: Upload failure logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: integration-failure-logs-php-${{ matrix.php }}-backend-${{ matrix.backend }}-multisite-${{ matrix.multisite }}
+          path: build/logs/
+
   artifact-parity:
     name: Artifact Parity (drop-in)
     runs-on: ubuntu-latest
@@ -252,10 +270,59 @@ jobs:
             echo "tools/build-dropin.php not found; skipping build."
           fi
 
-      - name: Verify parity
+      - name: Verify parity of drop-in and checksum
         run: |
-          if [ -f stubs/object-cache.php ]; then
-            git diff --exit-code stubs/object-cache.php
+          if [ -f stubs/object-cache.php ] && [ -f stubs/object-cache.php.sha256 ]; then
+            git diff --exit-code stubs/object-cache.php stubs/object-cache.php.sha256
           else
-            echo "stubs/object-cache.php not found; nothing to verify."
+            echo "stubs/object-cache.php or its checksum sidecar not found; failing verification."
+            exit 1
           fi
+
+      - name: Secret scan check
+        run: |
+          # Verify that no private keys, certificates, or stray credential files are tracked in git
+          git ls-files | grep -E '\.key$|\.pem$|^mypassword$' && exit 1 || echo "No tracked secrets found."
+
+      - name: Build plugin package
+        run: php tools/build-package.php
+
+      - name: Verify package artifacts are ignored in git
+        run: |
+          git status --porcelain | grep -E 'mincemeat-object-cache.zip|mincemeat-object-cache.zip.sha256|manifest.json' && exit 1 || echo "Package artifacts are correctly ignored."
+
+      - name: Verify package determinism
+        run: |
+          php tools/build-package.php
+          HASH1=$(sha256sum mincemeat-object-cache.zip | awk '{print $1}')
+          php tools/build-package.php
+          HASH2=$(sha256sum mincemeat-object-cache.zip | awk '{print $1}')
+          if [ "$HASH1" != "$HASH2" ]; then
+            echo "Error: Package build is not deterministic! ($HASH1 vs $HASH2)"
+            exit 1
+          fi
+          echo "Package build is deterministic."
+
+      - name: Run ZIP allowlist check
+        run: |
+          # List files inside the generated zip and check against the allowlist
+          unzip -l mincemeat-object-cache.zip | awk '{print $4}' | grep '^mincemeat-object-cache/' | sort > zip_files.txt
+          cat zip_files.txt
+          
+          # Dynamically construct the expected list of files
+          (
+            echo "mincemeat-object-cache/CHANGELOG.md"
+            echo "mincemeat-object-cache/LICENSE"
+            echo "mincemeat-object-cache/README.md"
+            echo "mincemeat-object-cache/mincemeat-object-cache.php"
+            echo "mincemeat-object-cache/readme.txt"
+            for f in src/*.php; do
+              echo "mincemeat-object-cache/$f"
+            done
+            echo "mincemeat-object-cache/stubs/object-cache.php"
+            echo "mincemeat-object-cache/stubs/object-cache.php.sha256"
+          ) | sort > expected_files.txt
+          
+          diff -u expected_files.txt zip_files.txt || (echo "Error: ZIP contents do not match allowlist!" && exit 1)
+          echo "ZIP allowlist check passed."
+          rm expected_files.txt zip_files.txt

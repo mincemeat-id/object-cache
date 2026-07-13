@@ -41,7 +41,43 @@ $content = str_replace(chr(39)."localhost".chr(39), "getenv( ".chr(39)."DB_HOST"
 // We will define MINCEMEAT_OBJECT_CACHE_CONFIG constant dynamically if present in env
 $config_injection = "\n" .
 "if ( getenv( \"MINCEMEAT_OBJECT_CACHE_CONFIG\" ) ) {\n" .
-"    define( \"MINCEMEAT_OBJECT_CACHE_CONFIG\", unserialize( getenv( \"MINCEMEAT_OBJECT_CACHE_CONFIG\" ) ) );\n" .
+"    \$raw_config = getenv( \"MINCEMEAT_OBJECT_CACHE_CONFIG\" );\n" .
+"    \$decoded = json_decode( \$raw_config, true );\n" .
+"    if ( ! is_array( \$decoded ) ) {\n" .
+"        throw new Exception( \"Invalid configuration injection: not an array.\" );\n" .
+"    }\n" .
+"    \$allowed_types = array(\n" .
+"        \"namespace\" => \"string\",\n" .
+"        \"scheme\" => \"string\",\n" .
+"        \"host\" => \"string\",\n" .
+"        \"port\" => \"integer\",\n" .
+"        \"path\" => \"string\",\n" .
+"        \"database\" => \"integer\",\n" .
+"        \"username\" => \"string\",\n" .
+"        \"password\" => \"string\",\n" .
+"        \"connect_timeout\" => \"double\",\n" .
+"        \"read_timeout\" => \"double\",\n" .
+"        \"persistent\" => \"boolean\",\n" .
+"        \"max_ttl\" => \"integer\",\n" .
+"        \"tls\" => \"array\",\n" .
+"        \"debug\" => \"boolean\",\n" .
+"    );\n" .
+"    foreach ( \$decoded as \$key => \$value ) {\n" .
+"        if ( ! isset( \$allowed_types[\$key] ) ) {\n" .
+"            throw new Exception( \"Invalid configuration injection: unknown key \" . \$key );\n" .
+"        }\n" .
+"        if ( \$value !== null ) {\n" .
+"            \$type = gettype( \$value );\n" .
+"            \$expected = \$allowed_types[\$key];\n" .
+"            if ( \$expected === \"double\" && ( \$type === \"integer\" || \$type === \"double\" ) ) {\n" .
+"                continue;\n" .
+"            }\n" .
+"            if ( \$type !== \$expected ) {\n" .
+"                throw new Exception( \"Invalid configuration injection: key \" . \$key . \" expected \" . \$expected . \", got \" . \$type );\n" .
+"            }\n" .
+"        }\n" .
+"    }\n" .
+"    define( \"MINCEMEAT_OBJECT_CACHE_CONFIG\", \$decoded );\n" .
 "} else {\n" .
 "    define( \"MINCEMEAT_OBJECT_CACHE_CONFIG\", array(\n" .
 "        \"scheme\" => \"tcp\",\n" .
@@ -53,7 +89,7 @@ $config_injection = "\n" .
 "        \"namespace\" => \"wp-tests-ns\",\n" .
 "        \"debug\" => true,\n" .
 "    ) );\n" .
-"}\n";
+"}";
 
 $content .= "\n" . $config_injection;
 

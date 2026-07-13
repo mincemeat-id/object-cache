@@ -4,8 +4,8 @@
  * Mincemeat Object Cache Drop-In
  *
  * Owner: mincemeat-object-cache
- * Version: 1.0.0-dev
- * Drop-in Version: 1.0.0-dev
+ * Version: 1.0.0-rc1
+ * Drop-in Version: 1.0.0-rc1
  * Schema Version: 1
  * Build Hash: fe6f3cb7b1c1ff96246d979fe11d9ba2badafca0fae5a7d1ca453d43e7d7efaa
  *

@@ -19,7 +19,8 @@ openssl x509 -req -in tests/certs/redis.csr -CA tests/certs/ca.crt -CAkey tests/
 openssl genrsa -out tests/certs/untrusted-ca.key 2048
 openssl req -x509 -new -nodes -key tests/certs/untrusted-ca.key -sha256 -days 365 -subj "/CN=Untrusted CA" -out tests/certs/untrusted-ca.crt
 
-chmod -R 777 tests/certs
+chmod 755 tests/certs
+chmod 644 tests/certs/*
 
 # Stop existing containers if any
 docker rm -f redis-unix redis-acl redis-tls || true

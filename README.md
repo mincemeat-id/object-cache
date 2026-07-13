@@ -4,7 +4,7 @@ A Redis/Valkey object-cache drop-in for WordPress, built on the PhpRedis extensi
 
 ## Requirements
 
-- PHP 7.4 or later
+- PHP 7.4 through 8.5 tested (PHP 8.5 support also depends on the wider WordPress installation stack)
 - WordPress 6.9 or later
 - The PhpRedis PHP extension
 - Redis 8 or Valkey 9
@@ -72,4 +72,4 @@ GPL-3.0-or-later. See LICENSE.
 
 ## Status
 
-1.0.0-dev. Under development.
+1.0.0-rc1. Release candidate.

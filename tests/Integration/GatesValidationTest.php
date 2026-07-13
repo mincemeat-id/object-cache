@@ -310,7 +310,7 @@ class GatesValidationTest extends TestCase
 
         $env = array(
             'MINCEMEAT_REQUIRE_PERSISTENT' => '0',
-            'MINCEMEAT_OBJECT_CACHE_CONFIG' => serialize(array(
+            'MINCEMEAT_OBJECT_CACHE_CONFIG' => json_encode(array(
                 'scheme'          => 'tcp',
                 'host'            => '127.0.0.1',
                 'port'            => 9999, // unreachable port
@@ -334,7 +334,7 @@ class GatesValidationTest extends TestCase
         $env = array(
             'MINCEMEAT_REQUIRE_PERSISTENT' => '1',
             'MINCEMEAT_EXPECTED_BACKEND'   => 'redis',
-            'MINCEMEAT_OBJECT_CACHE_CONFIG' => serialize(array(
+            'MINCEMEAT_OBJECT_CACHE_CONFIG' => json_encode(array(
                 'scheme'          => 'tcp',
                 'host'            => '127.0.0.1',
                 'port'            => (int)(getenv('MINCEMEAT_TEST_REDIS_PORT') ?: 6383), // Redis 8
@@ -359,7 +359,7 @@ class GatesValidationTest extends TestCase
         $env = array(
             'MINCEMEAT_REQUIRE_PERSISTENT' => '1',
             'MINCEMEAT_EXPECTED_BACKEND'   => 'valkey',
-            'MINCEMEAT_OBJECT_CACHE_CONFIG' => serialize(array(
+            'MINCEMEAT_OBJECT_CACHE_CONFIG' => json_encode(array(
                 'scheme'          => 'tcp',
                 'host'            => '127.0.0.1',
                 'port'            => (int)(getenv('MINCEMEAT_TEST_VALKEY_PORT') ?: 6384), // Valkey 9
@@ -384,10 +384,10 @@ class GatesValidationTest extends TestCase
         $env = array(
             'MINCEMEAT_REQUIRE_PERSISTENT' => '1',
             'MINCEMEAT_EXPECTED_BACKEND'   => 'redis',
-            'MINCEMEAT_OBJECT_CACHE_CONFIG' => serialize(array(
+            'MINCEMEAT_OBJECT_CACHE_CONFIG' => json_encode(array(
                 'scheme'          => 'tcp',
                 'host'            => '127.0.0.1',
-                'port'            => (int)(getenv('MINCEMEAT_TEST_REDIS_PORT') ?: 6383), // Redis 8
+                'port' => (int)(getenv('MINCEMEAT_TEST_REDIS_PORT') ?: 6383), // Redis 8
                 'database'         => 0,
                 'connect_timeout' => 1.0,
                 'read_timeout'    => 1.0,
@@ -409,10 +409,10 @@ class GatesValidationTest extends TestCase
         $env = array(
             'MINCEMEAT_REQUIRE_PERSISTENT' => '1',
             'MINCEMEAT_EXPECTED_BACKEND'   => 'valkey',
-            'MINCEMEAT_OBJECT_CACHE_CONFIG' => serialize(array(
+            'MINCEMEAT_OBJECT_CACHE_CONFIG' => json_encode(array(
                 'scheme'          => 'tcp',
                 'host'            => '127.0.0.1',
-                'port'            => (int)(getenv('MINCEMEAT_TEST_VALKEY_PORT') ?: 6384), // Valkey 9
+                'port' => (int)(getenv('MINCEMEAT_TEST_VALKEY_PORT') ?: 6384), // Valkey 9
                 'database'         => 0,
                 'connect_timeout' => 1.0,
                 'read_timeout'    => 1.0,

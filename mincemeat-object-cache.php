@@ -3,7 +3,7 @@
  * Plugin Name:       Mincemeat Object Cache
  * Plugin URI:        https://github.com/mincemeat-id/object-cache
  * Description:        Companion plugin for the Mincemeat Object Cache drop-in; provides drop-in lifecycle, Site Health, and minimal WP-CLI. The runtime cache lives in the generated standalone object-cache.php.
- * Version:            1.0.0-dev
+ * Version:            1.0.0-rc1
  * Requires at least:  6.9
  * Requires PHP:       7.4
  * Author:             the Mincemeat Object Cache developers
