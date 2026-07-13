@@ -465,7 +465,7 @@ class FailureTest extends TestCase
         $cache = new ObjectCache(new KeySpace(false, 1), $backend);
         $GLOBALS['wp_object_cache'] = $cache;
 
-        $cache->get('key', 'group');
+        $backend->get('key');
         $first = Api::metrics();
         $second = Api::metrics();
 
@@ -475,27 +475,26 @@ class FailureTest extends TestCase
         $this->assertSame($first, $second, 'Reading diagnostics must not increment error metrics.');
     }
 
-    public function test_backend_pipeline_results_and_unlink_fallback()
+    public function test_backend_pipeline_results_preserve_command_semantics()
     {
         $adapter = new MockPhpRedisAdapter();
         $pipelines = array();
         $adapter->pipeline_callback = function (array $commands) use (&$pipelines) {
             $pipelines[] = $commands;
             if ($commands[0][0] === 'unlink') {
-                return array(false, true);
-            }
-            if ($commands[0][0] === 'del') {
                 return array(1, 0);
             }
-            return array(true, false);
+            $options = $commands[0][1][2] ?? array();
+            $conditional = is_array($options)
+                && (in_array('NX', $options, true) || in_array('XX', $options, true));
+            return $conditional ? array(true, false) : array(true, true);
         };
         $backend = new Backend(new KeySpace(false, 1), $adapter);
         $backend->initialize($this->get_config());
 
         $this->assertSame(array(true, false), $backend->del_pipeline(array('one', 'two')));
         $this->assertSame('unlink', $pipelines[0][0][0]);
-        $this->assertSame('del', $pipelines[1][0][0]);
-        $this->assertSame(array(true, false), $backend->set_pipeline(array(
+        $this->assertSame(array(true, true), $backend->set_pipeline(array(
             array('one', 'value', null),
             array('two', 'value', 100),
         )));
@@ -503,6 +502,28 @@ class FailureTest extends TestCase
             array('one', 'value', null, true, false),
             array('two', 'value', 100, false, true),
         )));
+        $this->assertSame(ObjectCache::STATE_PERSISTENT, $backend->state());
+    }
+
+    /** @dataProvider falseUnconditionalPipelineProvider */
+    public function test_false_unconditional_pipeline_result_degrades(string $method, array $arguments)
+    {
+        $adapter = new MockPhpRedisAdapter();
+        $adapter->pipeline_callback = function () { return array(false); };
+        $backend = new Backend(new KeySpace(false, 1), $adapter);
+        $backend->initialize($this->get_config());
+
+        $this->assertSame(array(false), $backend->$method($arguments));
+        $this->assertSame(ObjectCache::STATE_DEGRADED, $backend->state());
+        $this->assertSame(Backend::REASON_COMMAND_FAILED, $backend->reason());
+    }
+
+    public function falseUnconditionalPipelineProvider(): array
+    {
+        return array(
+            'UNLINK' => array('del_pipeline', array('key')),
+            'SET' => array('set_pipeline', array(array('key', 'value', null))),
+        );
     }
 
     /** @dataProvider failingPipelineProvider */
@@ -623,13 +644,7 @@ class FailureTest extends TestCase
     public function test_backend_delete_fallback_exception_returns_per_key_failures()
     {
         $adapter = new MockPhpRedisAdapter();
-        $calls = 0;
-        $adapter->pipeline_callback = function () use (&$calls) {
-            if (++$calls === 1) {
-                return array(false, false);
-            }
-            throw new \RedisException('del fallback failed');
-        };
+        $adapter->pipeline_callback = function () { return array(false, false); };
         $backend = new Backend(new KeySpace(false, 1), $adapter);
         $backend->initialize($this->get_config());
 

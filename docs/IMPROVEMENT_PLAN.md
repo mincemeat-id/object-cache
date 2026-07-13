@@ -352,7 +352,7 @@ Implemented:
 2. Added verified TLS peer-name mismatch coverage alongside untrusted-CA coverage, with runtime-only fallback and public-diagnostics redaction assertions.
 3. Added restricted ACL users and live tests for denied `EVAL`/`EVALSHA`, `SCRIPT`, `UNLINK`, and `INFO`; numeric operations degrade safely when execution is denied and retain the `EVAL` fallback when only script preloading is denied.
 4. Added explicit bounded timeout/retry fault coverage, `NOSCRIPT` recovery coverage, live corrupt-envelope cleanup, and control-key eviction invalidation coverage.
-5. Persistent PhpRedis pool identities now include non-reversible digests of authentication and complete TLS identity in addition to database and namespace identity, preventing unsafe reuse when connection credentials change.
+5. Persistent PhpRedis pool identities now include non-reversible digests of authentication and complete TLS identity in addition to database and namespace identity. When global PhpRedis pooling is enabled without an `i` in `redis.pconnect.pool_pattern`, the adapter safely uses a request connection because PhpRedis would otherwise ignore the supplied identity.
 6. Request error metrics are transition-based rather than diagnostics-read-based, and metrics expose the same stable state/reason classification used by Site Health.
 7. E2E outage checks now fail if WordPress logs expose configured secrets, internal endpoint identity, or stack traces. Existing browser and WP-CLI checks continue to enforce redaction in rendered diagnostics and command output.
 8. Connection option verification no longer applies TCP keepalive to Unix sockets, preserving valid PhpRedis 6.3 Unix-socket connections while retaining keepalive verification for TCP/TLS.

@@ -67,7 +67,6 @@ class FailureProxyTest extends TestCase
 
         // Use custom adapter that simulates pre-dispatch disconnect
         $adapter = new FailureProxyAdapter();
-        $adapter->connect($config);
 
         $be = new Backend($ks, $adapter);
         $be->initialize($config);
@@ -131,7 +130,6 @@ class FailureProxyTest extends TestCase
 
         // Use custom adapter that simulates post-commit disconnect
         $adapter = new FailureProxyAdapter();
-        $adapter->connect($config);
 
         $be = new Backend($ks, $adapter);
         $be->initialize($config);
@@ -189,7 +187,6 @@ class FailureProxyTest extends TestCase
         $ks = new KeySpace(false, 1);
 
         $adapter = new FailureProxyAdapter();
-        $adapter->connect($config);
 
         $be = new Backend($ks, $adapter);
         $be->initialize($config);
@@ -226,7 +223,6 @@ class FailureProxyTest extends TestCase
         $ks = new KeySpace(false, 1);
 
         $adapter = new FailureProxyAdapter();
-        $adapter->connect($config);
 
         $be = new Backend($ks, $adapter);
         $be->initialize($config);
@@ -260,7 +256,6 @@ class FailureProxyTest extends TestCase
         $config = $this->get_config($ns);
         $ks = new KeySpace(false, 1);
         $adapter = new FailureProxyAdapter();
-        $adapter->connect($config);
         $be = new Backend($ks, $adapter);
         $be->initialize($config);
         $cache = new ObjectCache($ks, $be);
@@ -287,7 +282,6 @@ class FailureProxyTest extends TestCase
         $ks = new KeySpace(false, 1);
 
         $adapter = new FailureProxyAdapter();
-        $adapter->connect($config);
 
         $be = new Backend($ks, $adapter);
         $be->initialize($config);
@@ -322,12 +316,28 @@ class FailureProxyAdapter extends PhpRedisAdapter
     public $simulate_post_commit_disconnect = false;
     public $call_count = 0;
 
+    private $connection;
+
+    protected function create_redis_instance(): \Redis
+    {
+        $this->connection = new \Redis();
+
+        return $this->connection;
+    }
+
+    private function disconnect(): void
+    {
+        if ($this->connection instanceof \Redis && $this->connection->isConnected()) {
+            $this->connection->close();
+        }
+    }
+
     public function set(string $key, string $value, ?int $ttl_ms = null, bool $nx = false, bool $xx = false): bool
     {
         $this->call_count++;
 
         if ($this->simulate_pre_dispatch_disconnect) {
-            $this->redis->close();
+            $this->disconnect();
             throw new \RedisException('Connection closed pre-dispatch.');
         }
 
@@ -335,7 +345,7 @@ class FailureProxyAdapter extends PhpRedisAdapter
         $res = parent::set($key, $value, $ttl_ms, $nx, $xx);
 
         if ($this->simulate_post_commit_disconnect) {
-            $this->redis->close();
+            $this->disconnect();
             throw new \RedisException('Connection lost post-commit.');
         }
 
@@ -347,14 +357,14 @@ class FailureProxyAdapter extends PhpRedisAdapter
         $this->call_count++;
 
         if ($this->simulate_pre_dispatch_disconnect) {
-            $this->redis->close();
+            $this->disconnect();
             throw new \RedisException('Connection closed pre-dispatch.');
         }
 
         $res = parent::get($key);
 
         if ($this->simulate_post_commit_disconnect) {
-            $this->redis->close();
+            $this->disconnect();
             throw new \RedisException('Connection lost post-commit.');
         }
 
@@ -366,14 +376,14 @@ class FailureProxyAdapter extends PhpRedisAdapter
         $this->call_count++;
 
         if ($this->simulate_pre_dispatch_disconnect) {
-            $this->redis->close();
+            $this->disconnect();
             throw new \RedisException('Connection closed pre-dispatch.');
         }
 
         $res = parent::eval($script, $keys, $args);
 
         if ($this->simulate_post_commit_disconnect) {
-            $this->redis->close();
+            $this->disconnect();
             throw new \RedisException('Connection lost post-commit.');
         }
 
@@ -385,6 +395,7 @@ class FailureProxyAdapter extends PhpRedisAdapter
         $this->call_count++;
 
         if ($this->simulate_pre_dispatch_disconnect) {
+            $this->disconnect();
             throw new \RedisException('Connection closed during pipeline execution.');
         }
 

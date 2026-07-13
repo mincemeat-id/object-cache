@@ -22,11 +22,14 @@ class TestablePhpRedisAdapter extends PhpRedisAdapter
 
     private $version;
 
-    public function __construct($mockRedis, $version = '6.3.0')
+    private $poolHonorsId;
+
+    public function __construct($mockRedis, $version = '6.3.0', $poolHonorsId = true)
     {
         parent::__construct();
         $this->mockRedis = $mockRedis;
         $this->version = $version;
+        $this->poolHonorsId = $poolHonorsId;
     }
 
     protected function create_redis_instance(): \Redis
@@ -37,6 +40,11 @@ class TestablePhpRedisAdapter extends PhpRedisAdapter
     protected function phpredis_version()
     {
         return $this->version;
+    }
+
+    protected function persistent_pool_honors_id(): bool
+    {
+        return $this->poolHonorsId;
     }
 }
 
@@ -219,6 +227,21 @@ class PhpRedisAdapterTest extends TestCase
             $this->assertStringNotContainsString('password', $id);
             $this->assertStringNotContainsString('internal', $id);
         }
+    }
+
+    public function test_persistent_config_falls_back_when_pool_ignores_id()
+    {
+        $redis = $this->getMockBuilder(\Redis::class)
+            ->onlyMethods(array('connect', 'pconnect', 'setOption', 'getOption', 'script', 'clearLastError'))
+            ->getMock();
+        $this->allowOptionConfiguration($redis);
+        $redis->expects($this->never())->method('pconnect');
+        $redis->expects($this->once())->method('connect')->willReturn(true);
+        $redis->method('script')->willReturn(false);
+
+        (new TestablePhpRedisAdapter($redis, '6.3.0', false))->connect(
+            $this->config(array('persistent' => true))
+        );
     }
 
     public function test_ping_issues_exactly_one_command()

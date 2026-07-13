@@ -72,7 +72,9 @@ class PhpRedisAdapter {
 		$this->script_shas = array();
 
 		$connected     = false;
-		$persistent_id = $config->persistent() ? $this->persistent_id( $config ) : '';
+		$persistent_id = $config->persistent() && $this->persistent_pool_honors_id()
+			? $this->persistent_id( $config )
+			: '';
 
 		$context = null;
 		if ($config->scheme() === Config::SCHEME_TLS) {
@@ -577,6 +579,24 @@ class PhpRedisAdapter {
 	 */
 	protected function phpredis_version() {
 		return phpversion( 'redis' );
+	}
+
+	/**
+	 * Whether PhpRedis will include the supplied persistent ID in its pool key.
+	 *
+	 * Stock PhpRedis pooling keys only by endpoint unless the global pool pattern
+	 * contains `i`. Falling back to a request connection is safer than reusing a
+	 * socket authenticated or selected for another cache identity.
+	 */
+	protected function persistent_pool_honors_id(): bool {
+		$pooling = ini_get( 'redis.pconnect.pooling_enabled' );
+		if ($pooling === false || ! filter_var( $pooling, FILTER_VALIDATE_BOOLEAN )) {
+			return true;
+		}
+
+		$pattern = ini_get( 'redis.pconnect.pool_pattern' );
+
+		return is_string( $pattern ) && strpos( $pattern, 'i' ) !== false;
 	}
 
 	/**

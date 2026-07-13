@@ -348,7 +348,11 @@ class ConnectionScenariosTest extends TestCase
             $this->assertSame(2, $cache->incr('counter', 1, 'options'));
         } else {
             $this->assertTrue($cache->set('delete-me', 'value', 'options'));
-            $this->assertTrue($cache->delete('delete-me', 'options'));
+            $this->assertTrue($cache->set('delete-too', 'value', 'options'));
+            $this->assertSame(
+                array('delete-me' => true, 'delete-too' => true),
+                $cache->delete_multiple(array('delete-me', 'delete-too'), 'options')
+            );
         }
 
         $this->assertSame(ObjectCache::STATE_DEGRADED, $cache->state());

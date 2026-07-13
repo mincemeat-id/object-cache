@@ -10,8 +10,8 @@ The implementation is release-candidate quality after the production-readiness r
 Verified during the 2026-07-13 improvement-plan review:
 
 - Composer metadata, PHPCS, PHPStan level 8, PHPUnit, generated artifact parity, package determinism, and the broader Redis/Valkey matrix are covered by CI.
-- Local PHPUnit with the Docker Compose and helper fault services passed on PHP 8.4.23: `460 tests`, `1553 assertions`, `1 skipped`.
-- PCOV is available locally and produces `86.29%` (`1989/2305`) line coverage over `src/`.
+- Local PHPUnit with the Docker Compose and helper fault services passed on PHP 8.4.23: `463 tests`, `1561 assertions`, `1 skipped`.
+- PCOV is available locally and produces `86.40%` (`1995/2309`) line coverage over `src/`.
 - The coverage verifier enforces the overall target plus critical baselines for Backend, PhpRedisAdapter, ObjectCache, Lifecycle, KeySpace, ValueCodec, and Config.
 - PHPStan level 8 is the configured default and passes without baselines or ignore comments.
 
@@ -25,9 +25,11 @@ explicitly in CI. Connection setup verifies serializer, compression, prefix,
 reply, timeout, retry/backoff, and keepalive options. Numeric Lua operations use
 per-connection `SCRIPT LOAD`/`EVALSHA` with `EVAL` fallback after `NOSCRIPT`.
 Persistent pool identifiers isolate database, namespace, ACL, TLS, transport,
-and retry identities using non-reversible digests. TCP keepalive is verified
-only for TCP/TLS connections because PhpRedis rejects that socket option for
-Unix sockets.
+and retry identities using non-reversible digests. Stock PhpRedis pooling does
+not honor the identifier unless `redis.pconnect.pool_pattern` contains `i`, so
+the adapter falls back to a request connection when pooling would be unsafe.
+TCP keepalive is verified only for TCP/TLS connections because PhpRedis rejects
+that socket option for Unix sockets.
 
 Fault-injection coverage exercises command disconnects, pipeline failures,
 Lua denial and `NOSCRIPT`, TLS trust and peer-name failures, ACL auth and

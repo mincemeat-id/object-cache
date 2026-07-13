@@ -208,6 +208,9 @@ Required behavior:
 - Derive persistent connection pool identifiers from non-reversible digests of
   database, namespace, ACL, TLS, transport, and retry identity so changed
   connection credentials cannot reuse an incompatible PhpRedis connection.
+- Fall back to a request connection when process-wide PhpRedis pooling is
+  configured to ignore the supplied persistent identifier; never mutate the
+  global pool pattern from the drop-in.
 - Avoid throwing backend exceptions into ordinary WordPress execution paths.
 - Redact host/path/credential information in diagnostics unless explicitly safe.
 - Use Lua for atomic numeric or token operations only where it is portable across Redis 8 and Valkey 9.

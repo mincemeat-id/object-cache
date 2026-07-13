@@ -545,30 +545,15 @@ final class Backend {
 			return array_fill( 0, count( $keys ), false );
 		}
 
-		$out = array();
-		foreach ($results as $i => $r) {
-			$out[] = $r !== false && (int) $r > 0;
+		if (in_array( false, $results, true )) {
+			$this->degrade( self::REASON_COMMAND_FAILED );
+
+			return array_fill( 0, count( $keys ), false );
 		}
 
-		// If UNLINK produced an error result (false), fall back to DEL.
-		if (in_array( false, $results, true )) {
-			$commands = array();
-			foreach ($keys as $key) {
-				$commands[] = array( 'del', array( $key ) );
-			}
-
-			try {
-				$results = $this->adapter()->pipeline( $commands );
-			} catch (\Throwable $e) {
-				$this->degrade( self::REASON_COMMAND_FAILED, $e );
-
-				return array_fill( 0, count( $keys ), false );
-			}
-
-			$out = array();
-			foreach ($results as $i => $r) {
-				$out[] = $r !== false && (int) $r > 0;
-			}
+		$out = array();
+		foreach ($results as $i => $r) {
+			$out[] = (int) $r > 0;
 		}
 
 		return $out;
@@ -594,6 +579,12 @@ final class Backend {
 			$results = $this->adapter()->pipeline( $commands );
 		} catch (\Throwable $e) {
 			$this->degrade( self::REASON_COMMAND_FAILED, $e );
+
+			return array_fill( 0, count( $entries ), false );
+		}
+
+		if (in_array( false, $results, true )) {
+			$this->degrade( self::REASON_COMMAND_FAILED );
 
 			return array_fill( 0, count( $entries ), false );
 		}

@@ -7,7 +7,7 @@
  * Version: 1.0.0-rc1
  * Drop-in Version: 1.0.0-rc1
  * Schema Version: 1
- * Build Hash: 6282feb98bbac41d7bc307c20cf0dd8b11dd8f59507030d332695675b9e6d4d0
+ * Build Hash: 389d489ad85d2b3c9e60914363ecf1fffba0c92829e04d48c3e87d331fcf1dd4
  *
  * @package Mincemeat\ObjectCache
  */
@@ -98,14 +98,17 @@ namespace Mincemeat\ObjectCache {
 				);
 			}
 
+			$state  = $cache->state();
+			$reason = $cache->reason();
+
 			return array(
 				'hits'          => $cache->hits(),
 				'misses'        => $cache->misses(),
 				'backend_calls' => $cache->backend_calls(),
 				'backend_time'  => $cache->backend_time(),
 				'errors'        => $cache->errors(),
-				'state'         => $cache->state(),
-				'reason'        => $cache->reason(),
+				'state'         => $state,
+				'reason'        => $reason,
 			);
 		}
 
@@ -735,30 +738,15 @@ namespace Mincemeat\ObjectCache {
 				return array_fill( 0, count( $keys ), false );
 			}
 
-			$out = array();
-			foreach ($results as $i => $r) {
-				$out[] = $r !== false && (int) $r > 0;
+			if (in_array( false, $results, true )) {
+				$this->degrade( self::REASON_COMMAND_FAILED );
+
+				return array_fill( 0, count( $keys ), false );
 			}
 
-			// If UNLINK produced an error result (false), fall back to DEL.
-			if (in_array( false, $results, true )) {
-				$commands = array();
-				foreach ($keys as $key) {
-					$commands[] = array( 'del', array( $key ) );
-				}
-
-				try {
-					$results = $this->adapter()->pipeline( $commands );
-				} catch (\Throwable $e) {
-					$this->degrade( self::REASON_COMMAND_FAILED, $e );
-
-					return array_fill( 0, count( $keys ), false );
-				}
-
-				$out = array();
-				foreach ($results as $i => $r) {
-					$out[] = $r !== false && (int) $r > 0;
-				}
+			$out = array();
+			foreach ($results as $i => $r) {
+				$out[] = (int) $r > 0;
 			}
 
 			return $out;
@@ -784,6 +772,12 @@ namespace Mincemeat\ObjectCache {
 				$results = $this->adapter()->pipeline( $commands );
 			} catch (\Throwable $e) {
 				$this->degrade( self::REASON_COMMAND_FAILED, $e );
+
+				return array_fill( 0, count( $entries ), false );
+			}
+
+			if (in_array( false, $results, true )) {
+				$this->degrade( self::REASON_COMMAND_FAILED );
 
 				return array_fill( 0, count( $entries ), false );
 			}
@@ -4048,7 +4042,9 @@ namespace Mincemeat\ObjectCache {
 			$this->script_shas = array();
 
 			$connected     = false;
-			$persistent_id = $config->persistent() ? $this->persistent_id( $config ) : '';
+			$persistent_id = $config->persistent() && $this->persistent_pool_honors_id()
+				? $this->persistent_id( $config )
+				: '';
 
 			$context = null;
 			if ($config->scheme() === Config::SCHEME_TLS) {
@@ -4553,6 +4549,24 @@ namespace Mincemeat\ObjectCache {
 		 */
 		protected function phpredis_version() {
 			return phpversion( 'redis' );
+		}
+
+		/**
+		 * Whether PhpRedis will include the supplied persistent ID in its pool key.
+		 *
+		 * Stock PhpRedis pooling keys only by endpoint unless the global pool pattern
+		 * contains `i`. Falling back to a request connection is safer than reusing a
+		 * socket authenticated or selected for another cache identity.
+		 */
+		protected function persistent_pool_honors_id(): bool {
+			$pooling = ini_get( 'redis.pconnect.pooling_enabled' );
+			if ($pooling === false || ! filter_var( $pooling, FILTER_VALIDATE_BOOLEAN )) {
+				return true;
+			}
+
+			$pattern = ini_get( 'redis.pconnect.pool_pattern' );
+
+			return is_string( $pattern ) && strpos( $pattern, 'i' ) !== false;
 		}
 
 		/**

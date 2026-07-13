@@ -94,14 +94,17 @@ final class Api {
 			);
 		}
 
+		$state  = $cache->state();
+		$reason = $cache->reason();
+
 		return array(
 			'hits'          => $cache->hits(),
 			'misses'        => $cache->misses(),
 			'backend_calls' => $cache->backend_calls(),
 			'backend_time'  => $cache->backend_time(),
 			'errors'        => $cache->errors(),
-			'state'         => $cache->state(),
-			'reason'        => $cache->reason(),
+			'state'         => $state,
+			'reason'        => $reason,
 		);
 	}
 
