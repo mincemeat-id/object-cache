@@ -36,7 +36,7 @@ final class Ttl {
 	 * @param int $max_ttl        Configured maximum TTL in seconds (0 = unbounded).
 	 * @return int Effective TTL seconds; 0 means "no expiry".
 	 */
-	public static function resolve( int $caller_expire, int $max_ttl): int {
+	public static function resolve( int $caller_expire, int $max_ttl ): int {
 		$caller = $caller_expire < 0 ? 0 : $caller_expire;
 
 		if ($caller <= 0) {
@@ -57,7 +57,7 @@ final class Ttl {
 	 * @return int|null TTL in milliseconds; null for no-expiry; the MISSING
 	 *                  sentinel is normalized to null (caller treats as absent).
 	 */
-	public static function remaining_from_pttl( int $pttl_ms): ?int {
+	public static function remaining_from_pttl( int $pttl_ms ): ?int {
 		if ($pttl_ms === self::NO_EXPIRY_MS || $pttl_ms === self::MISSING_MS) {
 			return null;
 		}
@@ -71,7 +71,7 @@ final class Ttl {
 	 * @param int $ttl_seconds Resolved TTL; 0 means no expiry.
 	 * @return int|null TTL in ms, or null for no expiry.
 	 */
-	public static function to_ms( int $ttl_seconds): ?int {
+	public static function to_ms( int $ttl_seconds ): ?int {
 		return $ttl_seconds > 0 ? $ttl_seconds * 1000 : null;
 	}
 }

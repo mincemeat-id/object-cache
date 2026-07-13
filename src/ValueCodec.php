@@ -54,7 +54,7 @@ final class ValueCodec {
 	 * @param string $payload Raw payload bytes.
 	 * @return string
 	 */
-	public static function header_inline( int $tag, string $payload): string {
+	public static function header_inline( int $tag, string $payload ): string {
 		return self::header( $tag, strlen( $payload ) ) . $payload;
 	}
 
@@ -65,7 +65,7 @@ final class ValueCodec {
 	 * @return string
 	 * @throws ValueCodecException On an unsupported type or serialization failure.
 	 */
-	public static function encode( $value): string {
+	public static function encode( $value ): string {
 		if ($value === null) {
 			return self::header( self::TAG_NULL, 0 );
 		}
@@ -103,7 +103,7 @@ final class ValueCodec {
 	 *         found is false for a miss/corruption (value is false, error set).
 	 *         found is true on success (error is null).
 	 */
-	public static function decode( string $bytes): array {
+	public static function decode( string $bytes ): array {
 		if ($bytes === '') {
 			return array( false, false, 'decode-empty' );
 		}
@@ -166,7 +166,7 @@ final class ValueCodec {
 	 * @param int $value
 	 * @return string
 	 */
-	private static function int_to_payload( int $value): string {
+	private static function int_to_payload( int $value ): string {
 		return (string) $value;
 	}
 
@@ -174,7 +174,7 @@ final class ValueCodec {
 	 * @param string $payload
 	 * @return array{0:bool,1:int|false,2:string|null}
 	 */
-	private static function decode_int( string $payload): array {
+	private static function decode_int( string $payload ): array {
 		if ($payload === '') {
 			return array( false, false, 'decode-int-empty' );
 		}
@@ -193,7 +193,7 @@ final class ValueCodec {
 	 * @param string $payload
 	 * @return array{0:bool,1:float|false,2:string|null}
 	 */
-	private static function decode_double( string $payload): array {
+	private static function decode_double( string $payload ): array {
 		if (strlen( $payload ) !== 8) {
 			return array( false, false, 'decode-double-length' );
 		}
@@ -209,7 +209,7 @@ final class ValueCodec {
 	 * @return string
 	 * @throws ValueCodecException
 	 */
-	private static function encode_serialized( $value): string {
+	private static function encode_serialized( $value ): string {
 		$payload = null;
 		$prev    = error_reporting( 0 );
 
@@ -232,7 +232,7 @@ final class ValueCodec {
 	 * @param string $payload
 	 * @return array{0:bool,1:mixed,2:string|null}
 	 */
-	private static function decode_serialized( string $payload): array {
+	private static function decode_serialized( string $payload ): array {
 		if ($payload === '') {
 			return array( false, false, 'decode-serialized-empty' );
 		}
@@ -272,7 +272,7 @@ final class ValueCodec {
 	 * @param int $length
 	 * @return string
 	 */
-	private static function header( int $tag, int $length): string {
+	private static function header( int $tag, int $length ): string {
 		return self::MAGIC
 			. chr( self::VERSION )
 			. chr( $tag )
@@ -286,7 +286,7 @@ final class ValueCodec {
 	 * @param int    $offset
 	 * @return int
 	 */
-	private static function read_length( string $bytes, int $offset): int {
+	private static function read_length( string $bytes, int $offset ): int {
 		$unpacked = unpack( 'N', substr( $bytes, $offset, 4 ) );
 		if ($unpacked === false) {
 			return 0;
@@ -300,7 +300,7 @@ final class ValueCodec {
 	 * @param int $length
 	 * @return string
 	 */
-	private static function write_length( int $length): string {
+	private static function write_length( int $length ): string {
 		return pack( 'N', $length );
 	}
 }

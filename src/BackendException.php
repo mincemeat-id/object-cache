@@ -23,7 +23,7 @@ final class BackendException extends RuntimeException {
 	 */
 	private $reason;
 
-	public function __construct( string $reason, string $message = '', int $code = 0, ?\Throwable $previous = null) {
+	public function __construct( string $reason, string $message = '', int $code = 0, ?\Throwable $previous = null ) {
 		parent::__construct( $message === '' ? $reason : $message, $code, $previous );
 		$this->reason = $reason;
 	}

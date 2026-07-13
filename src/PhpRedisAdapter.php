@@ -48,7 +48,7 @@ class PhpRedisAdapter {
 	 * @param Config $config
 	 * @throws BackendException On connection, auth, or database-selection failure.
 	 */
-	public function connect( Config $config): void {
+	public function connect( Config $config ): void {
 		if ( ! class_exists( Redis::class )) {
 			throw new BackendException( 'missing-extension', 'The PhpRedis extension is not available.' );
 		}
@@ -119,8 +119,7 @@ class PhpRedisAdapter {
 						$config->read_timeout()
 					);
 				}
-			} else {
-				if ($context !== null) {
+			} elseif ($context !== null) {
 					$connected = $this->redis->connect(
 						$params['host'],
 						$params['port'],
@@ -130,16 +129,15 @@ class PhpRedisAdapter {
 						$config->read_timeout(),
 						$context
 					);
-				} else {
-					$connected = $this->redis->connect(
-						$params['host'],
-						$params['port'],
-						$config->connect_timeout(),
-						null,
-						0,
-						$config->read_timeout()
-					);
-				}
+			} else {
+				$connected = $this->redis->connect(
+					$params['host'],
+					$params['port'],
+					$config->connect_timeout(),
+					null,
+					0,
+					$config->read_timeout()
+				);
 			}
 		} catch (\Throwable $e) {
 			throw new BackendException( 'connect-failed', 'Connection attempt failed.', 0, $e );
@@ -221,7 +219,7 @@ class PhpRedisAdapter {
 	 * @param string $key
 	 * @return string|false
 	 */
-	public function get( string $key) {
+	public function get( string $key ) {
 		if ($this->redis === null) {
 			return false;
 		}
@@ -235,7 +233,7 @@ class PhpRedisAdapter {
 	 * @param array<int,string> $keys
 	 * @return array<int,string|false>
 	 */
-	public function mget( array $keys): array {
+	public function mget( array $keys ): array {
 		if ($this->redis === null) {
 			return array_fill( 0, count( $keys ), false );
 		}
@@ -259,7 +257,7 @@ class PhpRedisAdapter {
 	 * @param bool     $xx    If true, only set if the key already exists.
 	 * @return bool True on success, false on condition failure.
 	 */
-	public function set( string $key, string $value, ?int $ttl_ms = null, bool $nx = false, bool $xx = false): bool {
+	public function set( string $key, string $value, ?int $ttl_ms = null, bool $nx = false, bool $xx = false ): bool {
 		if ($this->redis === null) {
 			return false;
 		}
@@ -293,7 +291,7 @@ class PhpRedisAdapter {
 	 * @param int|null $ttl_ms
 	 * @return bool
 	 */
-	public function set_unconditional( string $key, string $value, ?int $ttl_ms = null): bool {
+	public function set_unconditional( string $key, string $value, ?int $ttl_ms = null ): bool {
 		return $this->set( $key, $value, $ttl_ms, false, false );
 	}
 
@@ -303,7 +301,7 @@ class PhpRedisAdapter {
 	 * @param string $key
 	 * @return int Number of keys deleted (0 if absent).
 	 */
-	public function del( string $key): int {
+	public function del( string $key ): int {
 		if ($this->redis === null) {
 			return 0;
 		}
@@ -323,7 +321,7 @@ class PhpRedisAdapter {
 	 * @param array<int,string> $keys
 	 * @return int Number of keys deleted.
 	 */
-	public function del_multiple( array $keys): int {
+	public function del_multiple( array $keys ): int {
 		if ($this->redis === null || count( $keys ) === 0) {
 			return 0;
 		}
@@ -343,7 +341,7 @@ class PhpRedisAdapter {
 	 * @param string $key
 	 * @return int PTTL in ms, or -1 for no-expiry, -2 for missing.
 	 */
-	public function pttl( string $key): int {
+	public function pttl( string $key ): int {
 		if ($this->redis === null) {
 			return Ttl::MISSING_MS;
 		}
@@ -364,7 +362,7 @@ class PhpRedisAdapter {
 	 * @param array<int,mixed>  $args
 	 * @return mixed
 	 */
-	public function eval( string $script, array $keys = array(), array $args = array()) {
+	public function eval( string $script, array $keys = array(), array $args = array() ) {
 		if ($this->redis === null) {
 			return false;
 		}
@@ -378,7 +376,7 @@ class PhpRedisAdapter {
 	 * @param array<int,array{0:string,1:array<int,mixed>}> $commands
 	 * @return array<int,mixed>
 	 */
-	public function pipeline( array $commands): array {
+	public function pipeline( array $commands ): array {
 		if ($this->redis === null) {
 			return array();
 		}
@@ -388,7 +386,7 @@ class PhpRedisAdapter {
 
 		foreach ($commands as $cmd) {
 			call_user_func_array( array( $pipe, $cmd[0] ), $cmd[1] );
-			$count++;
+			++$count;
 		}
 
 		if ($count === 0) {
@@ -484,7 +482,7 @@ class PhpRedisAdapter {
 	 * @param Config $config
 	 * @return array{host:string,port:int}
 	 */
-	private function connect_params( Config $config): array {
+	private function connect_params( Config $config ): array {
 		if ($config->scheme() === Config::SCHEME_UNIX) {
 			return array(
 				'host' => (string) $config->path(),

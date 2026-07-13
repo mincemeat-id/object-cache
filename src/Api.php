@@ -106,10 +106,10 @@ final class Api {
 	 *
 	 * No credentials, raw keys, cached values, or stack traces are included.
 	 *
-	 * @param bool $public If true, returns public diagnostics for Site Health.
+	 * @param bool $is_public If true, returns public diagnostics for Site Health.
 	 * @return array<string,mixed>
 	 */
-	public static function diagnostics( bool $public = true ): array {
+	public static function diagnostics( bool $is_public = true ): array {
 		$cache = self::cache();
 
 		$redis_version = 'unknown';
@@ -140,11 +140,11 @@ final class Api {
 		if ( $cache ) {
 			$config = $cache->config();
 			if ( $config ) {
-				$diagnostics = array_merge( $diagnostics, $config->redacted_diagnostics( $public ) );
+				$diagnostics = array_merge( $diagnostics, $config->redacted_diagnostics( $is_public ) );
 			}
 			$server_info = $cache->server_info();
 			if ( $server_info ) {
-				if ( $public ) {
+				if ( $is_public ) {
 					$diagnostics['server'] = array(
 						'product' => $server_info['product'] ?? 'unknown',
 						'version' => $server_info['version'] ?? 'unknown',
@@ -193,7 +193,7 @@ final class Api {
 	 * @param ObjectCache $cache The cache instance.
 	 * @return array<int,string>
 	 */
-	private static function non_persistent_group_names( ObjectCache $cache): array {
+	private static function non_persistent_group_names( ObjectCache $cache ): array {
 		return array_keys( $cache->non_persistent_groups() );
 	}
 }

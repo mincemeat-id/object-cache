@@ -132,7 +132,7 @@ final class Config {
 	 * @param array<string,mixed> $input Raw config array.
 	 * @throws ConfigException On any validation failure.
 	 */
-	public function __construct( array $input) {
+	public function __construct( array $input ) {
 		$this->reject_unknown_keys( $input );
 
 		$namespace = $input['namespace'] ?? null;
@@ -184,7 +184,7 @@ final class Config {
 		$this->max_ttl = (int) $max_ttl;
 
 		$tls = $input['tls'] ?? self::KNOWN_KEYS['tls'];
-		$this->validate_tls( $tls, $this->scheme );
+		$this->validate_tls( $tls );
 		$this->tls = is_array( $tls ) ? $tls : array();
 
 		$debug = $input['debug'] ?? self::KNOWN_KEYS['debug'];
@@ -294,10 +294,10 @@ final class Config {
 	 * identifiers; never the source namespace, username, password, DSN, or
 	 * TLS key material paths.
 	 *
-	 * @param bool $public If true, obfuscates host, port, database, and unix paths.
+	 * @param bool $is_public If true, obfuscates host, port, database, and unix paths.
 	 * @return array<string,mixed>
 	 */
-	public function redacted_diagnostics( bool $public = false ): array {
+	public function redacted_diagnostics( bool $is_public = false ): array {
 		$tls_summary = array();
 		if ( $this->scheme === self::SCHEME_TLS ) {
 			$tls_summary = array(
@@ -311,7 +311,7 @@ final class Config {
 		$database = $this->database;
 		$path = $this->path;
 
-		if ( $public ) {
+		if ( $is_public ) {
 			if ( $this->scheme === self::SCHEME_UNIX ) {
 				$path = $path !== null ? '/****/' . basename( $path ) : null;
 			} else {
@@ -399,7 +399,7 @@ final class Config {
 	/**
 	 * @param array<string,mixed> $input
 	 */
-	private function reject_unknown_keys( array $input): void {
+	private function reject_unknown_keys( array $input ): void {
 		foreach (array_keys( $input ) as $key) {
 			if ( ! array_key_exists( $key, self::KNOWN_KEYS )) {
 				throw new ConfigException( self::REASON_UNKNOWN_KEY, sprintf( 'Unknown config key "%s".', $this->redact_value( $key ) ) );
@@ -410,7 +410,7 @@ final class Config {
 	/**
 	 * @param mixed $value
 	 */
-	private function validate_namespace( $value): void {
+	private function validate_namespace( $value ): void {
 		$reason = self::REASON_NAMESPACE;
 
 		if ( ! is_string( $value )) {
@@ -433,7 +433,7 @@ final class Config {
 	/**
 	 * @param mixed $value
 	 */
-	private function validate_scheme( $value): void {
+	private function validate_scheme( $value ): void {
 		if ( ! is_string( $value ) || ! in_array( $value, self::SCHEMES, true )) {
 			throw new ConfigException( self::REASON_SCHEME, 'Scheme must be tcp, tls, or unix.' );
 		}
@@ -443,7 +443,7 @@ final class Config {
 	 * @param mixed  $value
 	 * @param string $scheme
 	 */
-	private function validate_host( $value, string $scheme): void {
+	private function validate_host( $value, string $scheme ): void {
 		if ($scheme === self::SCHEME_UNIX) {
 			return;
 		}
@@ -457,7 +457,7 @@ final class Config {
 	 * @param mixed  $value
 	 * @param string $scheme
 	 */
-	private function validate_port( $value, string $scheme): void {
+	private function validate_port( $value, string $scheme ): void {
 		if ($scheme === self::SCHEME_UNIX) {
 			return;
 		}
@@ -477,7 +477,7 @@ final class Config {
 	 * @param mixed  $value
 	 * @param string $scheme
 	 */
-	private function validate_path( $value, string $scheme): void {
+	private function validate_path( $value, string $scheme ): void {
 		if ($scheme !== self::SCHEME_UNIX) {
 			return;
 		}
@@ -490,7 +490,7 @@ final class Config {
 	/**
 	 * @param mixed $value
 	 */
-	private function validate_database( $value): void {
+	private function validate_database( $value ): void {
 		$ok = is_int( $value ) || ( is_string( $value ) && ctype_digit( $value ) );
 		if ( ! $ok || (int) $value < 0) {
 			throw new ConfigException( self::REASON_DATABASE, 'Database must be a non-negative integer.' );
@@ -500,7 +500,7 @@ final class Config {
 	/**
 	 * @param mixed $value
 	 */
-	private function validate_username( $value): void {
+	private function validate_username( $value ): void {
 		if ($value !== null && ! is_string( $value )) {
 			throw new ConfigException( self::REASON_USERNAME, 'Username must be null or a string.' );
 		}
@@ -509,7 +509,7 @@ final class Config {
 	/**
 	 * @param mixed $value
 	 */
-	private function validate_password( $value): void {
+	private function validate_password( $value ): void {
 		if ($value !== null && ! is_string( $value )) {
 			throw new ConfigException( self::REASON_PASSWORD, 'Password must be null or a string.' );
 		}
@@ -518,7 +518,7 @@ final class Config {
 	/**
 	 * @param mixed $value
 	 */
-	private function validate_timeout( $value, string $reason): void {
+	private function validate_timeout( $value, string $reason ): void {
 		$ok = is_int( $value )
 			|| is_float( $value )
 			|| ( is_string( $value ) && is_numeric( $value ) && strpos( $value, "\0" ) === false );
@@ -536,7 +536,7 @@ final class Config {
 	 * @param mixed  $value
 	 * @param string $reason
 	 */
-	private function validate_bool( $value, string $reason): void {
+	private function validate_bool( $value, string $reason ): void {
 		if ( ! is_bool( $value ) && ! ( is_int( $value ) && ( $value === 0 || $value === 1 ) )) {
 			throw new ConfigException( $reason, 'Value must be boolean.' );
 		}
@@ -545,7 +545,7 @@ final class Config {
 	/**
 	 * @param mixed $value
 	 */
-	private function validate_max_ttl( $value): void {
+	private function validate_max_ttl( $value ): void {
 		$ok = is_int( $value ) || ( is_string( $value ) && ctype_digit( $value ) );
 		if ( ! $ok || (int) $value < 0) {
 			throw new ConfigException( self::REASON_MAX_TTL, 'max_ttl must be a non-negative integer.' );
@@ -553,10 +553,9 @@ final class Config {
 	}
 
 	/**
-	 * @param mixed  $value
-	 * @param string $scheme
+	 * @param mixed $value
 	 */
-	private function validate_tls( $value, string $scheme): void {
+	private function validate_tls( $value ): void {
 		if ($value === null || $value === array()) {
 			return;
 		}
@@ -571,7 +570,7 @@ final class Config {
 	 *
 	 * @param mixed $value
 	 */
-	private function redact_value( $value): string {
+	private function redact_value( $value ): string {
 		if ( ! is_string( $value )) {
 			return '(non-string)';
 		}

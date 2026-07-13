@@ -105,7 +105,7 @@ final class Backend {
 	 */
 	private $degraded_fired = false;
 
-	public function __construct( KeySpace $key_space, ?PhpRedisAdapter $adapter = null) {
+	public function __construct( KeySpace $key_space, ?PhpRedisAdapter $adapter = null ) {
 		$this->key_space = $key_space;
 		$this->state     = ObjectCache::STATE_RUNTIME_ONLY;
 		$this->reason    = self::REASON_NO_BACKEND;
@@ -120,7 +120,7 @@ final class Backend {
 	 *
 	 * @param Config $config
 	 */
-	public function initialize( Config $config): void {
+	public function initialize( Config $config ): void {
 		$this->config = $config;
 		$this->key_space->configure( $config );
 
@@ -261,7 +261,7 @@ final class Backend {
 	 * @param string $group Normalized group name.
 	 * @return string 32-char hex token, or empty string when not persistent.
 	 */
-	public function group_token( string $group): string {
+	public function group_token( string $group ): string {
 		if ( ! $this->is_persistent()) {
 			return '';
 		}
@@ -287,7 +287,7 @@ final class Backend {
 	 * @param array<int,string> $groups Normalized group names.
 	 * @return array<string,string> Map of group name => token.
 	 */
-	public function group_tokens( array $groups): array {
+	public function group_tokens( array $groups ): array {
 		if ( ! $this->is_persistent()) {
 			return array();
 		}
@@ -380,7 +380,7 @@ final class Backend {
 	 * @param string $group Normalized group name.
 	 * @return bool True on success.
 	 */
-	public function replace_group_token( string $group): bool {
+	public function replace_group_token( string $group ): bool {
 		if ( ! $this->is_persistent()) {
 			return false;
 		}
@@ -408,7 +408,7 @@ final class Backend {
 	 * @param string $key Backend key.
 	 * @return string|false
 	 */
-	public function get( string $key) {
+	public function get( string $key ) {
 		if ( ! $this->is_persistent()) {
 			return false;
 		}
@@ -428,7 +428,7 @@ final class Backend {
 	 * @param array<int,string> $keys
 	 * @return array<int,string|false>
 	 */
-	public function mget( array $keys): array {
+	public function mget( array $keys ): array {
 		if ( ! $this->is_persistent()) {
 			return array_fill( 0, count( $keys ), false );
 		}
@@ -452,7 +452,7 @@ final class Backend {
 	 * @param bool     $xx
 	 * @return bool
 	 */
-	public function set( string $key, string $value, ?int $ttl_ms = null, bool $nx = false, bool $xx = false): bool {
+	public function set( string $key, string $value, ?int $ttl_ms = null, bool $nx = false, bool $xx = false ): bool {
 		if ( ! $this->is_persistent()) {
 			return false;
 		}
@@ -474,7 +474,7 @@ final class Backend {
 	 * @param int|null $ttl_ms
 	 * @return bool
 	 */
-	public function set_unconditional( string $key, string $value, ?int $ttl_ms = null): bool {
+	public function set_unconditional( string $key, string $value, ?int $ttl_ms = null ): bool {
 		if ( ! $this->is_persistent()) {
 			return false;
 		}
@@ -494,7 +494,7 @@ final class Backend {
 	 * @param string $key
 	 * @return int
 	 */
-	public function del( string $key): int {
+	public function del( string $key ): int {
 		if ( ! $this->is_persistent()) {
 			return 0;
 		}
@@ -514,7 +514,7 @@ final class Backend {
 	 * @param array<int,string> $keys
 	 * @return array<int,bool> Per-key success (true if deleted/cleared).
 	 */
-	public function del_pipeline( array $keys): array {
+	public function del_pipeline( array $keys ): array {
 		if ( ! $this->is_persistent() || count( $keys ) === 0) {
 			return array_fill( 0, count( $keys ), false );
 		}
@@ -567,7 +567,7 @@ final class Backend {
 	 * @param array<int,array{0:string,1:string,2:?int}> $entries [key, value, ttl_ms].
 	 * @return array<int,bool>
 	 */
-	public function set_pipeline( array $entries): array {
+	public function set_pipeline( array $entries ): array {
 		if ( ! $this->is_persistent() || count( $entries ) === 0) {
 			return array_fill( 0, count( $entries ), false );
 		}
@@ -599,7 +599,7 @@ final class Backend {
 	 * @param array<int,array{0:string,1:string,2:?int,3:bool,4:bool}> $entries [key, value, ttl_ms, nx, xx].
 	 * @return array<int,bool>
 	 */
-	public function set_conditional_pipeline( array $entries): array {
+	public function set_conditional_pipeline( array $entries ): array {
 		if ( ! $this->is_persistent() || count( $entries ) === 0) {
 			return array_fill( 0, count( $entries ), false );
 		}
@@ -633,7 +633,7 @@ final class Backend {
 	 * @param array<int,mixed>  $args
 	 * @return mixed
 	 */
-	public function eval( string $script, array $keys = array(), array $args = array()) {
+	public function eval( string $script, array $keys = array(), array $args = array() ) {
 		if ( ! $this->is_persistent()) {
 			return false;
 		}
@@ -656,7 +656,7 @@ final class Backend {
 	 *         result_code is one of LuaScripts::RESULT_*; new_value is null
 	 *         for all non-success results.
 	 */
-	public function eval_incr( string $item_key, int $offset): array {
+	public function eval_incr( string $item_key, int $offset ): array {
 		if ( ! $this->is_persistent()) {
 			return array( LuaScripts::RESULT_MISSING, null );
 		}
@@ -712,7 +712,7 @@ final class Backend {
 	 * @param string $key The control key.
 	 * @return string 32-char hex token.
 	 */
-	private function init_token( string $key): string {
+	private function init_token( string $key ): string {
 		if ( ! $this->is_persistent()) {
 			return '';
 		}
@@ -904,7 +904,7 @@ final class Backend {
 	 * @param bool     $xx
 	 * @return array{0:string,1:array<int,mixed>}
 	 */
-	private function build_set_command( string $key, string $value, ?int $ttl_ms, bool $nx, bool $xx): array {
+	private function build_set_command( string $key, string $value, ?int $ttl_ms, bool $nx, bool $xx ): array {
 		$args = array( $key, $value );
 
 		$options = array();

@@ -24,7 +24,7 @@ final class ConfigException extends InvalidArgumentException {
 	 */
 	private $reason;
 
-	public function __construct( string $reason, string $message = '') {
+	public function __construct( string $reason, string $message = '' ) {
 		parent::__construct( $message === '' ? $reason : $message );
 		$this->reason = $reason;
 	}

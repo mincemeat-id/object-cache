@@ -77,14 +77,14 @@ final class KeySpace {
 	 *
 	 * @param bool   $multisite Whether multisite is active.
 	 * @param int    $blog_id   The current blog ID.
-	 * @param string $namespace Optional installation namespace (Phase 3 injection).
+	 * @param string $namespace_name Optional installation namespace (Phase 3 injection).
 	 */
-	public function __construct( bool $multisite, int $blog_id, string $namespace = '') {
+	public function __construct( bool $multisite, int $blog_id, string $namespace_name = '' ) {
 		$this->multisite   = $multisite;
 		$this->blog_prefix = $this->multisite ? $blog_id . ':' : '';
 
-		if ($namespace !== '') {
-			$this->namespace_digest = hash( 'sha256', $namespace );
+		if ( $namespace_name !== '' ) {
+			$this->namespace_digest = hash( 'sha256', $namespace_name );
 		}
 	}
 
@@ -93,7 +93,7 @@ final class KeySpace {
 	 *
 	 * @param Config $config
 	 */
-	public function configure( Config $config): void {
+	public function configure( Config $config ): void {
 		$this->namespace_digest = $config->namespace_digest();
 	}
 
@@ -102,7 +102,7 @@ final class KeySpace {
 	 *
 	 * @param string $token 32-char lowercase hex token.
 	 */
-	public function set_namespace_token( string $token): void {
+	public function set_namespace_token( string $token ): void {
 		$this->namespace_token = $token;
 	}
 
@@ -123,7 +123,7 @@ final class KeySpace {
 	 *
 	 * @param string|string[] $groups A group or list of groups.
 	 */
-	public function add_global_groups( $groups): void {
+	public function add_global_groups( $groups ): void {
 		$groups = (array) $groups;
 
 		foreach ($groups as $group) {
@@ -137,7 +137,7 @@ final class KeySpace {
 	 * @param string $group Normalized group name.
 	 * @return bool
 	 */
-	public function is_global_group( string $group): bool {
+	public function is_global_group( string $group ): bool {
 		return isset( $this->global_groups[ $group ] );
 	}
 
@@ -164,7 +164,7 @@ final class KeySpace {
 	 *
 	 * @param int $blog_id The blog ID to switch to.
 	 */
-	public function switch_to_blog( int $blog_id): void {
+	public function switch_to_blog( int $blog_id ): void {
 		$this->blog_prefix = $this->multisite ? $blog_id . ':' : '';
 	}
 
@@ -187,7 +187,7 @@ final class KeySpace {
 	 * @param mixed $key The key to validate.
 	 * @return bool True when the key is valid.
 	 */
-	public function is_valid_key( $key): bool {
+	public function is_valid_key( $key ): bool {
 		if (is_int( $key )) {
 			return true;
 		}
@@ -216,7 +216,7 @@ final class KeySpace {
 	 * @param string $group The raw group name.
 	 * @return string The normalized group name.
 	 */
-	public function normalize_group( string $group): string {
+	public function normalize_group( string $group ): string {
 		return '' === $group ? 'default' : $group;
 	}
 
@@ -231,7 +231,7 @@ final class KeySpace {
 	 * @param string $group The normalized group name.
 	 * @return string The storage identifier.
 	 */
-	public function storage_id( $key, string $group): string {
+	public function storage_id( $key, string $group ): string {
 		if ($this->multisite && ! isset( $this->global_groups[ $group ] )) {
 			return $this->blog_prefix . $key;
 		}
@@ -261,7 +261,7 @@ final class KeySpace {
 	 * @param string $group Normalized group name.
 	 * @return string
 	 */
-	public function group_digest( string $group): string {
+	public function group_digest( string $group ): string {
 		return hash( 'sha256', $group );
 	}
 
@@ -275,7 +275,7 @@ final class KeySpace {
 	 * @param mixed $key The validated cache key.
 	 * @return string
 	 */
-	public function key_digest( $key): string {
+	public function key_digest( $key ): string {
 		return hash( 'sha256', (string) $key );
 	}
 
@@ -288,7 +288,7 @@ final class KeySpace {
 	 * @param string $group Normalized group name.
 	 * @return string
 	 */
-	public function scope_for( string $group): string {
+	public function scope_for( string $group ): string {
 		if (isset( $this->global_groups[ $group ] )) {
 			return self::GLOBAL_SCOPE;
 		}
@@ -319,7 +319,7 @@ final class KeySpace {
 	 * @param string $group Normalized group name.
 	 * @return string
 	 */
-	public function group_control_key( string $group): string {
+	public function group_control_key( string $group ): string {
 		return self::SCHEMA_MARKER . ':' . $this->namespace_digest . ':g:' . $this->group_digest( $group ) . ':' . self::GROUP_TOKEN_MARKER;
 	}
 
@@ -335,7 +335,7 @@ final class KeySpace {
 	 * @param mixed  $key         The validated cache key.
 	 * @return string
 	 */
-	public function item_key( string $ns_token, string $group_token, string $group, $key): string {
+	public function item_key( string $ns_token, string $group_token, string $group, $key ): string {
 		return self::SCHEMA_MARKER
 			. ':' . $this->namespace_digest
 			. ':' . self::ITEM_MARKER

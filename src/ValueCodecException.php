@@ -24,7 +24,7 @@ final class ValueCodecException extends RuntimeException {
 	 */
 	private $category;
 
-	public function __construct( string $category, string $message = '') {
+	public function __construct( string $category, string $message = '' ) {
 		parent::__construct( '' === $message ? $category : $message );
 		$this->category = $category;
 	}

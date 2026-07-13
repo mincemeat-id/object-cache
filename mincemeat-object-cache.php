@@ -30,16 +30,16 @@ if ( isset( $wp_version ) && version_compare( $wp_version, '6.9', '<' ) ) {
 
 // Register a PSR-4 autoloader for the Mincemeat\ObjectCache namespace.
 spl_autoload_register(
-	function ( $class ) {
+	function ( $class_name ) {
 		$prefix   = 'Mincemeat\\ObjectCache\\';
 		$base_dir = __DIR__ . '/src/';
 
 		$len = strlen( $prefix );
-		if ( strncmp( $prefix, $class, $len ) !== 0 ) {
+		if ( strncmp( $prefix, $class_name, $len ) !== 0 ) {
 			return;
 		}
 
-		$relative_class = substr( $class, $len );
+		$relative_class = substr( $class_name, $len );
 		$file           = $base_dir . str_replace( '\\', '/', $relative_class ) . '.php';
 
 		if ( is_readable( $file ) ) {
@@ -64,4 +64,3 @@ if ( is_admin() ) {
 if ( defined( 'WP_CLI' ) && WP_CLI ) {
 	WP_CLI::add_command( 'mincemeat-cache', 'Mincemeat\ObjectCache\CliCommand' );
 }
-
