@@ -83,7 +83,7 @@ jobs:
 
       - name: Get composer cache key
         id: composer-cache
-        run: echo "key=$(php -r 'echo PHP_VERSION;')-$(sha256sum composer.lock 2>/dev/null || echo no-lock)" >> "$GITHUB_OUTPUT"
+        run: echo "key=$(php -r 'echo PHP_VERSION;')-$(sha256sum composer.json)" >> "$GITHUB_OUTPUT"
 
       - name: Cache composer dependencies
         uses: actions/cache@v4
@@ -91,8 +91,8 @@ jobs:
           path: vendor
           key: ${{ steps.composer-cache.outputs.key }}
 
-      - name: Composer install
-        run: composer install --prefer-dist --no-interaction
+      - name: Composer update
+        run: composer update --prefer-dist --no-interaction
 
       - name: Build plugin package ZIP
         run: php tools/build-package.php

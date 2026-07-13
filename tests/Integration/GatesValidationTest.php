@@ -310,6 +310,7 @@ class GatesValidationTest extends TestCase
 
         $env = array(
             'MINCEMEAT_REQUIRE_PERSISTENT' => '0',
+            'MINCEMEAT_EXPECTED_BACKEND'   => '',
             'MINCEMEAT_OBJECT_CACHE_CONFIG' => json_encode(array(
                 'scheme'          => 'tcp',
                 'host'            => '127.0.0.1',
@@ -337,7 +338,7 @@ class GatesValidationTest extends TestCase
             'MINCEMEAT_OBJECT_CACHE_CONFIG' => json_encode(array(
                 'scheme'          => 'tcp',
                 'host'            => '127.0.0.1',
-                'port'            => (int)(getenv('MINCEMEAT_TEST_REDIS_PORT') ?: 6383), // Redis 8
+                'port'            => (int)(getenv('MINCEMEAT_TEST_REDIS_PORT') ?: 6379), // Redis 8
                 'database'         => 0,
                 'connect_timeout' => 1.0,
                 'read_timeout'    => 1.0,
@@ -362,7 +363,7 @@ class GatesValidationTest extends TestCase
             'MINCEMEAT_OBJECT_CACHE_CONFIG' => json_encode(array(
                 'scheme'          => 'tcp',
                 'host'            => '127.0.0.1',
-                'port'            => (int)(getenv('MINCEMEAT_TEST_VALKEY_PORT') ?: 6384), // Valkey 9
+                'port'            => (int)(getenv('MINCEMEAT_TEST_VALKEY_PORT') ?: 6380), // Valkey 9
                 'database'         => 0,
                 'connect_timeout' => 1.0,
                 'read_timeout'    => 1.0,
@@ -387,7 +388,7 @@ class GatesValidationTest extends TestCase
             'MINCEMEAT_OBJECT_CACHE_CONFIG' => json_encode(array(
                 'scheme'          => 'tcp',
                 'host'            => '127.0.0.1',
-                'port' => (int)(getenv('MINCEMEAT_TEST_REDIS_PORT') ?: 6383), // Redis 8
+                'port' => (int)(getenv('MINCEMEAT_TEST_REDIS_PORT') ?: 6379), // Redis 8
                 'database'         => 0,
                 'connect_timeout' => 1.0,
                 'read_timeout'    => 1.0,
@@ -412,7 +413,7 @@ class GatesValidationTest extends TestCase
             'MINCEMEAT_OBJECT_CACHE_CONFIG' => json_encode(array(
                 'scheme'          => 'tcp',
                 'host'            => '127.0.0.1',
-                'port' => (int)(getenv('MINCEMEAT_TEST_VALKEY_PORT') ?: 6384), // Valkey 9
+                'port' => (int)(getenv('MINCEMEAT_TEST_VALKEY_PORT') ?: 6380), // Valkey 9
                 'database'         => 0,
                 'connect_timeout' => 1.0,
                 'read_timeout'    => 1.0,

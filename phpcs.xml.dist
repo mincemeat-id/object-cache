@@ -2,7 +2,7 @@
 <ruleset name="MincemeatObjectCache">
     <description>Coding standards configuration for Mincemeat Object Cache.</description>
 
-    <config name="test_version" value="7.4"/>
+    <config name="testVersion" value="7.4"/>
 
     <arg name="extensions" value="php"/>
     <arg name="colors"/>
