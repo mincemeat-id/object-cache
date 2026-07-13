@@ -31,7 +31,7 @@ if (!copy($dropin_src, $dropin_dest)) {
 $redis_host = getenv('MINCEMEAT_TEST_REDIS_HOST') ?: '127.0.0.1';
 $redis_port = (int) (getenv('MINCEMEAT_TEST_REDIS_PORT') ?: 6383);
 
-define('MINCEMEAT_OBJECT_CACHE_CONFIG', array(
+$object_cache_config = array(
     'scheme'          => 'tcp',
     'host'            => $redis_host,
     'port'            => $redis_port,
@@ -39,7 +39,8 @@ define('MINCEMEAT_OBJECT_CACHE_CONFIG', array(
     'connect_timeout' => 1.0,
     'read_timeout'    => 1.0,
     'namespace'       => 'smoke-test-ns',
-));
+);
+putenv('MINCEMEAT_OBJECT_CACHE_CONFIG=' . json_encode($object_cache_config));
 
 // Force DB host to point to our container port (detect local 33076 first, fallback to 3306)
 $mysql_port = (int)(getenv('MINCEMEAT_TEST_DB_PORT') ?: 33076);
@@ -55,6 +56,7 @@ if (!is_resource($connection) && $mysql_port === 33076) {
 }
 $_ENV['DB_HOST'] = '127.0.0.1:' . $mysql_port;
 $_SERVER['DB_HOST'] = '127.0.0.1:' . $mysql_port;
+putenv('DB_HOST=127.0.0.1:' . $mysql_port);
 
 // 3. Register plugins to load on muplugins_loaded
 $plugins_dir = $wp_tests_dir . '/src/wp-content/plugins';
