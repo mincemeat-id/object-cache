@@ -9,6 +9,5 @@
 *.sw?
 .DS_Store
 Thumbs.db
-/docs/
 /tests/wp-tests/
 /build/
