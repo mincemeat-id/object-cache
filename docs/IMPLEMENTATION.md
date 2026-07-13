@@ -17,7 +17,6 @@ Verified during the 2026-07-13 improvement-plan review:
 
 Current improvement targets:
 
-- Browser/WP-CLI E2E tests.
 - Continued performance, stability, and compatibility work.
 - PhpRedis 6.3.0 capability utilization.
 
@@ -112,6 +111,14 @@ Generate fresh PCOV coverage and verify the configured thresholds:
 ```bash
 composer test:coverage
 ```
+
+Run the isolated real-WordPress browser and WP-CLI suite (Docker Compose required):
+
+```bash
+composer test:e2e
+```
+
+The E2E orchestrator owns a dedicated Compose project and disposable volumes. It builds WordPress 6.9 with PhpRedis 6.3, uses local-only MariaDB/Redis credentials, executes Playwright in its official container, and cleans up automatically. Set `MINCEMEAT_E2E_KEEP_ENV=1` only when retaining a failed environment for debugging.
 
 Drop-in parity:
 

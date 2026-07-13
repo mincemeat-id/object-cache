@@ -1,0 +1,62 @@
+name: mincemeat-e2e
+
+services:
+  database:
+    image: mariadb:11.8
+    environment:
+      MARIADB_DATABASE: wordpress_e2e
+      MARIADB_USER: wordpress
+      MARIADB_PASSWORD: wordpress-e2e-only
+      MARIADB_ROOT_PASSWORD: root-e2e-only
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+    volumes:
+      - database-data:/var/lib/mysql
+
+  redis:
+    image: redis:8-alpine
+    command: ["redis-server", "--save", "", "--appendonly", "no", "--requirepass", "redis-e2e-only"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "redis-e2e-only", "--no-auth-warning", "ping"]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+
+  wordpress:
+    build:
+      context: ../..
+      dockerfile: tests/e2e/Dockerfile
+    depends_on:
+      database:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      WORDPRESS_DB_HOST: database:3306
+      WORDPRESS_DB_NAME: wordpress_e2e
+      WORDPRESS_DB_USER: wordpress
+      WORDPRESS_DB_PASSWORD: wordpress-e2e-only
+      WORDPRESS_CONFIG_EXTRA: |
+        define( 'WP_ENVIRONMENT_TYPE', 'local' );
+        define( 'MINCEMEAT_OBJECT_CACHE_CONFIG', array(
+          'namespace' => 'mincemeat-e2e',
+          'host' => 'redis',
+          'port' => 6379,
+          'password' => 'redis-e2e-only',
+          'connect_timeout' => 0.25,
+          'read_timeout' => 0.25,
+          'persistent' => false,
+          'debug' => true,
+        ) );
+    ports:
+      - "${MINCEMEAT_E2E_PORT:-8091}:80"
+    volumes:
+      - wordpress-data:/var/www/html
+      - ../..:/var/www/html/wp-content/plugins/mincemeat-object-cache:ro
+
+volumes:
+  database-data:
+  wordpress-data:

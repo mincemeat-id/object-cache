@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+- Added isolated WordPress browser/WP-CLI E2E coverage for lifecycle, Site Health, outage recovery, ownership safety, and multisite.
+- Registered the documented hyphenated WP-CLI lifecycle subcommands explicitly.
+
 ## [1.0.0-rc1] - 2026-07-13
 
 - Replaced serialized test configuration injection with validated JSON decoding.

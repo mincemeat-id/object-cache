@@ -87,6 +87,18 @@ composer test:coverage
 
 Optional Unix socket, ACL, and TLS scenarios are started with `bash tools/setup-test-services.sh`. Export the helper variables from the table to enable those tests locally.
 
+## End-to-End Tests
+
+The browser and WP-CLI suite creates an isolated WordPress 6.9 install with its own MariaDB and authenticated Redis containers. It covers admin activation, drop-in lifecycle commands, Site Health redaction, normal admin/frontend requests, backend outage and recovery, foreign drop-in protection, managed deactivation, and multisite network activation.
+
+Docker with Compose is the only host requirement; Playwright and PhpRedis run inside purpose-built containers:
+
+```bash
+composer test:e2e
+```
+
+The suite removes its containers and volumes after each run. Set `MINCEMEAT_E2E_KEEP_ENV=1` to preserve a failing environment for local debugging, or `MINCEMEAT_E2E_PORT` to use a host port other than `8091`. Browser traces and screenshots on failure are written under `tests/e2e/test-results/` and are ignored by Git.
+
 For the current improvement roadmap, see the [Improvement Plan](docs/IMPROVEMENT_PLAN.md).
 
 ## License

@@ -106,6 +106,25 @@ jobs:
       - name: PHPCompatibility
         run: vendor/bin/phpcs --standard=PHPCompatibility -p src stubs tools mincemeat-object-cache.php --runtime-set testVersion 7.4
 
+  e2e:
+    name: WordPress Browser and WP-CLI E2E
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Run isolated E2E suite
+        run: composer test:e2e
+
+      - name: Upload browser failure artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-browser-failure-artifacts
+          path: tests/e2e/test-results/
+          if-no-files-found: ignore
+
   integration:
     name: Integration (PHP ${{ matrix.php }}, ${{ matrix.backend }}, multisite=${{ matrix.multisite }})
     runs-on: ubuntu-latest

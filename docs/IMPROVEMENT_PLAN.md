@@ -167,7 +167,9 @@ The verifier should fail when critical file coverage regresses and should docume
 
 Goal: add browser-level and CLI-level confidence around the companion plugin and drop-in lifecycle.
 
-Current state:
+Status: complete on 2026-07-13.
+
+Previous state:
 
 - The project has strong PHPUnit, integration, WordPress core cache gate, and smoke coverage.
 - The current smoke tool boots WooCommerce, Yoast SEO, and Easy Digital Downloads through WordPress test bootstrap.
@@ -190,6 +192,14 @@ Candidate tooling:
 - WordPress E2E utilities plus Playwright for browser flows.
 - WP-CLI in the test container for lifecycle commands.
 - Docker compose service controls for Redis/Valkey outage tests.
+
+Implemented:
+
+1. Added a disposable Docker Compose environment with WordPress 6.9, PHP 8.4, PhpRedis 6.3, MariaDB 11.8, and authenticated Redis 8.
+2. Added Playwright coverage for browser activation, Site Health Info fields and redaction, admin/frontend availability, backend outage degradation, recovery to persistent state, and multisite network activation.
+3. Added real WP-CLI coverage for drop-in install/status/remove, file presence, foreign drop-in overwrite/removal refusal, managed deactivation cleanup, and network-active status.
+4. The orchestrator creates fresh named volumes, uses only local test credentials, removes state on exit, and retains browser traces/screenshots only on failure.
+5. Added `composer test:e2e` and a single-version CI job, with failure artifact upload, before considering a broader matrix.
 
 Acceptance criteria:
 

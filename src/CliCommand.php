@@ -52,6 +52,8 @@ final class CliCommand {
 	 *
 	 *     wp mincemeat-cache install-dropin
 	 *
+	 * @subcommand install-dropin
+	 *
 	 * @param array<int,string>     $args       Command arguments.
 	 * @param array<string,string>  $assoc_args Command associative arguments.
 	 */
@@ -84,6 +86,8 @@ final class CliCommand {
 	 * ## EXAMPLES
 	 *
 	 *     wp mincemeat-cache update-dropin
+	 *
+	 * @subcommand update-dropin
 	 *
 	 * @param array<int,string>     $args       Command arguments.
 	 * @param array<string,string>  $assoc_args Command associative arguments.
@@ -122,6 +126,8 @@ final class CliCommand {
 	 * ## EXAMPLES
 	 *
 	 *     wp mincemeat-cache remove-dropin
+	 *
+	 * @subcommand remove-dropin
 	 *
 	 * @param array<int,string>     $args       Command arguments.
 	 * @param array<string,string>  $assoc_args Command associative arguments.
