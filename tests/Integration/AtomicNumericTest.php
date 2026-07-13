@@ -18,6 +18,9 @@ namespace Mincemeat\ObjectCache\Tests\Integration;
 use Mincemeat\ObjectCache\LuaScripts;
 use Mincemeat\ObjectCache\ValueCodec;
 
+/**
+ * @group integration
+ */
 class AtomicNumericTest extends IntegrationTestCase
 {
     public function test_incr_missing_returns_false()

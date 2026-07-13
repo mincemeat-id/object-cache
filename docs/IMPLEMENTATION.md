@@ -20,6 +20,12 @@ Current improvement targets:
 - Continued performance, stability, and compatibility work.
 - PhpRedis 6.3.0 capability utilization.
 
+The WordPress 6.9 compatibility surface includes public `cache_hits` and
+`cache_misses` counters, magic read access to `global_groups` and `blog_prefix`,
+core-shaped `isset()` behavior, and `stats()` output. The magic properties are
+read-only views over `KeySpace`, which remains the source of truth for group and
+multisite scope decisions.
+
 ## Repository Map
 
 | Path | Edit policy |

@@ -1,7 +1,7 @@
 # Mincemeat Object Cache - Improvement Plan
 
 Date: 2026-07-13
-Status: post-remediation, release-candidate quality; Milestones 1 through 3 complete.
+Status: post-remediation, release-candidate quality; Milestones 1 through 5 complete.
 Scope: next engineering improvements after the production-readiness remediation work was completed and pushed.
 
 This replaces the old production-readiness remediation plan. The previous blocker set is closed: the test-specific `wp_cache_flush_group()` branch is gone, package artifacts are ignored rather than committed, package determinism is checked, artifact parity CI has been expanded, JSON test configuration is in place, and local credential/certificate hygiene has improved.
@@ -213,6 +213,8 @@ The suite should create its own WordPress state, use local-only credentials, red
 
 Goal: stay faithful to the WordPress 6.9+ cache contract and reduce surprises for plugins that inspect `$wp_object_cache`.
 
+Status: complete on 2026-07-13.
+
 Findings:
 
 - Standard facade signatures match WordPress 6.9.
@@ -220,20 +222,15 @@ Findings:
 - WordPress core's object cache has public/magic compatibility behavior not fully mirrored by Mincemeat.
 - Core deprecation and `_doing_it_wrong()` versions use WordPress versions, while some Mincemeat messages use plugin version `1.0.0`.
 
-Recommended work:
+Implemented:
 
-1. Add contract tests for the public compatibility surface expected by core and common plugins:
-   - `$wp_object_cache->cache_hits`
-   - `$wp_object_cache->cache_misses`
-   - `$wp_object_cache->global_groups`
-   - `$wp_object_cache->blog_prefix`
-   - `isset()` behavior for those properties
-   - `stats()` output shape
-2. Decide whether to implement magic accessors or explicit public mirrors while preserving PHP 7.4 syntax.
-3. Add direct tests for the four WordPress 6.9 salted cache helpers.
-4. Expand query smoke tests around `post-queries`, `term-queries`, `comment-queries`, `site-queries`, `network-queries`, and `user-queries`.
-5. Review `_doing_it_wrong()` and `_deprecated_function()` version strings against WordPress core for contract fidelity.
-6. Add tests for default non-persistent groups used by WordPress test bootstrap: `counts`, `plugins`, and `theme_json`.
+1. Added public `cache_hits` and `cache_misses` counters matching core, while retaining the existing method accessors.
+2. Added read-only magic compatibility views for `global_groups` and `blog_prefix`; these delegate to `KeySpace` so inspected values cannot drift from runtime scope decisions.
+3. Added core-shaped `isset()` behavior and `stats()` HTML output with escaped group labels.
+4. Added direct contract tests for all four WordPress 6.9 salted cache helpers, including array salts, falsey data, stale salts, malformed envelopes, misses, and per-key batch results.
+5. Expanded real-WordPress query smoke coverage to prove second-query cache hits for `post-queries`, `term-queries`, `comment-queries`, `site-queries`, `network-queries`, and `user-queries`; site and network cases run in multisite mode.
+6. Aligned invalid-key `_doing_it_wrong()` notices with WordPress `6.1.0` and reset deprecations with WordPress `3.5.0` and core replacement names.
+7. Added persistent-backend compatibility coverage proving WordPress bootstrap's `counts`, `plugins`, and `theme_json` groups remain request-local.
 
 Acceptance criteria:
 

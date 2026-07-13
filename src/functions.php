@@ -345,12 +345,12 @@ if ( ! function_exists( 'wp_cache_reset' )) {
 	/**
 	 * Resets internal cache keys. Deprecated; use wp_cache_switch_to_blog().
 	 *
-	 * @deprecated 1.0.0
+	 * @deprecated 3.5.0
 	 * @return void
 	 */
 	function wp_cache_reset() {
 		if (function_exists( '_deprecated_function' )) {
-			_deprecated_function( __FUNCTION__, '1.0.0', 'wp_cache_switch_to_blog()' );
+			_deprecated_function( __FUNCTION__, '3.5.0', 'wp_cache_switch_to_blog()' );
 		}
 
 		global $wp_object_cache;

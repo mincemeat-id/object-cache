@@ -66,6 +66,14 @@ class ObjectCacheContractTest extends TestCase
     }
 
     /**
+     * Loads WordPress 6.9's compatibility helpers for direct contract tests.
+     */
+    private function loadWordPressCacheCompatibilityHelpers(): void
+    {
+        require_once dirname(__FILE__, 3) . '/tests/wp-tests/src/wp-includes/cache-compat.php';
+    }
+
+    /**
      * @dataProvider data_is_valid_key
      */
     public function test_is_valid_key($key, bool $valid)
@@ -151,6 +159,110 @@ class ObjectCacheContractTest extends TestCase
         $found = null;
         $this->assertSame(false, $this->cache->get('k-miss', '', false, $found));
         $this->assertFalse($found);
+    }
+
+    public function test_core_compatibility_properties_track_cache_state()
+    {
+        $cache = new ObjectCache(new \Mincemeat\ObjectCache\KeySpace(true, 7));
+
+        $this->assertSame(0, $cache->cache_hits);
+        $this->assertSame(0, $cache->cache_misses);
+        $this->assertTrue(isset($cache->cache_hits));
+        $this->assertTrue(isset($cache->cache_misses));
+        $this->assertTrue(isset($cache->global_groups));
+        $this->assertTrue(isset($cache->blog_prefix));
+
+        $cache->add_global_groups(array('users', 'site-options'));
+        $this->assertSame(array('users' => true, 'site-options' => true), $cache->global_groups);
+        $this->assertSame('7:', $cache->blog_prefix);
+
+        $cache->set('hit', 'value');
+        $this->assertSame('value', $cache->get('hit'));
+        $this->assertFalse($cache->get('miss'));
+        $this->assertSame(1, $cache->cache_hits);
+        $this->assertSame(1, $cache->cache_misses);
+
+        $cache->switch_to_blog(12);
+        $this->assertSame('12:', $cache->blog_prefix);
+    }
+
+    public function test_stats_matches_core_output_shape()
+    {
+        $this->cache->set('key', 'value', '<group>');
+        $this->cache->get('key', '<group>');
+        $this->cache->get('missing', '<group>');
+
+        ob_start();
+        $this->cache->stats();
+        $output = (string) ob_get_clean();
+
+        $this->assertStringStartsWith('<p><strong>Cache Hits:</strong> 1<br />', $output);
+        $this->assertStringContainsString('<strong>Cache Misses:</strong> 1<br /></p><ul>', $output);
+        $this->assertStringContainsString('<li><strong>Group:</strong> <group> - ( ', $output);
+        $this->assertStringEndsWith('k )</li></ul>', $output);
+    }
+
+    public function test_wp_cache_get_salted_rejects_stale_or_malformed_entries()
+    {
+        $this->loadWordPressCacheCompatibilityHelpers();
+
+        wp_cache_set('salted-key', array('data' => 'fresh', 'salt' => 'posts:terms'), 'post-queries');
+
+        $this->assertSame('fresh', wp_cache_get_salted('salted-key', 'post-queries', array('posts', 'terms')));
+        $this->assertFalse(wp_cache_get_salted('salted-key', 'post-queries', 'stale'));
+
+        wp_cache_set('salted-key', 'malformed', 'post-queries');
+        $this->assertFalse(wp_cache_get_salted('salted-key', 'post-queries', 'posts:terms'));
+    }
+
+    public function test_wp_cache_set_salted_stores_core_envelope()
+    {
+        $this->loadWordPressCacheCompatibilityHelpers();
+
+        $this->assertTrue(wp_cache_set_salted('salted-key', false, 'term-queries', array('terms', 'posts')));
+        $this->assertSame(
+            array('data' => false, 'salt' => 'terms:posts'),
+            wp_cache_get('salted-key', 'term-queries')
+        );
+        $this->assertSame(false, wp_cache_get_salted('salted-key', 'term-queries', array('terms', 'posts')));
+    }
+
+    public function test_wp_cache_get_multiple_salted_filters_each_entry()
+    {
+        $this->loadWordPressCacheCompatibilityHelpers();
+
+        wp_cache_set('fresh', array('data' => 0, 'salt' => 'comments'), 'comment-queries');
+        wp_cache_set('stale', array('data' => 'old', 'salt' => 'old-comments'), 'comment-queries');
+        wp_cache_set('malformed', array('data' => 'missing-salt'), 'comment-queries');
+
+        $this->assertSame(
+            array('fresh' => 0, 'stale' => false, 'malformed' => false, 'missing' => false),
+            wp_cache_get_multiple_salted(array('fresh', 'stale', 'malformed', 'missing'), 'comment-queries', 'comments')
+        );
+    }
+
+    public function test_wp_cache_set_multiple_salted_stores_and_returns_per_key_results()
+    {
+        $this->loadWordPressCacheCompatibilityHelpers();
+
+        $this->assertSame(
+            array('one' => true, 'two' => true),
+            wp_cache_set_multiple_salted(array('one' => 1, 'two' => false), 'user-queries', array('users', 'sites'))
+        );
+        $this->assertSame(
+            array('one' => 1, 'two' => false),
+            wp_cache_get_multiple_salted(array('one', 'two'), 'user-queries', array('users', 'sites'))
+        );
+    }
+
+    public function test_core_notice_versions_are_used_for_invalid_keys_and_reset()
+    {
+        $this->cache->get('');
+        $this->cache->reset();
+
+        $this->assertSame('6.1.0', $GLOBALS['__mincemeat_doing_it_wrong'][0][2]);
+        $this->assertSame('3.5.0', $GLOBALS['__mincemeat_deprecated'][0][1]);
+        $this->assertSame('WP_Object_Cache::switch_to_blog()', $GLOBALS['__mincemeat_deprecated'][0][2]);
     }
 
     public function test_add()

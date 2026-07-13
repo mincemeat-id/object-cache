@@ -17,6 +17,9 @@ use Mincemeat\ObjectCache\ObjectCache;
 use Mincemeat\ObjectCache\PhpRedisAdapter;
 use Mincemeat\ObjectCache\SiteHealth;
 
+/**
+ * @group integration
+ */
 class Phase5Test extends IntegrationTestCase
 {
     protected function setUp(): void

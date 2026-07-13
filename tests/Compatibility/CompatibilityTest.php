@@ -62,6 +62,25 @@ class CompatibilityTest extends IntegrationTestCase
         $this->assertFalse($found);
     }
 
+    public function test_wordpress_default_non_persistent_groups_remain_request_local()
+    {
+        $groups = array('counts', 'plugins', 'theme_json');
+        $this->cache->add_non_persistent_groups($groups);
+
+        foreach ($groups as $group) {
+            $this->assertTrue($this->cache->is_non_persistent_group($group));
+            $this->assertTrue($this->cache->set('request-key', $group, $group));
+            $this->assertSame($group, $this->cache->get('request-key', $group));
+        }
+
+        $next_request = $this->new_request();
+        $next_request->add_non_persistent_groups($groups);
+
+        foreach ($groups as $group) {
+            $this->assertFalse($next_request->get('request-key', $group));
+        }
+    }
+
     public function test_wordpress_multisite_blog_switching()
     {
         // Setup multisite contexts
@@ -569,4 +588,3 @@ if (!function_exists('Mincemeat\ObjectCache\error_log')) {
         }
     }
 }
-

@@ -17,6 +17,9 @@ namespace Mincemeat\ObjectCache\Tests\Integration;
 use Mincemeat\ObjectCache\ObjectCache;
 use Mincemeat\ObjectCache\ValueCodec;
 
+/**
+ * @group integration
+ */
 class PersistentCacheTest extends IntegrationTestCase
 {
     // ----------------------------------------------------------------

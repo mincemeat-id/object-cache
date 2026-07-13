@@ -16,6 +16,9 @@ use Mincemeat\ObjectCache\KeySpace;
 use Mincemeat\ObjectCache\ObjectCache;
 use PHPUnit\Framework\TestCase;
 
+/**
+ * @group integration
+ */
 class ConnectionScenariosTest extends TestCase
 {
     protected function setUp(): void

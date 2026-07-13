@@ -202,7 +202,7 @@ final class KeySpace {
 
 		$caller = $this->invalid_key_caller();
 		if ( function_exists( '_doing_it_wrong' ) ) {
-			_doing_it_wrong( $caller, $message, '1.0.0' );
+			_doing_it_wrong( $caller, $message, '6.1.0' );
 		}
 
 		return false;

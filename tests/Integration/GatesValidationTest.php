@@ -20,6 +20,9 @@ use Mincemeat\ObjectCache\KeySpace;
 use Mincemeat\ObjectCache\ObjectCache;
 use PHPUnit\Framework\TestCase;
 
+/**
+ * @group integration
+ */
 class GatesValidationTest extends TestCase
 {
     private $content_dir;

@@ -138,6 +138,12 @@ The runtime must follow WordPress object-cache behavior:
 - Numeric operations preserve WordPress behavior for missing and non-numeric values.
 - Flush operations are scoped to the operation being requested.
 
+For compatibility with plugins that inspect the global cache object, the
+runtime also exposes core-shaped `cache_hits`, `cache_misses`, `global_groups`,
+and `blog_prefix` properties plus `stats()` output. Group and blog properties
+are read-only compatibility views over the key-space state rather than mutable
+copies.
+
 The runtime should support these modern features through `wp_cache_supports()`:
 
 - `add_multiple`

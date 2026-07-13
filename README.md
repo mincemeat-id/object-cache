@@ -53,6 +53,10 @@ define('MINCEMEAT_OBJECT_CACHE_CONFIG', [
 
 Mincemeat Object Cache is an object cache only. It caches database query results, option preloads, and similar transient data. It is not a page cache and does not serve cached HTML responses.
 
+The global `$wp_object_cache` object preserves WordPress's commonly inspected
+compatibility surface: hit/miss counters, global-group and blog-prefix views,
+`isset()` checks for those properties, and `stats()` output.
+
 ## Diagnostics
 
 There is no settings page. All runtime diagnostics are surfaced through WordPress Site Health (Tools -> Site Health -> Info).

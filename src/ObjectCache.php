@@ -55,14 +55,14 @@ final class ObjectCache {
 	 *
 	 * @var int
 	 */
-	private $hits = 0;
+	public $cache_hits = 0;
 
 	/**
 	 * Total cache misses this request.
 	 *
 	 * @var int
 	 */
-	private $misses = 0;
+	public $cache_misses = 0;
 
 	/**
 	 * Number of backend commands issued this request (zero in runtime-only).
@@ -116,6 +116,37 @@ final class ObjectCache {
 			$this->state   = $backend->state();
 			$this->reason  = $backend->reason();
 		}
+	}
+
+	/**
+	 * Exposes core-compatible internal properties for read access.
+	 *
+	 * WordPress core makes these properties readable through magic accessors,
+	 * and plugins commonly inspect them for diagnostics.
+	 *
+	 * @param string $name Property name.
+	 * @return mixed|null Property value, or null for unsupported properties.
+	 */
+	public function __get( $name ) {
+		if ('global_groups' === $name) {
+			return $this->key_space->global_groups();
+		}
+
+		if ('blog_prefix' === $name) {
+			return $this->key_space->blog_prefix();
+		}
+
+		return null;
+	}
+
+	/**
+	 * Makes core-compatible internal properties checkable.
+	 *
+	 * @param string $name Property name.
+	 * @return bool Whether the compatibility property is available.
+	 */
+	public function __isset( $name ): bool {
+		return 'global_groups' === $name || 'blog_prefix' === $name;
 	}
 
 	/**
@@ -442,7 +473,7 @@ final class ObjectCache {
 
 		if ( ! $should_force && $this->exists( $storage_id, $group )) {
 			$found       = true;
-			$this->hits += 1;
+			$this->cache_hits += 1;
 			$value       = $this->cache[ $group ][ $storage_id ];
 
 			return is_object( $value ) ? clone $value : $value;
@@ -453,7 +484,7 @@ final class ObjectCache {
 		}
 
 		$found         = false;
-		$this->misses += 1;
+		$this->cache_misses += 1;
 
 		return false;
 	}
@@ -737,7 +768,7 @@ final class ObjectCache {
 	 */
 	public function reset(): void {
 		if (function_exists( '_deprecated_function' )) {
-			_deprecated_function( __METHOD__, '1.0.0', __CLASS__ . '::switch_to_blog()' );
+			_deprecated_function( __METHOD__, '3.5.0', 'WP_Object_Cache::switch_to_blog()' );
 		}
 
 		foreach (array_keys( $this->cache ) as $group) {
@@ -785,11 +816,32 @@ final class ObjectCache {
 	}
 
 	public function hits(): int {
-		return $this->hits;
+		return $this->cache_hits;
 	}
 
 	public function misses(): int {
-		return $this->misses;
+		return $this->cache_misses;
+	}
+
+	/**
+	 * Echoes core-compatible cache statistics.
+	 *
+	 * @return void
+	 */
+	public function stats(): void {
+		echo '<p>';
+		echo "<strong>Cache Hits:</strong> {$this->cache_hits}<br />";
+		echo "<strong>Cache Misses:</strong> {$this->cache_misses}<br />";
+		echo '</p>';
+		echo '<ul>';
+
+		$kilobyte = defined( 'KB_IN_BYTES' ) ? KB_IN_BYTES : 1024;
+		foreach ($this->cache as $group => $cache) {
+			$label = function_exists( 'esc_html' ) ? esc_html( $group ) : htmlspecialchars( $group, ENT_QUOTES, 'UTF-8' );
+			echo '<li><strong>Group:</strong> ' . $label . ' - ( ' . number_format( strlen( serialize( $cache ) ) / $kilobyte, 2 ) . 'k )</li>';
+		}
+
+		echo '</ul>';
 	}
 
 	public function backend_calls(): int {
@@ -982,7 +1034,7 @@ final class ObjectCache {
 			list($ok, $value, $err) = ValueCodec::decode( $raw );
 			if ($ok) {
 				$found       = true;
-				$this->hits += 1;
+				$this->cache_hits += 1;
 				$this->set_in_memory( $storage_id, $group, $value );
 
 				return is_object( $value ) ? clone $value : $value;
@@ -997,7 +1049,7 @@ final class ObjectCache {
 		// Backend miss or corrupt: treat as miss, remove stale memory entry.
 		unset( $this->cache[ $group ][ $storage_id ] );
 		$found         = false;
-		$this->misses += 1;
+		$this->cache_misses += 1;
 
 		return false;
 	}
@@ -1024,7 +1076,7 @@ final class ObjectCache {
 			$storage_id = $this->key_space->storage_id( $key, $group );
 
 			if ( ! $force && $this->exists( $storage_id, $group )) {
-				$this->hits    += 1;
+				$this->cache_hits += 1;
 				$val            = $this->cache[ $group ][ $storage_id ];
 				$values[ $key ] = is_object( $val ) ? clone $val : $val;
 			} else {
@@ -1057,9 +1109,9 @@ final class ObjectCache {
 				if ($this->exists( $storage_id_d, $group )) {
 					$value          = $this->cache[ $group ][ $storage_id_d ];
 					$values[ $key ] = is_object( $value ) ? clone $value : $value;
-					$this->hits    += 1;
+					$this->cache_hits += 1;
 				} else {
-					$this->misses += 1;
+					$this->cache_misses += 1;
 				}
 			}
 
@@ -1072,7 +1124,7 @@ final class ObjectCache {
 			if (is_string( $raw ) && $raw !== '') {
 				list($ok, $val, $err) = ValueCodec::decode( $raw );
 				if ($ok) {
-					$this->hits += 1;
+					$this->cache_hits += 1;
 					$this->set_in_memory( $miss_ids[ $key ], $group, $val );
 					$values[ $key ] = is_object( $val ) ? clone $val : $val;
 					continue;
@@ -1085,7 +1137,7 @@ final class ObjectCache {
 				}
 			}
 
-			$this->misses  += 1;
+			$this->cache_misses += 1;
 			$values[ $key ] = false;
 		}
 
@@ -1266,14 +1318,14 @@ final class ObjectCache {
 	private function runtime_fallback_get( string $storage_id, string $group, &$found ) {
 		if ($this->exists( $storage_id, $group )) {
 			$found       = true;
-			$this->hits += 1;
+			$this->cache_hits += 1;
 			$value       = $this->cache[ $group ][ $storage_id ];
 
 			return is_object( $value ) ? clone $value : $value;
 		}
 
 		$found         = false;
-		$this->misses += 1;
+		$this->cache_misses += 1;
 
 		return false;
 	}
