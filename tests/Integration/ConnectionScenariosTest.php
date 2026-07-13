@@ -199,6 +199,80 @@ class ConnectionScenariosTest extends TestCase
 
         $this->assertSame(ObjectCache::STATE_RUNTIME_ONLY, $be->state());
         $this->assertSame('connect-failed', $be->reason());
+
+        $cache = new ObjectCache($ks, $be);
+        $GLOBALS['wp_object_cache'] = $cache;
+
+        // WordPress request flow remains available (falls back to memory tier)
+        $this->assertTrue($cache->set('foo', 'bar', 'options'));
+        $this->assertSame('bar', $cache->get('foo', 'options'));
+
+        // Site Health diagnostics reports degraded/failed state without secrets
+        $diag = \Mincemeat\ObjectCache\Api::diagnostics();
+        $this->assertSame(ObjectCache::STATE_RUNTIME_ONLY, $diag['state']);
+        $this->assertSame('connect-failed', $diag['reason']);
+        
+        $diag_str = json_encode($diag);
+        $this->assertStringNotContainsString($untrusted_ca, $diag_str);
+
+        // Metrics captures the error state
+        $metrics = \Mincemeat\ObjectCache\Api::metrics();
+        $this->assertGreaterThanOrEqual(1, $metrics['errors'] ?? 0);
+
+        unset($GLOBALS['wp_object_cache']);
+        $be->close();
+    }
+
+    public function test_acl_authentication_failure()
+    {
+        $port = getenv('MINCEMEAT_TEST_ACL_PORT');
+        $username = getenv('MINCEMEAT_TEST_ACL_USER');
+
+        if (!$port || !$username) {
+            if (getenv('MINCEMEAT_RELEASE_CI')) {
+                $this->fail('MINCEMEAT_TEST_ACL_* env vars not fully set in release CI.');
+            }
+            $this->markTestSkipped('MINCEMEAT_TEST_ACL_* env vars not fully set.');
+        }
+
+        $config = new Config(array(
+            'namespace' => 'test-acl-fail',
+            'scheme'    => 'tcp',
+            'host'      => '127.0.0.1',
+            'port'      => (int)$port,
+            'username'  => $username,
+            'password'  => 'wrong-password', // invalid credentials
+            'database'  => 0,
+        ));
+
+        $ks = new KeySpace(false, 1);
+        $be = new Backend($ks);
+        $be->initialize($config);
+
+        $this->assertSame(ObjectCache::STATE_RUNTIME_ONLY, $be->state());
+        $this->assertSame('auth-failed', $be->reason());
+
+        $cache = new ObjectCache($ks, $be);
+        $GLOBALS['wp_object_cache'] = $cache;
+
+        // WordPress request flow remains available (falls back to memory tier)
+        $this->assertTrue($cache->set('foo', 'bar', 'options'));
+        $this->assertSame('bar', $cache->get('foo', 'options'));
+
+        // Site Health diagnostics reports degraded/failed state without secrets
+        $diag = \Mincemeat\ObjectCache\Api::diagnostics();
+        $this->assertSame(ObjectCache::STATE_RUNTIME_ONLY, $diag['state']);
+        $this->assertSame('auth-failed', $diag['reason']);
+        
+        $diag_str = json_encode($diag);
+        $this->assertStringNotContainsString('wrong-password', $diag_str);
+
+        // Metrics captures the error state
+        $metrics = \Mincemeat\ObjectCache\Api::metrics();
+        $this->assertGreaterThanOrEqual(1, $metrics['errors'] ?? 0);
+
+        unset($GLOBALS['wp_object_cache']);
+        $be->close();
     }
 
     public function test_persistent_pooling_connection_isolation()

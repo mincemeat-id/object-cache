@@ -40,7 +40,7 @@ Known release blockers:
 
 ## Development Rules
 
-- Runtime and generated drop-in must remain PHP 7.4 compatible.
+- Runtime and generated drop-in must remain PHP 7.4 compatible. Official support is strictly limited to PHP versions actively validated in the continuous integration matrix (currently PHP 7.4 through PHP 8.5). Future major/minor PHP releases (e.g., PHP 8.6+) are not officially supported until they have been integrated and validated in the CI test suite.
 - Prefer WordPress-compatible procedural facades and conservative type annotations.
 - Do not introduce runtime dependencies that are unavailable in a drop-in before plugin loading.
 - Keep Redis/Valkey access inside the adapter layer.

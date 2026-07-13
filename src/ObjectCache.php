@@ -766,7 +766,6 @@ final class ObjectCache {
 			$this->sync_state();
 		}
 
-		$this->state = $this->state;
 		return $this->state;
 	}
 

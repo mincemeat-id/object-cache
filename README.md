@@ -9,6 +9,10 @@ A Redis/Valkey object-cache drop-in for WordPress, built on the PhpRedis extensi
 - The PhpRedis PHP extension
 - Redis 8 or Valkey 9
 
+### PHP Version Support Policy
+
+Official support is strictly limited to PHP versions actively tested and validated in the Mincemeat continuous integration (CI) matrix (currently PHP 7.4 through PHP 8.5). While the Composer requirements allow PHP `>=7.4`, future major or minor versions of PHP (e.g., 8.6+) are not officially supported or guaranteed to function correctly until they have been integrated and validated in the test suite.
+
 ## Configuration
 
 Configure the drop-in by defining the `MINCEMEAT_OBJECT_CACHE_CONFIG` array constant in wp-config.php before WordPress loads. Supported keys:

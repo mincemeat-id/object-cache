@@ -7,7 +7,7 @@
  * Version: 1.0.0-rc1
  * Drop-in Version: 1.0.0-rc1
  * Schema Version: 1
- * Build Hash: 7e6a2adf25b865f49b6a71cb2efa015141d18aa244a032011023001618a68ed1
+ * Build Hash: 3125db1e4308a8edb4b16da417ab07267a3244614c2dd21580e5f8202bc3c611
  *
  * @package Mincemeat\ObjectCache
  */
@@ -3170,7 +3170,6 @@ namespace Mincemeat\ObjectCache {
 				$this->sync_state();
 			}
 
-			$this->state = $this->state;
 			return $this->state;
 		}
 

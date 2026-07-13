@@ -181,6 +181,113 @@ class FailureProxyTest extends TestCase
 
         $clean_be->close();
     }
+
+    public function test_redis_disconnect_during_get()
+    {
+        $ns = 'fail-get-' . bin2hex(random_bytes(8));
+        $config = $this->get_config($ns);
+        $ks = new KeySpace(false, 1);
+
+        $adapter = new FailureProxyAdapter();
+        $adapter->connect($config);
+
+        $be = new Backend($ks, $adapter);
+        $be->initialize($config);
+
+        $cache = new ObjectCache($ks, $be);
+        $GLOBALS['wp_object_cache'] = $cache;
+
+        $this->assertSame(ObjectCache::STATE_PERSISTENT, $cache->state());
+
+        // Warm up / pre-load the namespace and group tokens
+        $cache->get('warmup', 'options');
+
+        // Enable pre-dispatch disconnect simulation
+        $adapter->simulate_pre_dispatch_disconnect = true;
+        $adapter->call_count = 0;
+
+        // Perform read operation
+        $found = null;
+        $result = $cache->get('k1', 'options', false, $found);
+
+        $this->assertFalse($result, 'Get should return false on disconnect.');
+        $this->assertFalse($found, 'Found reference should be false.');
+        $this->assertSame(1, $adapter->call_count, 'Command should be attempted once.');
+        $this->assertSame(ObjectCache::STATE_DEGRADED, $cache->state());
+        $this->assertSame('command-failed', $cache->reason());
+
+        $be->close();
+    }
+
+    public function test_redis_disconnect_during_lua()
+    {
+        $ns = 'fail-lua-' . bin2hex(random_bytes(8));
+        $config = $this->get_config($ns);
+        $ks = new KeySpace(false, 1);
+
+        $adapter = new FailureProxyAdapter();
+        $adapter->connect($config);
+
+        $be = new Backend($ks, $adapter);
+        $be->initialize($config);
+
+        $cache = new ObjectCache($ks, $be);
+        $GLOBALS['wp_object_cache'] = $cache;
+
+        $this->assertSame(ObjectCache::STATE_PERSISTENT, $cache->state());
+
+        // Warm up / pre-load the namespace and group tokens
+        $cache->get('warmup', 'options');
+
+        // Enable pre-dispatch disconnect simulation
+        $adapter->simulate_pre_dispatch_disconnect = true;
+        $adapter->call_count = 0;
+
+        // Perform atomic numeric operation
+        $result = $cache->incr('counter', 1, 'options');
+
+        $this->assertFalse($result, 'Lua script incr should return false on disconnect.');
+        $this->assertSame(1, $adapter->call_count, 'Command should be attempted once.');
+        $this->assertSame(ObjectCache::STATE_DEGRADED, $cache->state());
+        $this->assertSame('command-failed', $cache->reason());
+
+        $be->close();
+    }
+
+    public function test_redis_disconnect_during_flush_group()
+    {
+        $ns = 'fail-flush-' . bin2hex(random_bytes(8));
+        $config = $this->get_config($ns);
+        $ks = new KeySpace(false, 1);
+
+        $adapter = new FailureProxyAdapter();
+        $adapter->connect($config);
+
+        $be = new Backend($ks, $adapter);
+        $be->initialize($config);
+
+        $cache = new ObjectCache($ks, $be);
+        $GLOBALS['wp_object_cache'] = $cache;
+
+        $this->assertSame(ObjectCache::STATE_PERSISTENT, $cache->state());
+
+        // Warm up / pre-load the namespace and group tokens
+        $cache->get('warmup', 'options');
+
+        // Enable pre-dispatch disconnect simulation
+        $adapter->simulate_pre_dispatch_disconnect = true;
+        $adapter->call_count = 0;
+
+        // Perform flush group
+        $result = $cache->flush_group('options');
+
+        $this->assertTrue($result, 'flush_group should degrade but return true for request fallback.');
+        $this->assertSame(1, $adapter->call_count, 'Command should be attempted once.');
+        $this->assertSame(ObjectCache::STATE_DEGRADED, $cache->state());
+        $this->assertSame('command-failed', $cache->reason());
+
+        $be->close();
+    }
 }
 
 class FailureProxyAdapter extends PhpRedisAdapter
@@ -219,6 +326,25 @@ class FailureProxyAdapter extends PhpRedisAdapter
         }
 
         $res = parent::get($key);
+
+        if ($this->simulate_post_commit_disconnect) {
+            $this->redis->close();
+            throw new \RedisException('Connection lost post-commit.');
+        }
+
+        return $res;
+    }
+
+    public function eval(string $script, array $keys = array(), array $args = array())
+    {
+        $this->call_count++;
+
+        if ($this->simulate_pre_dispatch_disconnect) {
+            $this->redis->close();
+            throw new \RedisException('Connection closed pre-dispatch.');
+        }
+
+        $res = parent::eval($script, $keys, $args);
 
         if ($this->simulate_post_commit_disconnect) {
             $this->redis->close();
