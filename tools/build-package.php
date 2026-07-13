@@ -65,6 +65,23 @@ if ($zip->open($zip_file, ZipArchive::CREATE) !== true) {
     exit(1);
 }
 
+// Create a temporary workspace to write files with deterministic timestamps
+$temp_dir = sys_get_temp_dir() . '/mc_build_' . bin2hex(random_bytes(8));
+if (!mkdir($temp_dir, 0755, true)) {
+    fwrite(STDERR, "Error: Could not create temp directory: {$temp_dir}\n");
+    exit(1);
+}
+
+// Ensure the directory structure exists inside the temp directory
+mkdir($temp_dir . '/mincemeat-object-cache', 0755, true);
+mkdir($temp_dir . '/mincemeat-object-cache/src', 0755, true);
+mkdir($temp_dir . '/mincemeat-object-cache/stubs', 0755, true);
+
+// Set deterministic timestamps on the directories themselves
+touch($temp_dir . '/mincemeat-object-cache', 1600000000);
+touch($temp_dir . '/mincemeat-object-cache/src', 1600000000);
+touch($temp_dir . '/mincemeat-object-cache/stubs', 1600000000);
+
 $manifest_files = array();
 
 foreach ($files_to_pack as $rel_path) {
@@ -77,17 +94,44 @@ foreach ($files_to_pack as $rel_path) {
     $content = file_get_contents($full_path);
     $content = str_replace("\r\n", "\n", $content); // Normalize line endings for determinism
 
-    $zip_path = 'mincemeat-object-cache/' . $rel_path;
-    $zip->addFromString($zip_path, $content);
+    // Write content to temporary workspace and touch with a fixed timestamp
+    $temp_file = $temp_dir . '/mincemeat-object-cache/' . $rel_path;
+    file_put_contents($temp_file, $content);
+    chmod($temp_file, 0644);
+    touch($temp_file, 1600000000);
 
-    // Compute checksum
+    $zip_path = 'mincemeat-object-cache/' . $rel_path;
+    $zip->addFile($temp_file, $zip_path);
+    if (method_exists($zip, 'setMtimeName')) {
+        $zip->setMtimeName($zip_path, 1600000000);
+    }
+
+    // Compute checksum based on deterministic content
     $manifest_files[$rel_path] = array(
         'sha256' => hash('sha256', $content),
         'size'   => strlen($content),
     );
 }
 
+// Set deterministic timestamps on directories in ZipArchive if supported
+if (method_exists($zip, 'setMtimeName')) {
+    $zip->setMtimeName('mincemeat-object-cache/', 1600000000);
+    $zip->setMtimeName('mincemeat-object-cache/src/', 1600000000);
+    $zip->setMtimeName('mincemeat-object-cache/stubs/', 1600000000);
+}
+
 $zip->close();
+
+// Clean up temp files
+$files = new RecursiveIteratorIterator(
+    new RecursiveDirectoryIterator($temp_dir, RecursiveDirectoryIterator::SKIP_DOTS),
+    RecursiveIteratorIterator::CHILD_FIRST
+);
+foreach ($files as $fileinfo) {
+    $todo = ($fileinfo->isDir() ? 'rmdir' : 'unlink');
+    $todo($fileinfo->getRealPath());
+}
+rmdir($temp_dir);
 
 // 5. Compute ZIP hash and write sidecar
 $zip_hash = hash_file('sha256', $zip_file);

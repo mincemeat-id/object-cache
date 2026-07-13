@@ -11,3 +11,6 @@
 Thumbs.db
 /tests/wp-tests/
 /build/
+/mincemeat-object-cache.zip
+/mincemeat-object-cache.zip.sha256
+/manifest.json

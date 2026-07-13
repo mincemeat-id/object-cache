@@ -60,6 +60,31 @@ $content .= "\n" . $config_injection;
 file_put_contents($file, $content);
 '
 
+# Adjust WordPress core cache tests to respect wp_cache_supports('flush_group')
+php -r '
+$file = "tests/wp-tests/tests/phpunit/tests/cache.php";
+if (file_exists($file)) {
+    $content = file_get_contents($file);
+    
+    // Modify the expected incorrect usage assertion
+    $content = preg_replace(
+        "/if\s*\(\s*wp_using_ext_object_cache\(\)\s*\)\s*\{\s*\\\$this->setExpectedIncorrectUsage\(\s*[\x27\x22]wp_cache_flush_group[\x27\x22]\s*\);\s*\}/",
+        "if ( wp_using_ext_object_cache() && ! wp_cache_supports( \x27flush_group\x27 ) ) { \$this->setExpectedIncorrectUsage( \x27wp_cache_flush_group\x27 ); }",
+        $content
+    );
+
+    // Modify the assertion on return value
+    $content = preg_replace(
+        "/if\s*\(\s*wp_using_ext_object_cache\(\)\s*\)\s*\{\s*\\\$this->assertFalse\(\s*\\\$results\s*\);\s*\}\s*else\s*\{/",
+        "if ( wp_using_ext_object_cache() && ! wp_cache_supports( \x27flush_group\x27 ) ) { \$this->assertFalse( \$results ); } else {",
+        $content
+    );
+
+    file_put_contents($file, $content);
+}
+'
+
+
 # 5. Create plugin directories for smoke testing
 echo "Creating plugins directory for WooCommerce, Yoast, and EDD..."
 mkdir -p "$TARGET_DIR/src/wp-content/plugins"
