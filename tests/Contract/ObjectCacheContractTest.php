@@ -21,6 +21,9 @@ use PHPUnit\Framework\TestCase;
 /**
  * Adapts the WordPress 6.9 core cache contract tests.
  */
+/**
+ * @group contract
+ */
 class ObjectCacheContractTest extends TestCase
 {
     /**
@@ -38,11 +41,15 @@ class ObjectCacheContractTest extends TestCase
 
         $this->cache = new ObjectCache();
         $this->cache->add_global_groups(array('global-cache-test'));
+        $GLOBALS['wp_object_cache'] = $this->cache;
     }
 
     protected function tearDown(): void
     {
-        $this->cache->flush();
+        if (isset($this->cache)) {
+            $this->cache->flush();
+        }
+        unset($GLOBALS['wp_object_cache']);
         // Restore the addition-suspend flag default state.
         if (function_exists('wp_suspend_cache_addition')) {
             wp_suspend_cache_addition(false);
@@ -434,5 +441,23 @@ class ObjectCacheContractTest extends TestCase
         $this->assertTrue(wp_cache_supports('flush_runtime'));
         $this->assertTrue(wp_cache_supports('flush_group'));
         $this->assertFalse(wp_cache_supports('nonexistent_feature'));
+    }
+
+    public function test_wp_cache_flush_group_facade()
+    {
+        $key = 'facade-key';
+        $val = 'facade-val';
+
+        wp_cache_set($key, $val, 'facade-group-flush');
+        wp_cache_set($key, $val, 'facade-group-keep');
+
+        $this->assertSame($val, wp_cache_get($key, 'facade-group-flush'));
+        $this->assertSame($val, wp_cache_get($key, 'facade-group-keep'));
+
+        $this->assertTrue(wp_cache_supports('flush_group'));
+        $this->assertTrue(wp_cache_flush_group('facade-group-flush'));
+
+        $this->assertFalse(wp_cache_get($key, 'facade-group-flush'));
+        $this->assertSame($val, wp_cache_get($key, 'facade-group-keep'));
     }
 }

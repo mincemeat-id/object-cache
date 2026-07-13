@@ -20,6 +20,9 @@ use Mincemeat\ObjectCache\PhpRedisAdapter;
 use Mincemeat\ObjectCache\SiteHealth;
 use PHPUnit\Framework\TestCase;
 
+/**
+ * @group unit
+ */
 class SiteHealthTest extends TestCase
 {
 	protected function setUp(): void

@@ -17,6 +17,9 @@ namespace Mincemeat\ObjectCache\Tests\Unit {
 	use PHPUnit\Framework\TestCase;
 	use WP_CLI;
 
+	/**
+	 * @group unit
+	 */
 	class CliCommandTest extends TestCase
 	{
 		protected function setUp(): void

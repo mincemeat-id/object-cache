@@ -18,6 +18,9 @@ use Mincemeat\ObjectCache\ObjectCache;
 use Mincemeat\ObjectCache\PhpRedisAdapter;
 use PHPUnit\Framework\TestCase;
 
+/**
+ * @group unit
+ */
 class ApiTest extends TestCase
 {
     protected function setUp(): void

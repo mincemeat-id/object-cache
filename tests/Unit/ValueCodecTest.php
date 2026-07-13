@@ -16,6 +16,9 @@ use Mincemeat\ObjectCache\ValueCodecException;
 use PHPUnit\Framework\TestCase;
 use stdClass;
 
+/**
+ * @group unit
+ */
 class ValueCodecTest extends TestCase
 {
     /* ----------------------------------------------------------------

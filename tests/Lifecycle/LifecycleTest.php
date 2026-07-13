@@ -13,6 +13,9 @@ namespace Mincemeat\ObjectCache\Tests\Lifecycle {
 	use Mincemeat\ObjectCache\Lifecycle;
 	use PHPUnit\Framework\TestCase;
 
+	/**
+	 * @group unit
+	 */
 	class LifecycleTest extends TestCase
 	{
 		private $backup_transients;

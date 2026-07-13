@@ -15,6 +15,9 @@ use Mincemeat\ObjectCache\Config;
 use Mincemeat\ObjectCache\ConfigException;
 use PHPUnit\Framework\TestCase;
 
+/**
+ * @group unit
+ */
 class ConfigTest extends TestCase
 {
     /**

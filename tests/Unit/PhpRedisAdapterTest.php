@@ -31,6 +31,9 @@ class TestablePhpRedisAdapter extends PhpRedisAdapter
     }
 }
 
+/**
+ * @group unit
+ */
 class PhpRedisAdapterTest extends TestCase
 {
     public function test_connect_with_tls_passes_stream_context()

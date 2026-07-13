@@ -35,23 +35,27 @@ $content = file_get_contents($file);
 $content = str_replace("youremptytestdbnamehere", "wordpress_test", $content);
 $content = str_replace("yourusernamehere", "root", $content);
 $content = str_replace("yourpasswordhere", "root", $content);
-$content = str_replace("localhost", "127.0.0.1", $content);
+$content = str_replace(chr(39)."localhost".chr(39), "getenv( ".chr(39)."DB_HOST".chr(39)." ) ?: ".chr(39)."127.0.0.1".chr(39), $content);
 
 // Ensure we define object cache constants or configurations
-// We will define MINCEMEAT_OBJECT_CACHE_CONFIG constant
+// We will define MINCEMEAT_OBJECT_CACHE_CONFIG constant dynamically if present in env
 $config_injection = "\n" .
-"define( \"MINCEMEAT_OBJECT_CACHE_CONFIG\", array(\n" .
-"    \"scheme\" => \"tcp\",\n" .
-"    \"host\" => \"127.0.0.1\",\n" .
-"    \"port\" => 6379,\n" .
-"    \"database\" => 0,\n" .
-"    \"connect_timeout\" => 1.0,\n" .
-"    \"read_timeout\" => 1.0,\n" .
-"    \"namespace\" => \"wp-tests-ns\",\n" .
-"    \"debug\" => true,\n" .
-") );\n";
+"if ( getenv( \"MINCEMEAT_OBJECT_CACHE_CONFIG\" ) ) {\n" .
+"    define( \"MINCEMEAT_OBJECT_CACHE_CONFIG\", unserialize( getenv( \"MINCEMEAT_OBJECT_CACHE_CONFIG\" ) ) );\n" .
+"} else {\n" .
+"    define( \"MINCEMEAT_OBJECT_CACHE_CONFIG\", array(\n" .
+"        \"scheme\" => \"tcp\",\n" .
+"        \"host\" => \"127.0.0.1\",\n" .
+"        \"port\" => 6379,\n" .
+"        \"database\" => 0,\n" .
+"        \"connect_timeout\" => 1.0,\n" .
+"        \"read_timeout\" => 1.0,\n" .
+"        \"namespace\" => \"wp-tests-ns\",\n" .
+"        \"debug\" => true,\n" .
+"    ) );\n" .
+"}\n";
 
-$content = str_replace("/* Only change the main database connection settings if you are using multiple servers. */", $config_injection . "\n/* Only change the main database connection settings if you are using multiple servers. */", $content);
+$content .= "\n" . $config_injection;
 
 file_put_contents($file, $content);
 '

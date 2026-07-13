@@ -12,6 +12,9 @@ namespace Mincemeat\ObjectCache\Tests\Unit;
 
 use PHPUnit\Framework\TestCase;
 
+/**
+ * @group unit
+ */
 class BundlerTest extends TestCase
 {
     private $outputFile;

@@ -17,6 +17,9 @@ namespace Mincemeat\ObjectCache\Tests\Unit;
 use Mincemeat\ObjectCache\KeySpace;
 use PHPUnit\Framework\TestCase;
 
+/**
+ * @group unit
+ */
 class KeySpacePersistentTest extends TestCase
 {
     protected function setUp(): void

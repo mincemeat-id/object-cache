@@ -13,6 +13,9 @@ namespace Mincemeat\ObjectCache\Tests\Unit;
 use Mincemeat\ObjectCache\Ttl;
 use PHPUnit\Framework\TestCase;
 
+/**
+ * @group unit
+ */
 class TtlTest extends TestCase
 {
     /**

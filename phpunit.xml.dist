@@ -19,6 +19,9 @@
             <directory suffix="Test.php">tests/Concurrency</directory>
             <directory suffix="Test.php">tests/Integration</directory>
             <directory suffix="Test.php">tests/Failure</directory>
+            <directory suffix="Test.php">tests/Contract</directory>
+            <directory suffix="Test.php">tests/Lifecycle</directory>
+            <directory suffix="Test.php">tests/Compatibility</directory>
         </testsuite>
     </testsuites>
 

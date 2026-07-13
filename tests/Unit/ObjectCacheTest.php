@@ -18,6 +18,9 @@ use Mincemeat\ObjectCache\KeySpace;
 use Mincemeat\ObjectCache\ObjectCache;
 use PHPUnit\Framework\TestCase;
 
+/**
+ * @group unit
+ */
 class ObjectCacheTest extends TestCase
 {
     /**

@@ -61,7 +61,9 @@ jobs:
         run: composer stan -- --error-format=github
 
       - name: PHPUnit unit tests
-        run: vendor/bin/phpunit --group unit --coverage-text
+        run: |
+          vendor/bin/phpunit --group unit,contract --coverage-text | tee phpunit.log
+          ! grep -q "No tests executed!" phpunit.log
 
   compatibility:
     name: PHP Compatibility (7.4)

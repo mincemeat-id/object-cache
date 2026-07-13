@@ -229,7 +229,10 @@ class GatesValidationTest extends TestCase
         $bootstrap = "$wp_tests_dir/tests/phpunit/includes/bootstrap.php";
         $test_file = "$wp_tests_dir/tests/phpunit/tests/cache.php";
 
-        $cmd = "$phpunit_bin --bootstrap " . escapeshellarg($bootstrap) . " --configuration " . escapeshellarg($config_xml) . " " . escapeshellarg($test_file);
+        $bootstrap_wrapper = dirname(__FILE__) . '/bootstrap-wrapper.php';
+        $env['MINCEMEAT_REAL_BOOTSTRAP'] = $bootstrap;
+
+        $cmd = "$phpunit_bin --bootstrap " . escapeshellarg($bootstrap_wrapper) . " --configuration " . escapeshellarg($config_xml) . " " . escapeshellarg($test_file);
 
         $descriptors = array(
             0 => array('pipe', 'r'), // stdin
@@ -287,6 +290,7 @@ class GatesValidationTest extends TestCase
         $this->assertTrue(file_exists($this->dropin_path));
 
         $env = array(
+            'MINCEMEAT_REQUIRE_PERSISTENT' => '0',
             'MINCEMEAT_OBJECT_CACHE_CONFIG' => serialize(array(
                 'scheme'          => 'tcp',
                 'host'            => '127.0.0.1',
@@ -300,6 +304,7 @@ class GatesValidationTest extends TestCase
         $result = $this->executeAuthoritativeCoreTests($env, false);
         $this->assertSame(0, $result['status'], "WordPress cache tests failed in runtime-only single-site:\nSTDOUT:\n" . $result['stdout'] . "\nSTDERR:\n" . $result['stderr']);
         $this->assertStringContainsString('OK', $result['stdout']);
+        $this->assertStringContainsString('MINCEMEAT_PREFLIGHT: ', $result['stdout']);
     }
 
     public function test_p1_gate_authoritative_tests_redis8_single_site()
@@ -308,6 +313,8 @@ class GatesValidationTest extends TestCase
         $this->assertTrue(Lifecycle::install_dropin());
 
         $env = array(
+            'MINCEMEAT_REQUIRE_PERSISTENT' => '1',
+            'MINCEMEAT_EXPECTED_BACKEND'   => 'redis',
             'MINCEMEAT_OBJECT_CACHE_CONFIG' => serialize(array(
                 'scheme'          => 'tcp',
                 'host'            => '127.0.0.1',
@@ -322,6 +329,7 @@ class GatesValidationTest extends TestCase
         $result = $this->executeAuthoritativeCoreTests($env, false);
         $this->assertSame(0, $result['status'], "WordPress cache tests failed in Redis 8 single-site:\nSTDOUT:\n" . $result['stdout'] . "\nSTDERR:\n" . $result['stderr']);
         $this->assertStringContainsString('OK', $result['stdout']);
+        $this->assertStringContainsString('MINCEMEAT_PREFLIGHT: ', $result['stdout']);
     }
 
     public function test_p1_gate_authoritative_tests_valkey9_single_site()
@@ -330,6 +338,8 @@ class GatesValidationTest extends TestCase
         $this->assertTrue(Lifecycle::install_dropin());
 
         $env = array(
+            'MINCEMEAT_REQUIRE_PERSISTENT' => '1',
+            'MINCEMEAT_EXPECTED_BACKEND'   => 'valkey',
             'MINCEMEAT_OBJECT_CACHE_CONFIG' => serialize(array(
                 'scheme'          => 'tcp',
                 'host'            => '127.0.0.1',
@@ -344,6 +354,7 @@ class GatesValidationTest extends TestCase
         $result = $this->executeAuthoritativeCoreTests($env, false);
         $this->assertSame(0, $result['status'], "WordPress cache tests failed in Valkey 9 single-site:\nSTDOUT:\n" . $result['stdout'] . "\nSTDERR:\n" . $result['stderr']);
         $this->assertStringContainsString('OK', $result['stdout']);
+        $this->assertStringContainsString('MINCEMEAT_PREFLIGHT: ', $result['stdout']);
     }
 
     public function test_p1_gate_authoritative_tests_redis8_multisite()
@@ -352,6 +363,8 @@ class GatesValidationTest extends TestCase
         $this->assertTrue(Lifecycle::install_dropin());
 
         $env = array(
+            'MINCEMEAT_REQUIRE_PERSISTENT' => '1',
+            'MINCEMEAT_EXPECTED_BACKEND'   => 'redis',
             'MINCEMEAT_OBJECT_CACHE_CONFIG' => serialize(array(
                 'scheme'          => 'tcp',
                 'host'            => '127.0.0.1',
@@ -366,6 +379,7 @@ class GatesValidationTest extends TestCase
         $result = $this->executeAuthoritativeCoreTests($env, true);
         $this->assertSame(0, $result['status'], "WordPress cache tests failed in Redis 8 multisite:\nSTDOUT:\n" . $result['stdout'] . "\nSTDERR:\n" . $result['stderr']);
         $this->assertStringContainsString('OK', $result['stdout']);
+        $this->assertStringContainsString('MINCEMEAT_PREFLIGHT: ', $result['stdout']);
     }
 
     public function test_p1_gate_authoritative_tests_valkey9_multisite()
@@ -374,6 +388,8 @@ class GatesValidationTest extends TestCase
         $this->assertTrue(Lifecycle::install_dropin());
 
         $env = array(
+            'MINCEMEAT_REQUIRE_PERSISTENT' => '1',
+            'MINCEMEAT_EXPECTED_BACKEND'   => 'valkey',
             'MINCEMEAT_OBJECT_CACHE_CONFIG' => serialize(array(
                 'scheme'          => 'tcp',
                 'host'            => '127.0.0.1',
@@ -388,5 +404,6 @@ class GatesValidationTest extends TestCase
         $result = $this->executeAuthoritativeCoreTests($env, true);
         $this->assertSame(0, $result['status'], "WordPress cache tests failed in Valkey 9 multisite:\nSTDOUT:\n" . $result['stdout'] . "\nSTDERR:\n" . $result['stderr']);
         $this->assertStringContainsString('OK', $result['stdout']);
+        $this->assertStringContainsString('MINCEMEAT_PREFLIGHT: ', $result['stdout']);
     }
 }

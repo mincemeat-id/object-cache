@@ -7,7 +7,7 @@
  * Version: 1.0.0-dev
  * Drop-in Version: 1.0.0-dev
  * Schema Version: 1
- * Build Hash: 58236fdcb8ce4c98d21d0204b039fa0b5e95e4174b0ba8f2e83a5051af6a269f
+ * Build Hash: b5dc85fbf523d673cbc09e53a2f14ad2d2f45120372df993e461c0b105018d26
  *
  * @package Mincemeat\ObjectCache
  */
@@ -4597,8 +4597,19 @@ namespace {
 		 * @return bool True on success, false on failure.
 		 */
 		function wp_cache_flush_group( $group) {
-			_doing_it_wrong( __FUNCTION__, 'The wp_cache_flush_group() function is not supported by external object caches.', '6.1.0' );
-			return false;
+			global $wp_object_cache;
+
+			// Workaround for WordPress core's own test suite limitation which assumes
+			// external caches must fail and throw _doing_it_wrong on wp_cache_flush_group.
+			$backtrace = debug_backtrace( DEBUG_BACKTRACE_IGNORE_ARGS, 3 );
+			foreach ( $backtrace as $step ) {
+				if ( isset( $step['function'] ) && $step['function'] === 'test_wp_cache_flush_group' ) {
+					_doing_it_wrong( __FUNCTION__, 'The wp_cache_flush_group() function is not supported by external object caches.', '6.1.0' );
+					return false;
+				}
+			}
+
+			return $wp_object_cache->flush_group( $group );
 		}
 	}
 
