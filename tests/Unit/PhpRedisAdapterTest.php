@@ -153,8 +153,8 @@ class PhpRedisAdapterTest extends TestCase
             'path'              => '',
             'database'          => 0,
             'namespace_digest'  => $config->namespace_digest(),
-            'username'          => null,
-            'tls_non_secret'    => array(),
+            'auth_digest'       => hash('sha256', serialize(array(null, null))),
+            'tls_digest'        => hash('sha256', serialize(array())),
             'max_retries'       => 1,
             'backoff_algorithm' => 'decorrelated_jitter',
             'backoff_base'      => 10,
@@ -184,6 +184,41 @@ class PhpRedisAdapterTest extends TestCase
 
         $adapter = new TestablePhpRedisAdapter($mockRedis);
         $adapter->connect($config);
+    }
+
+    public function test_persistent_identity_isolates_database_acl_tls_and_namespace_changes()
+    {
+        $method = new \ReflectionMethod(PhpRedisAdapter::class, 'persistent_id');
+        $method->setAccessible(true);
+        $adapter = new PhpRedisAdapter();
+        $configs = array(
+            $this->config(array('persistent' => true)),
+            $this->config(array('persistent' => true, 'database' => 1)),
+            $this->config(array('persistent' => true, 'username' => 'acl-user', 'password' => 'first-password')),
+            $this->config(array('persistent' => true, 'username' => 'acl-user', 'password' => 'second-password')),
+            $this->config(array(
+                'persistent' => true,
+                'scheme' => 'tls',
+                'tls' => array('verify_peer' => true, 'peer_name' => 'cache-one.internal'),
+            )),
+            $this->config(array(
+                'persistent' => true,
+                'scheme' => 'tls',
+                'tls' => array('verify_peer' => true, 'peer_name' => 'cache-two.internal'),
+            )),
+            new Config(array('namespace' => 'other-ns', 'persistent' => true)),
+        );
+
+        $ids = array_map(function (Config $config) use ($method, $adapter): string {
+            return $method->invoke($adapter, $config);
+        }, $configs);
+
+        $this->assertCount(count($ids), array_unique($ids));
+        foreach ($ids as $id) {
+            $this->assertMatchesRegularExpression('/^mcoc:[a-f0-9]{64}$/', $id);
+            $this->assertStringNotContainsString('password', $id);
+            $this->assertStringNotContainsString('internal', $id);
+        }
     }
 
     public function test_ping_issues_exactly_one_command()
@@ -224,7 +259,7 @@ class PhpRedisAdapterTest extends TestCase
         $this->adapterWithRedis($redis)->pipeline(array(array('get', array('a'))));
     }
 
-    public function test_pipeline_handles_empty_and_failed_exec()
+    public function test_pipeline_handles_empty_and_rejects_failed_exec()
     {
         $redis = $this->getMockBuilder(\Redis::class)
             ->onlyMethods(array('pipeline', 'set', 'exec'))
@@ -234,7 +269,31 @@ class PhpRedisAdapterTest extends TestCase
         $redis->expects($this->once())->method('exec')->willReturn(false);
         $adapter = $this->adapterWithRedis($redis);
         $this->assertSame(array(), $adapter->pipeline(array()));
-        $this->assertSame(array(), $adapter->pipeline(array(array('set', array('a', 'b')))));
+        $this->expectException(BackendException::class);
+        $adapter->pipeline(array(array('set', array('a', 'b'))));
+    }
+
+    public function test_pipeline_rejects_failed_initialization_and_result_mismatch()
+    {
+        $failed = $this->getMockBuilder(\Redis::class)->onlyMethods(array('pipeline'))->getMock();
+        $failed->method('pipeline')->willReturn(false);
+
+        try {
+            $this->adapterWithRedis($failed)->pipeline(array(array('set', array('a', 'b'))));
+            $this->fail('Expected failed pipeline initialization to throw.');
+        } catch (BackendException $e) {
+            $this->assertSame('command-failed', $e->reason());
+        }
+
+        $mismatch = $this->getMockBuilder(\Redis::class)
+            ->onlyMethods(array('pipeline', 'set', 'exec'))
+            ->getMock();
+        $mismatch->method('pipeline')->willReturnSelf();
+        $mismatch->method('set')->willReturnSelf();
+        $mismatch->method('exec')->willReturn(array());
+
+        $this->expectException(BackendException::class);
+        $this->adapterWithRedis($mismatch)->pipeline(array(array('set', array('a', 'b'))));
     }
 
     /** @dataProvider serverInfoProvider */

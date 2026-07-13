@@ -22,6 +22,12 @@ fail() {
 	exit 1
 }
 
+assert_redacted_output() {
+	if grep -Eqi 'redis-e2e-only|mincemeat-e2e|redis:6379|Stack trace:'; then
+		fail 'Runtime output exposed a configured secret, internal identity, or stack trace.'
+	fi
+}
+
 cleanup() {
 	if [[ "$KEEP_ENV" != "1" ]]; then
 		compose down --volumes --remove-orphans >/dev/null 2>&1 || true
@@ -100,6 +106,7 @@ wp plugin activate mincemeat-object-cache >/dev/null
 printf 'Running backend outage checks...\n'
 compose stop redis >/dev/null
 run_browser_phase outage
+compose logs --no-color wordpress 2>&1 | assert_redacted_output
 
 printf 'Running backend recovery checks...\n'
 compose start redis >/dev/null

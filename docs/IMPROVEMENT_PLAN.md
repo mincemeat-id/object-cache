@@ -1,7 +1,7 @@
 # Mincemeat Object Cache - Improvement Plan
 
 Date: 2026-07-13
-Status: post-remediation, release-candidate quality; Milestones 1 through 7 complete.
+Status: post-remediation, release-candidate quality; Milestones 1 through 8 complete.
 Scope: next engineering improvements after the production-readiness remediation work was completed and pushed.
 
 This replaces the old production-readiness remediation plan. The previous blocker set is closed: the test-specific `wp_cache_flush_group()` branch is gone, package artifacts are ignored rather than committed, package determinism is checked, artifact parity CI has been expanded, JSON test configuration is in place, and local credential/certificate hygiene has improved.
@@ -328,6 +328,8 @@ those controls are documented.
 
 Goal: prove WordPress remains available and diagnostics remain redacted during realistic backend failures.
 
+Status: complete on 2026-07-13.
+
 Recommended scenarios:
 
 - Redis disconnect during `get`.
@@ -344,11 +346,32 @@ Recommended scenarios:
 - Corrupt value envelope in Redis.
 - Persistent connection reused with changed database, ACL, TLS, or namespace identity.
 
+Implemented:
+
+1. Expanded live fault coverage for disconnects during reads, writes, pipelines, and numeric Lua operations; failed pipeline initialization, execution, and malformed result counts now open the request circuit.
+2. Added verified TLS peer-name mismatch coverage alongside untrusted-CA coverage, with runtime-only fallback and public-diagnostics redaction assertions.
+3. Added restricted ACL users and live tests for denied `EVAL`/`EVALSHA`, `SCRIPT`, `UNLINK`, and `INFO`; numeric operations degrade safely when execution is denied and retain the `EVAL` fallback when only script preloading is denied.
+4. Added explicit bounded timeout/retry fault coverage, `NOSCRIPT` recovery coverage, live corrupt-envelope cleanup, and control-key eviction invalidation coverage.
+5. Persistent PhpRedis pool identities now include non-reversible digests of authentication and complete TLS identity in addition to database and namespace identity, preventing unsafe reuse when connection credentials change.
+6. Request error metrics are transition-based rather than diagnostics-read-based, and metrics expose the same stable state/reason classification used by Site Health.
+7. E2E outage checks now fail if WordPress logs expose configured secrets, internal endpoint identity, or stack traces. Existing browser and WP-CLI checks continue to enforce redaction in rendered diagnostics and command output.
+8. Connection option verification no longer applies TCP keepalive to Unix sockets, preserving valid PhpRedis 6.3 Unix-socket connections while retaining keepalive verification for TCP/TLS.
+
 Acceptance criteria:
 
 - No raw credentials, hostnames, TLS paths, socket paths, or stack traces appear in Site Health, logs, test output, or CI artifacts.
 - The object cache enters runtime-only or degraded state without throwing into ordinary WordPress request flow.
 - Metrics and Site Health distinguish configuration errors, connect failures, auth failures, command failures, and degraded state.
+
+Verification:
+
+```bash
+bash tools/setup-test-services.sh
+composer test
+composer test:e2e
+```
+
+CI runs the fault scenarios across the Redis 8/Valkey 9, PHP, and multisite matrix; TLS and ACL command-denial scenarios use the isolated helper Redis services.
 
 ## Suggested Execution Order
 

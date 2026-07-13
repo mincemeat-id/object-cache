@@ -10,19 +10,31 @@ The implementation is release-candidate quality after the production-readiness r
 Verified during the 2026-07-13 improvement-plan review:
 
 - Composer metadata, PHPCS, PHPStan level 8, PHPUnit, generated artifact parity, package determinism, and the broader Redis/Valkey matrix are covered by CI.
-- Local PHPUnit against the Docker Compose defaults passed on PHP 8.4.23: `427 tests`, `1355 assertions`, `7 skipped`.
-- PCOV is available locally and produces `85.13%` (`1832/2152`) line coverage over `src/`.
+- Local PHPUnit with the Docker Compose and helper fault services passed on PHP 8.4.23: `460 tests`, `1553 assertions`, `1 skipped`.
+- PCOV is available locally and produces `86.29%` (`1989/2305`) line coverage over `src/`.
 - The coverage verifier enforces the overall target plus critical baselines for Backend, PhpRedisAdapter, ObjectCache, Lifecycle, KeySpace, ValueCodec, and Config.
 - PHPStan level 8 is the configured default and passes without baselines or ignore comments.
 
 Current improvement targets:
 
-- Continued stability and compatibility work.
+- Continued compatibility and release hardening after completion of the
+  stability and fault-injection milestone.
 
 PhpRedis 6.3.0 is the minimum required extension version and is installed
 explicitly in CI. Connection setup verifies serializer, compression, prefix,
 reply, timeout, retry/backoff, and keepalive options. Numeric Lua operations use
 per-connection `SCRIPT LOAD`/`EVALSHA` with `EVAL` fallback after `NOSCRIPT`.
+Persistent pool identifiers isolate database, namespace, ACL, TLS, transport,
+and retry identities using non-reversible digests. TCP keepalive is verified
+only for TCP/TLS connections because PhpRedis rejects that socket option for
+Unix sockets.
+
+Fault-injection coverage exercises command disconnects, pipeline failures,
+Lua denial and `NOSCRIPT`, TLS trust and peer-name failures, ACL auth and
+command denials, bounded timeout/retry behavior, generation-control eviction,
+corrupt envelopes, and persistent-identity changes. Request error metrics count
+state transitions once and carry the same state/reason classification shown by
+Site Health.
 
 The WordPress 6.9 compatibility surface includes public `cache_hits` and
 `cache_misses` counters, magic read access to `global_groups` and `blog_prefix`,
@@ -168,6 +180,8 @@ Full release validation should run in CI across:
 - Valkey 9
 - single site and multisite
 - TCP, Unix socket, ACL, and TLS connection modes
+- ACL command denials, TLS verification failures, backend outages, and
+  generation-control eviction fault scenarios
 
 ## Adding Runtime Changes
 

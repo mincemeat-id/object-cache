@@ -115,6 +115,9 @@ final class ObjectCache {
 			$this->backend = $backend;
 			$this->state   = $backend->state();
 			$this->reason  = $backend->reason();
+			if ($this->state !== self::STATE_PERSISTENT && $this->reason !== Backend::REASON_NO_BACKEND) {
+				$this->errors = 1;
+			}
 		}
 	}
 
@@ -158,6 +161,9 @@ final class ObjectCache {
 		$this->backend = $backend;
 		$this->state   = $backend->state();
 		$this->reason  = $backend->reason();
+		if ($this->state !== self::STATE_PERSISTENT && $this->reason !== Backend::REASON_NO_BACKEND) {
+			$this->errors = 1;
+		}
 	}
 
 	/**
@@ -978,10 +984,11 @@ final class ObjectCache {
 			return false;
 		}
 
+		$previous_state = $this->state;
 		$this->state  = $this->backend->state();
 		$this->reason = $this->backend->reason();
 
-		if ($this->backend->state() !== self::STATE_PERSISTENT) {
+		if ($previous_state === self::STATE_PERSISTENT && $this->state !== self::STATE_PERSISTENT) {
 			$this->errors += 1;
 		}
 

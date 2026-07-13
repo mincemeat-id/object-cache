@@ -439,6 +439,42 @@ class FailureTest extends TestCase
         $this->assertSame(ObjectCache::STATE_DEGRADED, $backend->state());
     }
 
+    public function test_false_numeric_script_result_opens_circuit()
+    {
+        $adapter = new MockPhpRedisAdapter();
+        $adapter->eval_callback = function () { return false; };
+        $backend = new Backend(new KeySpace(false, 1), $adapter);
+        $backend->initialize($this->get_config());
+
+        $this->assertSame(array('MISSING', null), $backend->eval_incr('key', 1));
+        $this->assertSame(ObjectCache::STATE_DEGRADED, $backend->state());
+        $this->assertSame(Backend::REASON_COMMAND_FAILED, $backend->reason());
+    }
+
+    public function test_metrics_classify_failure_without_inflating_error_count()
+    {
+        $adapter = new MockPhpRedisAdapter();
+        $adapter->get_callback = function () { throw new \RedisException('timed out'); };
+        $backend = new Backend(new KeySpace(false, 1), $adapter);
+        $backend->initialize($this->get_config(array(
+            'max_retries' => 3,
+            'backoff_algorithm' => 'constant',
+            'backoff_base' => 1,
+            'backoff_cap' => 1,
+        )));
+        $cache = new ObjectCache(new KeySpace(false, 1), $backend);
+        $GLOBALS['wp_object_cache'] = $cache;
+
+        $cache->get('key', 'group');
+        $first = Api::metrics();
+        $second = Api::metrics();
+
+        $this->assertSame(1, $first['errors']);
+        $this->assertSame(ObjectCache::STATE_DEGRADED, $first['state']);
+        $this->assertSame(Backend::REASON_COMMAND_FAILED, $first['reason']);
+        $this->assertSame($first, $second, 'Reading diagnostics must not increment error metrics.');
+    }
+
     public function test_backend_pipeline_results_and_unlink_fallback()
     {
         $adapter = new MockPhpRedisAdapter();

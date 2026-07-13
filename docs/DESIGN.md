@@ -205,6 +205,9 @@ Required behavior:
 - Support ACL username/password authentication.
 - Support persistent connection identifiers without leaking credentials.
 - Apply connect/read timeouts.
+- Derive persistent connection pool identifiers from non-reversible digests of
+  database, namespace, ACL, TLS, transport, and retry identity so changed
+  connection credentials cannot reuse an incompatible PhpRedis connection.
 - Avoid throwing backend exceptions into ordinary WordPress execution paths.
 - Redact host/path/credential information in diagnostics unless explicitly safe.
 - Use Lua for atomic numeric or token operations only where it is portable across Redis 8 and Valkey 9.
@@ -220,6 +223,10 @@ When Redis/Valkey is unavailable:
 - Persistent cache operations should fail closed and report misses or false according to WordPress expectations.
 - Site Health should report degraded status without exposing secrets.
 - Reconnection should be bounded and should not create request stalls.
+- A command or pipeline failure should open the request-local circuit exactly
+  once; diagnostics reads must not inflate failure counters.
+- Metrics and Site Health should expose the same stable state and reason code
+  without including backend exception traces or connection identity.
 
 ## Performance Guardrails
 

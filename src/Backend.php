@@ -686,6 +686,12 @@ final class Backend {
 			return array( LuaScripts::RESULT_MISSING, null );
 		}
 
+		if ($result === false) {
+			$this->degrade( self::REASON_COMMAND_FAILED );
+
+			return array( LuaScripts::RESULT_MISSING, null );
+		}
+
 		if ( ! is_array( $result ) || ! isset( $result[0] )) {
 			return array( LuaScripts::RESULT_CORRUPT, null );
 		}

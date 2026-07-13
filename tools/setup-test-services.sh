@@ -35,4 +35,8 @@ sleep 2
 
 # Configure ACL user
 docker exec redis-acl redis-cli ACL SETUSER myuser on ">mypassword" "~*" "+@all"
+docker exec redis-acl redis-cli ACL SETUSER fault-noscript on ">fault-only" "~*" "+@all" "-script"
+docker exec redis-acl redis-cli ACL SETUSER fault-noeval on ">fault-only" "~*" "+@all" "-eval" "-evalsha"
+docker exec redis-acl redis-cli ACL SETUSER fault-nounlink on ">fault-only" "~*" "+@all" "-unlink"
+docker exec redis-acl redis-cli ACL SETUSER fault-noinfo on ">fault-only" "~*" "+@all" "-info"
 echo "Connection scenarios test services started successfully."

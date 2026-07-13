@@ -254,6 +254,32 @@ class FailureProxyTest extends TestCase
         $be->close();
     }
 
+    public function test_redis_disconnect_during_pipeline_execution()
+    {
+        $ns = 'fail-pipeline-' . bin2hex(random_bytes(8));
+        $config = $this->get_config($ns);
+        $ks = new KeySpace(false, 1);
+        $adapter = new FailureProxyAdapter();
+        $adapter->connect($config);
+        $be = new Backend($ks, $adapter);
+        $be->initialize($config);
+        $cache = new ObjectCache($ks, $be);
+
+        $cache->get('warmup', 'options');
+        $adapter->simulate_pre_dispatch_disconnect = true;
+        $adapter->call_count = 0;
+
+        $result = $cache->set_multiple(array('one' => 'first', 'two' => 'second'), 'options');
+
+        $this->assertSame(array('one' => true, 'two' => true), $result);
+        $this->assertSame(1, $adapter->call_count);
+        $this->assertSame(ObjectCache::STATE_DEGRADED, $cache->state());
+        $this->assertSame(Backend::REASON_COMMAND_FAILED, $cache->reason());
+        $this->assertSame('first', $cache->get('one', 'options'));
+
+        $be->close();
+    }
+
     public function test_redis_disconnect_during_flush_group()
     {
         $ns = 'fail-flush-' . bin2hex(random_bytes(8));
@@ -352,5 +378,16 @@ class FailureProxyAdapter extends PhpRedisAdapter
         }
 
         return $res;
+    }
+
+    public function pipeline(array $commands): array
+    {
+        $this->call_count++;
+
+        if ($this->simulate_pre_dispatch_disconnect) {
+            throw new \RedisException('Connection closed during pipeline execution.');
+        }
+
+        return parent::pipeline($commands);
     }
 }

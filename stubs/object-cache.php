@@ -7,7 +7,7 @@
  * Version: 1.0.0-rc1
  * Drop-in Version: 1.0.0-rc1
  * Schema Version: 1
- * Build Hash: d4ce19ae62c2c65570923643eaaee1bc233afc2adc1183aafe4bca74ed1af484
+ * Build Hash: 6282feb98bbac41d7bc307c20cf0dd8b11dd8f59507030d332695675b9e6d4d0
  *
  * @package Mincemeat\ObjectCache
  */
@@ -81,7 +81,7 @@ namespace Mincemeat\ObjectCache {
 		/**
 		 * Returns request-local counters.
 		 *
-		 * @return array{hits:int,misses:int,backend_calls:int,backend_time:float,errors:int}
+		 * @return array{hits:int,misses:int,backend_calls:int,backend_time:float,errors:int,state:string,reason:string}
 		 */
 		public static function metrics(): array {
 			$cache = self::cache();
@@ -93,6 +93,8 @@ namespace Mincemeat\ObjectCache {
 					'backend_calls' => 0,
 					'backend_time'  => 0.0,
 					'errors'        => 0,
+					'state'         => ObjectCache::STATE_RUNTIME_ONLY,
+					'reason'        => 'not-initialized',
 				);
 			}
 
@@ -102,6 +104,8 @@ namespace Mincemeat\ObjectCache {
 				'backend_calls' => $cache->backend_calls(),
 				'backend_time'  => $cache->backend_time(),
 				'errors'        => $cache->errors(),
+				'state'         => $cache->state(),
+				'reason'        => $cache->reason(),
 			);
 		}
 
@@ -868,6 +872,12 @@ namespace Mincemeat\ObjectCache {
 				);
 			} catch (\Throwable $e) {
 				$this->degrade( self::REASON_COMMAND_FAILED, $e );
+
+				return array( LuaScripts::RESULT_MISSING, null );
+			}
+
+			if ($result === false) {
+				$this->degrade( self::REASON_COMMAND_FAILED );
 
 				return array( LuaScripts::RESULT_MISSING, null );
 			}
@@ -2648,6 +2658,9 @@ namespace Mincemeat\ObjectCache {
 				$this->backend = $backend;
 				$this->state   = $backend->state();
 				$this->reason  = $backend->reason();
+				if ($this->state !== self::STATE_PERSISTENT && $this->reason !== Backend::REASON_NO_BACKEND) {
+					$this->errors = 1;
+				}
 			}
 		}
 
@@ -2691,6 +2704,9 @@ namespace Mincemeat\ObjectCache {
 			$this->backend = $backend;
 			$this->state   = $backend->state();
 			$this->reason  = $backend->reason();
+			if ($this->state !== self::STATE_PERSISTENT && $this->reason !== Backend::REASON_NO_BACKEND) {
+				$this->errors = 1;
+			}
 		}
 
 		/**
@@ -3511,10 +3527,11 @@ namespace Mincemeat\ObjectCache {
 				return false;
 			}
 
+			$previous_state = $this->state;
 			$this->state  = $this->backend->state();
 			$this->reason = $this->backend->reason();
 
-			if ($this->backend->state() !== self::STATE_PERSISTENT) {
+			if ($previous_state === self::STATE_PERSISTENT && $this->state !== self::STATE_PERSISTENT) {
 				$this->errors += 1;
 			}
 
@@ -4031,37 +4048,7 @@ namespace Mincemeat\ObjectCache {
 			$this->script_shas = array();
 
 			$connected     = false;
-			$persistent_id = '';
-
-			if ($config->persistent()) {
-				$tls_non_secret = array();
-				$raw_tls        = $config->tls();
-				foreach ( $raw_tls as $key => $val ) {
-					if ( in_array( $key, array( 'local_pk', 'passphrase' ), true ) ) {
-						continue;
-					}
-					if ( is_scalar( $val ) ) {
-						$tls_non_secret[ $key ] = $val;
-					}
-				}
-
-				$canonical     = array(
-					'scheme'            => $config->scheme(),
-					'host'              => $config->scheme() === Config::SCHEME_UNIX ? '' : $config->host(),
-					'port'              => $config->scheme() === Config::SCHEME_UNIX ? 0 : $config->port(),
-					'path'              => $config->scheme() === Config::SCHEME_UNIX ? $config->path() : '',
-					'database'          => $config->database(),
-					'namespace_digest'  => $config->namespace_digest(),
-					'username'          => $config->username(),
-					'tls_non_secret'    => $tls_non_secret,
-					'max_retries'       => $config->max_retries(),
-					'backoff_algorithm' => $config->backoff_algorithm(),
-					'backoff_base'      => $config->backoff_base(),
-					'backoff_cap'       => $config->backoff_cap(),
-					'tcp_keepalive'     => $config->tcp_keepalive(),
-				);
-				$persistent_id = 'mcoc:' . hash( 'sha256', serialize( $canonical ) );
-			}
+			$persistent_id = $config->persistent() ? $this->persistent_id( $config ) : '';
 
 			$context = null;
 			if ($config->scheme() === Config::SCHEME_TLS) {
@@ -4382,7 +4369,7 @@ namespace Mincemeat\ObjectCache {
 
 			$pipe  = $this->redis->pipeline();
 			if ($pipe === false) {
-				return array();
+				throw new BackendException( 'command-failed', 'Pipeline initialization failed.' );
 			}
 
 			$count = 0;
@@ -4418,7 +4405,11 @@ namespace Mincemeat\ObjectCache {
 
 			$results = $pipe->exec();
 			if ( ! is_array( $results )) {
-				return array();
+				throw new BackendException( 'command-failed', 'Pipeline execution failed.' );
+			}
+
+			if (count( $results ) !== $count) {
+				throw new BackendException( 'command-failed', 'Pipeline result count mismatch.' );
 			}
 
 			return $results;
@@ -4565,6 +4556,29 @@ namespace Mincemeat\ObjectCache {
 		}
 
 		/**
+		 * Derives a non-reversible pool identity from every connection-affecting value.
+		 */
+		private function persistent_id( Config $config ): string {
+			$canonical = array(
+				'scheme'            => $config->scheme(),
+				'host'              => $config->scheme() === Config::SCHEME_UNIX ? '' : $config->host(),
+				'port'              => $config->scheme() === Config::SCHEME_UNIX ? 0 : $config->port(),
+				'path'              => $config->scheme() === Config::SCHEME_UNIX ? $config->path() : '',
+				'database'          => $config->database(),
+				'namespace_digest'  => $config->namespace_digest(),
+				'auth_digest'       => hash( 'sha256', serialize( array( $config->username(), $config->password() ) ) ),
+				'tls_digest'        => hash( 'sha256', serialize( $config->tls() ) ),
+				'max_retries'       => $config->max_retries(),
+				'backoff_algorithm' => $config->backoff_algorithm(),
+				'backoff_base'      => $config->backoff_base(),
+				'backoff_cap'       => $config->backoff_cap(),
+				'tcp_keepalive'     => $config->tcp_keepalive(),
+			);
+
+			return 'mcoc:' . hash( 'sha256', serialize( $canonical ) );
+		}
+
+		/**
 		 * Applies and verifies bounded reliability and wire-format options.
 		 *
 		 * @throws BackendException When PhpRedis rejects or normalizes an option unexpectedly.
@@ -4584,8 +4598,10 @@ namespace Mincemeat\ObjectCache {
 				array( Redis::OPT_BACKOFF_ALGORITHM, $this->backoff_algorithm( $config->backoff_algorithm() ), 'int' ),
 				array( Redis::OPT_BACKOFF_BASE, $config->backoff_base(), 'int' ),
 				array( Redis::OPT_BACKOFF_CAP, $config->backoff_cap(), 'int' ),
-				array( Redis::OPT_TCP_KEEPALIVE, $config->tcp_keepalive(), 'bool' ),
 			);
+			if ($config->scheme() !== Config::SCHEME_UNIX) {
+				$options[] = array( Redis::OPT_TCP_KEEPALIVE, $config->tcp_keepalive(), 'bool' );
+			}
 
 			try {
 				foreach ($options as $option) {

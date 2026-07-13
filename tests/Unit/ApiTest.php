@@ -97,6 +97,8 @@ class ApiTest extends TestCase
         $this->assertSame(0, $metrics['backend_calls']);
         $this->assertSame(0.0, $metrics['backend_time']);
         $this->assertSame(0, $metrics['errors']);
+        $this->assertSame(ObjectCache::STATE_RUNTIME_ONLY, $metrics['state']);
+        $this->assertSame('not-initialized', $metrics['reason']);
     }
 
     public function test_api_version()

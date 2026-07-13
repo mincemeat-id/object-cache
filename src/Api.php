@@ -77,7 +77,7 @@ final class Api {
 	/**
 	 * Returns request-local counters.
 	 *
-	 * @return array{hits:int,misses:int,backend_calls:int,backend_time:float,errors:int}
+	 * @return array{hits:int,misses:int,backend_calls:int,backend_time:float,errors:int,state:string,reason:string}
 	 */
 	public static function metrics(): array {
 		$cache = self::cache();
@@ -89,6 +89,8 @@ final class Api {
 				'backend_calls' => 0,
 				'backend_time'  => 0.0,
 				'errors'        => 0,
+				'state'         => ObjectCache::STATE_RUNTIME_ONLY,
+				'reason'        => 'not-initialized',
 			);
 		}
 
@@ -98,6 +100,8 @@ final class Api {
 			'backend_calls' => $cache->backend_calls(),
 			'backend_time'  => $cache->backend_time(),
 			'errors'        => $cache->errors(),
+			'state'         => $cache->state(),
+			'reason'        => $cache->reason(),
 		);
 	}
 

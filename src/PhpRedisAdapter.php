@@ -72,37 +72,7 @@ class PhpRedisAdapter {
 		$this->script_shas = array();
 
 		$connected     = false;
-		$persistent_id = '';
-
-		if ($config->persistent()) {
-			$tls_non_secret = array();
-			$raw_tls        = $config->tls();
-			foreach ( $raw_tls as $key => $val ) {
-				if ( in_array( $key, array( 'local_pk', 'passphrase' ), true ) ) {
-					continue;
-				}
-				if ( is_scalar( $val ) ) {
-					$tls_non_secret[ $key ] = $val;
-				}
-			}
-
-			$canonical     = array(
-				'scheme'            => $config->scheme(),
-				'host'              => $config->scheme() === Config::SCHEME_UNIX ? '' : $config->host(),
-				'port'              => $config->scheme() === Config::SCHEME_UNIX ? 0 : $config->port(),
-				'path'              => $config->scheme() === Config::SCHEME_UNIX ? $config->path() : '',
-				'database'          => $config->database(),
-				'namespace_digest'  => $config->namespace_digest(),
-				'username'          => $config->username(),
-				'tls_non_secret'    => $tls_non_secret,
-				'max_retries'       => $config->max_retries(),
-				'backoff_algorithm' => $config->backoff_algorithm(),
-				'backoff_base'      => $config->backoff_base(),
-				'backoff_cap'       => $config->backoff_cap(),
-				'tcp_keepalive'     => $config->tcp_keepalive(),
-			);
-			$persistent_id = 'mcoc:' . hash( 'sha256', serialize( $canonical ) );
-		}
+		$persistent_id = $config->persistent() ? $this->persistent_id( $config ) : '';
 
 		$context = null;
 		if ($config->scheme() === Config::SCHEME_TLS) {
@@ -423,7 +393,7 @@ class PhpRedisAdapter {
 
 		$pipe  = $this->redis->pipeline();
 		if ($pipe === false) {
-			return array();
+			throw new BackendException( 'command-failed', 'Pipeline initialization failed.' );
 		}
 
 		$count = 0;
@@ -459,7 +429,11 @@ class PhpRedisAdapter {
 
 		$results = $pipe->exec();
 		if ( ! is_array( $results )) {
-			return array();
+			throw new BackendException( 'command-failed', 'Pipeline execution failed.' );
+		}
+
+		if (count( $results ) !== $count) {
+			throw new BackendException( 'command-failed', 'Pipeline result count mismatch.' );
 		}
 
 		return $results;
@@ -606,6 +580,29 @@ class PhpRedisAdapter {
 	}
 
 	/**
+	 * Derives a non-reversible pool identity from every connection-affecting value.
+	 */
+	private function persistent_id( Config $config ): string {
+		$canonical = array(
+			'scheme'            => $config->scheme(),
+			'host'              => $config->scheme() === Config::SCHEME_UNIX ? '' : $config->host(),
+			'port'              => $config->scheme() === Config::SCHEME_UNIX ? 0 : $config->port(),
+			'path'              => $config->scheme() === Config::SCHEME_UNIX ? $config->path() : '',
+			'database'          => $config->database(),
+			'namespace_digest'  => $config->namespace_digest(),
+			'auth_digest'       => hash( 'sha256', serialize( array( $config->username(), $config->password() ) ) ),
+			'tls_digest'        => hash( 'sha256', serialize( $config->tls() ) ),
+			'max_retries'       => $config->max_retries(),
+			'backoff_algorithm' => $config->backoff_algorithm(),
+			'backoff_base'      => $config->backoff_base(),
+			'backoff_cap'       => $config->backoff_cap(),
+			'tcp_keepalive'     => $config->tcp_keepalive(),
+		);
+
+		return 'mcoc:' . hash( 'sha256', serialize( $canonical ) );
+	}
+
+	/**
 	 * Applies and verifies bounded reliability and wire-format options.
 	 *
 	 * @throws BackendException When PhpRedis rejects or normalizes an option unexpectedly.
@@ -625,8 +622,10 @@ class PhpRedisAdapter {
 			array( Redis::OPT_BACKOFF_ALGORITHM, $this->backoff_algorithm( $config->backoff_algorithm() ), 'int' ),
 			array( Redis::OPT_BACKOFF_BASE, $config->backoff_base(), 'int' ),
 			array( Redis::OPT_BACKOFF_CAP, $config->backoff_cap(), 'int' ),
-			array( Redis::OPT_TCP_KEEPALIVE, $config->tcp_keepalive(), 'bool' ),
 		);
+		if ($config->scheme() !== Config::SCHEME_UNIX) {
+			$options[] = array( Redis::OPT_TCP_KEEPALIVE, $config->tcp_keepalive(), 'bool' );
+		}
 
 		try {
 			foreach ($options as $option) {

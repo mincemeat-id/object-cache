@@ -226,6 +226,46 @@ class ConnectionScenariosTest extends TestCase
         $be->close();
     }
 
+    public function test_tls_connection_fails_with_peer_name_mismatch()
+    {
+        $port = getenv('MINCEMEAT_TEST_TLS_PORT');
+        $ca_file = getenv('MINCEMEAT_TEST_TLS_CA');
+        if (!$port || !$ca_file) {
+            if (getenv('MINCEMEAT_RELEASE_CI')) {
+                $this->fail('TLS fault-injection environment is incomplete in release CI.');
+            }
+            $this->markTestSkipped('TLS fault-injection environment is not configured.');
+        }
+
+        $config = new Config(array(
+            'namespace' => 'test-tls-peer-mismatch',
+            'scheme' => 'tls',
+            'host' => '127.0.0.1',
+            'port' => (int)$port,
+            'tls' => array(
+                'verify_peer' => true,
+                'verify_peer_name' => true,
+                'peer_name' => 'mismatch.invalid',
+                'cafile' => $ca_file,
+            ),
+        ));
+        $ks = new KeySpace(false, 1);
+        $be = new Backend($ks);
+        $be->initialize($config);
+        $cache = new ObjectCache($ks, $be);
+        $GLOBALS['wp_object_cache'] = $cache;
+
+        $this->assertSame(ObjectCache::STATE_RUNTIME_ONLY, $cache->state());
+        $this->assertSame(Backend::REASON_CONNECT_FAILED, $cache->reason());
+        $this->assertTrue($cache->set('available', 'yes', 'options'));
+        $this->assertSame('yes', $cache->get('available', 'options'));
+        $this->assertStringNotContainsString('mismatch.invalid', json_encode(\Mincemeat\ObjectCache\Api::diagnostics()));
+        $this->assertStringNotContainsString($ca_file, json_encode(\Mincemeat\ObjectCache\Api::diagnostics()));
+
+        unset($GLOBALS['wp_object_cache']);
+        $be->close();
+    }
+
     public function test_acl_authentication_failure()
     {
         $port = getenv('MINCEMEAT_TEST_ACL_PORT');
@@ -278,6 +318,75 @@ class ConnectionScenariosTest extends TestCase
         $be->close();
     }
 
+    /** @dataProvider aclCommandDenialProvider */
+    public function test_acl_command_denial_degrades_safely(string $username, string $operation)
+    {
+        $port = getenv('MINCEMEAT_TEST_ACL_PORT');
+        if (!$port) {
+            if (getenv('MINCEMEAT_RELEASE_CI')) {
+                $this->fail('ACL fault-injection environment is incomplete in release CI.');
+            }
+            $this->markTestSkipped('ACL fault-injection environment is not configured.');
+        }
+
+        $config = new Config(array(
+            'namespace' => 'test-acl-denial-' . $operation,
+            'host' => '127.0.0.1',
+            'port' => (int)$port,
+            'username' => $username,
+            'password' => 'fault-only',
+        ));
+        $ks = new KeySpace(false, 1);
+        $be = new Backend($ks);
+        $be->initialize($config);
+        $cache = new ObjectCache($ks, $be);
+        $GLOBALS['wp_object_cache'] = $cache;
+
+        $this->assertSame(ObjectCache::STATE_PERSISTENT, $cache->state());
+        if ($operation === 'eval') {
+            $this->assertTrue($cache->set('counter', 1, 'options'));
+            $this->assertSame(2, $cache->incr('counter', 1, 'options'));
+        } else {
+            $this->assertTrue($cache->set('delete-me', 'value', 'options'));
+            $this->assertTrue($cache->delete('delete-me', 'options'));
+        }
+
+        $this->assertSame(ObjectCache::STATE_DEGRADED, $cache->state());
+        $this->assertSame(Backend::REASON_COMMAND_FAILED, $cache->reason());
+        $diagnostics = json_encode(\Mincemeat\ObjectCache\Api::diagnostics());
+        $this->assertStringNotContainsString('fault-only', $diagnostics);
+        $this->assertStringNotContainsString($username, $diagnostics);
+
+        unset($GLOBALS['wp_object_cache']);
+        $be->close();
+    }
+
+    public function aclCommandDenialProvider(): array
+    {
+        return array(
+            'EVAL and EVALSHA denied' => array('fault-noeval', 'eval'),
+            'UNLINK denied' => array('fault-nounlink', 'unlink'),
+        );
+    }
+
+    public function test_acl_script_denial_uses_eval_fallback()
+    {
+        $cache = $this->aclFaultCache('fault-noscript', 'script');
+        $this->assertTrue($cache->set('counter', 1, 'options'));
+        $this->assertSame(2, $cache->incr('counter', 1, 'options'));
+        $this->assertSame(ObjectCache::STATE_PERSISTENT, $cache->state());
+        $cache->close();
+    }
+
+    public function test_acl_info_denial_keeps_cache_available()
+    {
+        $cache = $this->aclFaultCache('fault-noinfo', 'info');
+        $this->assertSame(ObjectCache::STATE_PERSISTENT, $cache->state());
+        $this->assertTrue($cache->set('key', 'value', 'options'));
+        $this->assertSame('value', $cache->get('key', 'options'));
+        $cache->close();
+    }
+
     public function test_persistent_pooling_connection_isolation()
     {
         $host = getenv('MINCEMEAT_TEST_REDIS_HOST') ?: '127.0.0.1';
@@ -325,5 +434,114 @@ class ConnectionScenariosTest extends TestCase
 
         $be1->close();
         $be2->close();
+    }
+
+    public function test_evicted_group_control_key_safely_invalidates_old_generation()
+    {
+        $host = getenv('MINCEMEAT_TEST_REDIS_HOST') ?: '127.0.0.1';
+        $port = (int)(getenv('MINCEMEAT_TEST_REDIS_PORT') ?: 6383);
+        $probe = new \Redis();
+        if (!@$probe->connect($host, $port, 1.0)) {
+            if (getenv('MINCEMEAT_RELEASE_CI')) {
+                $this->fail('Redis fault-injection backend is unavailable in release CI.');
+            }
+            $this->markTestSkipped('Redis fault-injection backend is unavailable.');
+        }
+
+        $config = new Config(array(
+            'namespace' => 'control-eviction-' . bin2hex(random_bytes(8)),
+            'host' => $host,
+            'port' => $port,
+        ));
+        $ks = new KeySpace(false, 1);
+        $be = new Backend($ks);
+        $be->initialize($config);
+        $cache = new ObjectCache($ks, $be);
+        $this->assertTrue($cache->set('key', 'old-generation', 'options'));
+
+        $this->assertSame(1, $probe->del($ks->group_control_key('options')));
+
+        $nextKs = new KeySpace(false, 1);
+        $nextBe = new Backend($nextKs);
+        $nextBe->initialize($config);
+        $nextCache = new ObjectCache($nextKs, $nextBe);
+        $found = null;
+        $this->assertFalse($nextCache->get('key', 'options', false, $found));
+        $this->assertFalse($found);
+        $this->assertSame(ObjectCache::STATE_PERSISTENT, $nextCache->state());
+
+        $probe->close();
+        $be->close();
+        $nextBe->close();
+    }
+
+    public function test_backend_timeout_with_retry_backoff_is_bounded_and_degrades()
+    {
+        $host = getenv('MINCEMEAT_TEST_REDIS_HOST') ?: '127.0.0.1';
+        $port = (int)(getenv('MINCEMEAT_TEST_REDIS_PORT') ?: 6383);
+        $probe = new \Redis();
+        if (!@$probe->connect($host, $port, 1.0)) {
+            if (getenv('MINCEMEAT_RELEASE_CI')) {
+                $this->fail('Redis timeout fault-injection backend is unavailable in release CI.');
+            }
+            $this->markTestSkipped('Redis timeout fault-injection backend is unavailable.');
+        }
+
+        $config = new Config(array(
+            'namespace' => 'timeout-' . bin2hex(random_bytes(8)),
+            'host' => $host,
+            'port' => $port,
+            'read_timeout' => 0.05,
+            'max_retries' => 2,
+            'backoff_algorithm' => 'constant',
+            'backoff_base' => 5,
+            'backoff_cap' => 5,
+        ));
+        $ks = new KeySpace(false, 1);
+        $be = new Backend($ks);
+        $be->initialize($config);
+        $cache = new ObjectCache($ks, $be);
+        $cache->get('warmup', 'options');
+
+        $this->assertTrue($probe->rawCommand('CLIENT', 'PAUSE', '500', 'ALL'));
+        $start = microtime(true);
+        $found = null;
+        $this->assertFalse($cache->get('timeout', 'options', true, $found));
+        $elapsed = microtime(true) - $start;
+
+        $this->assertFalse($found);
+        $this->assertLessThan(1.0, $elapsed, 'Configured retries and backoff must not create an unbounded request stall.');
+        $this->assertSame(ObjectCache::STATE_DEGRADED, $cache->state());
+        $this->assertSame(Backend::REASON_COMMAND_FAILED, $cache->reason());
+        $this->assertTrue($cache->set('available', 'yes', 'options'));
+        $this->assertSame('yes', $cache->get('available', 'options'));
+
+        usleep(550000);
+        $probe->close();
+        $be->close();
+    }
+
+    private function aclFaultCache(string $username, string $namespace): ObjectCache
+    {
+        $port = getenv('MINCEMEAT_TEST_ACL_PORT');
+        if (!$port) {
+            if (getenv('MINCEMEAT_RELEASE_CI')) {
+                $this->fail('ACL fault-injection environment is incomplete in release CI.');
+            }
+            $this->markTestSkipped('ACL fault-injection environment is not configured.');
+        }
+
+        $config = new Config(array(
+            'namespace' => 'test-acl-' . $namespace,
+            'host' => '127.0.0.1',
+            'port' => (int)$port,
+            'username' => $username,
+            'password' => 'fault-only',
+        ));
+        $ks = new KeySpace(false, 1);
+        $be = new Backend($ks);
+        $be->initialize($config);
+
+        return new ObjectCache($ks, $be);
     }
 }

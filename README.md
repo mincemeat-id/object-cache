@@ -71,6 +71,10 @@ compatibility surface: hit/miss counters, global-group and blog-prefix views,
 
 There is no settings page. All runtime diagnostics are surfaced through WordPress Site Health (Tools -> Site Health -> Info).
 
+Request metrics include the current cache state and stable reason code so
+configuration, connection, authentication, and mid-request command failures can
+be distinguished without exposing exception traces or connection credentials.
+
 ## Development & Testing Ports
 
 For local development and testing, non-default ports are used to prevent conflicts with other local databases or services. The Docker Compose endpoints are automatic fallbacks; helper-service values are exported when those optional scenarios are enabled:
@@ -100,6 +104,10 @@ composer test:coverage
 ```
 
 Optional Unix socket, ACL, and TLS scenarios are started with `bash tools/setup-test-services.sh`. Export the helper variables from the table to enable those tests locally.
+
+The helper services also provision isolated ACL fault users used by the test
+suite to verify denied `EVAL`, `SCRIPT`, `UNLINK`, and `INFO` behavior. These
+fixed credentials are local-test-only and are not runtime configuration.
 
 ### Performance baselines
 
