@@ -7,7 +7,7 @@
  * Version: 1.0.0-rc1
  * Drop-in Version: 1.0.0-rc1
  * Schema Version: 1
- * Build Hash: fe6f3cb7b1c1ff96246d979fe11d9ba2badafca0fae5a7d1ca453d43e7d7efaa
+ * Build Hash: 326347924cbf2a0d072cf62069a49194ea7ac6b8946512c221acd600a7fc5651
  *
  * @package Mincemeat\ObjectCache
  */
@@ -3647,7 +3647,7 @@ namespace Mincemeat\ObjectCache {
 		 *
 		 * @param string    $storage_id
 		 * @param string    $group
-		 * @param bool|null $found
+		 * @param bool      $found
 		 * @return mixed|false
 		 */
 		private function runtime_fallback_get( string $storage_id, string $group, &$found) {

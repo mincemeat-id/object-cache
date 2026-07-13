@@ -1242,7 +1242,7 @@ final class ObjectCache {
 	 *
 	 * @param string    $storage_id
 	 * @param string    $group
-	 * @param bool|null $found
+	 * @param bool      $found
 	 * @return mixed|false
 	 */
 	private function runtime_fallback_get( string $storage_id, string $group, &$found) {
