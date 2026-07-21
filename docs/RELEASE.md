@@ -37,6 +37,7 @@ composer validate --strict --no-check-lock
 composer lint -- --report=summary
 composer stan -- --error-format=raw
 composer test
+composer test:smoke
 composer test:coverage
 composer test:e2e
 composer test:e2e:lifecycle

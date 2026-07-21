@@ -19,6 +19,10 @@
 - Reduced cold persistent-cache work by lazily loading diagnostics and numeric
   scripts and coalescing namespace/group generation-token resolution, with
   deterministic command and round-trip guardrails for cold requests.
+- Made compatibility smoke tests fail on missing or mismatched plugins,
+  unexpected PHP diagnostics, and database errors; updated the exact
+  WooCommerce, Yoast SEO, and Easy Digital Downloads fixtures and report them
+  in bounded machine-readable output.
 
 ## [0.1.0-rc1] - 2026-07-13
 

@@ -155,20 +155,32 @@ PLUGINS_DIR="$TARGET_DIR/src/wp-content/plugins"
 download_plugin() {
     local name=$1
     local version=$2
-    if [ ! -d "$PLUGINS_DIR/$name" ]; then
-        echo "Downloading plugin $name $version..."
+    local entry_file=$3
+    local installed_version=''
+
+    if [ -f "$PLUGINS_DIR/$name/$entry_file" ]; then
+        installed_version=$(sed -n 's/^[[:space:]]*\*[[:space:]]*Version:[[:space:]]*//p' "$PLUGINS_DIR/$name/$entry_file" | head -n 1 | tr -d '\r')
+    fi
+
+    if [ "$installed_version" != "$version" ]; then
+        if [ -d "$PLUGINS_DIR/$name" ]; then
+            echo "Replacing plugin $name $installed_version with pinned version $version..."
+            rm -rf "$PLUGINS_DIR/$name"
+        else
+            echo "Downloading plugin $name $version..."
+        fi
         curl -fL --retry 3 --retry-all-errors \
             "https://downloads.wordpress.org/plugin/$name.$version.zip" \
             -o "$TEMP_DIR/$name.zip"
         unzip -q "$TEMP_DIR/$name.zip" -d "$PLUGINS_DIR"
     else
-        echo "Plugin $name already downloaded."
+        echo "Plugin $name $version already downloaded."
     fi
 }
 
 # We use pinned stable versions for smoke testing
-download_plugin "woocommerce" "8.9.1"
-download_plugin "wordpress-seo" "22.8"
-download_plugin "easy-digital-downloads" "3.6.9"
+download_plugin "woocommerce" "10.9.4" "woocommerce.php"
+download_plugin "wordpress-seo" "28.0" "wp-seo.php"
+download_plugin "easy-digital-downloads" "3.6.9" "easy-digital-downloads.php"
 
 echo "WordPress $WP_VERSION test infrastructure set up successfully!"

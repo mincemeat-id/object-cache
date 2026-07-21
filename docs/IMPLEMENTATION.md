@@ -132,7 +132,17 @@ composer validate --strict --no-check-lock
 composer lint -- --report=summary
 composer stan -- --error-format=raw
 composer test
+composer test:smoke
 ```
+
+The strict compatibility smoke command loads the pinned WooCommerce 10.9.4,
+Yoast SEO 28.0, and Easy Digital Downloads 3.6.9 entry points, runs their real
+activation/schema installers, and fails for missing or mismatched plugins,
+unexpected PHP diagnostics, or any WordPress database error. Its bounded JSON
+report is written to `build/logs/smoke-result.json` and names the exact
+WordPress, PHP, backend, and plugin versions. The third-party diagnostic
+allowlist is empty; the only accepted warnings are narrowly matched missing
+generated script manifests in the WordPress 6.9 source-test fixture.
 
 Generate fresh PCOV coverage and verify the configured thresholds:
 
