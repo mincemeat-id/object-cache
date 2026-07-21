@@ -229,7 +229,7 @@ $third_party_diagnostic_allowlist = array();
 $core_source_fixture_allowlist = array(
 	array(
 		'severity'       => E_WARNING,
-		'message_pattern' => '/(?:(?:script-loader-react-refresh-entry|script-loader-packages|script-modules-packages)\.php.*(?:Failed to open stream|Failed opening)|(?:Failed to open stream|Failed opening).*(?:script-loader-react-refresh-entry|script-loader-packages|script-modules-packages)\.php)/',
+		'message_pattern' => '/(?:(?:script-loader-react-refresh-entry|script-loader-packages|script-modules-packages)\.php.*(?:Failed to open stream|Failed opening)|(?:Failed to open stream|Failed opening).*(?:script-loader-react-refresh-entry|script-loader-packages|script-modules-packages)\.php)/i',
 		'file_pattern'    => '/wp-includes\/(?:script-loader|script-modules)\.php$/',
 	),
 	array(
