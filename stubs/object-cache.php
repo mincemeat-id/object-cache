@@ -7,7 +7,7 @@
  * Version: 0.1.0-rc2
  * Drop-in Version: 0.1.0-rc2
  * Schema Version: 1
- * Build Hash: 4b6ae3f565409e9cdf38970a77a30fb49882d55c1c109f8893df34fe36f176ae
+ * Build Hash: 3f749599dcd619f14beae0bb27781af14a3d124da546472f18456cb63146a018
  *
  * @package Mincemeat\ObjectCache
  */
@@ -5205,6 +5205,10 @@ namespace Mincemeat\ObjectCache {
 		 * @return string
 		 */
 		private static function header( int $tag, int $length ): string {
+			if ( $tag < 0 || $tag > 255 ) {
+				throw new \LogicException( 'Value envelope tags must fit in one byte.' );
+			}
+
 			return self::MAGIC
 				. chr( self::VERSION )
 				. chr( $tag )
