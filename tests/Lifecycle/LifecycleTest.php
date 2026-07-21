@@ -114,12 +114,25 @@ namespace Mincemeat\ObjectCache\Tests\Lifecycle {
 			$this->assertSame(Lifecycle::STATE_OWNED_CURRENT, Lifecycle::get_dropin_state());
 		}
 
-		public function test_get_dropin_state_owned_stale_wrong_hash()
+		public function test_release_registry_contains_the_tagged_rc1_dropin_hash()
+		{
+			$reflection = new \ReflectionClass(Lifecycle::class);
+			$hashes = $reflection->getConstant('RELEASE_DROPIN_HASHES');
+
+			$this->assertSame(
+				'31b7cdb96010219ecb336b77028088cf95f6422ff84f5a6edc4efb6eb00b3207',
+				$hashes['0.1.0-rc1']
+			);
+		}
+
+		public function test_owner_markers_without_a_release_hash_are_foreign()
 		{
 			$target = WP_CONTENT_DIR . '/object-cache.php';
-			file_put_contents($target, "<?php\n/**\n * Owner: mincemeat-object-cache\n * Version: 1.0.0-dev\n * Build Hash: wronghash\n */\n");
+			file_put_contents($target, "<?php\n/**\n * Owner: mincemeat-object-cache\n * Version: forged\n * Build Hash: forged\n */\n");
 
-			$this->assertSame(Lifecycle::STATE_OWNED_STALE, Lifecycle::get_dropin_state());
+			$this->assertSame(Lifecycle::STATE_FOREIGN, Lifecycle::get_dropin_state());
+			$this->assertFalse(Lifecycle::install_dropin());
+			$this->assertFalse(Lifecycle::remove_dropin());
 		}
 
 		public function test_parse_markers_reads_complete_header()
@@ -278,7 +291,7 @@ namespace Mincemeat\ObjectCache\Tests\Lifecycle {
 			$this->assertStringContainsString('A foreign object-cache.php drop-in is present', $output);
 		}
 
-		public function test_admin_notices_stale()
+		public function test_admin_notices_reject_forged_owner_markers()
 		{
 			$target = WP_CONTENT_DIR . '/object-cache.php';
 			file_put_contents($target, "<?php\n/**\n * Owner: mincemeat-object-cache\n * Version: 0.1.0\n * Build Hash: oldhash\n */\n");
@@ -287,7 +300,7 @@ namespace Mincemeat\ObjectCache\Tests\Lifecycle {
 			Lifecycle::admin_notices();
 			$output = ob_get_clean();
 
-			$this->assertStringContainsString('drop-in is outdated', $output);
+			$this->assertStringContainsString('foreign object-cache.php', $output);
 		}
 
 		public function test_admin_notices_transients()

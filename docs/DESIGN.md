@@ -251,7 +251,9 @@ The companion plugin is allowed to integrate with normal WordPress plugin lifecy
 Responsibilities:
 
 - Copy/install the generated drop-in to `wp-content/object-cache.php`.
-- Remove the drop-in only if it matches the plugin-managed checksum.
+- Remove or replace the drop-in only if its complete SHA-256 matches either the
+  bundled drop-in or an immutable public-release entry in the lifecycle
+  ownership registry. Header markers alone never establish ownership.
 - Validate drop-in integrity.
 - Expose Site Health information.
 - Provide WP-CLI operations for install/remove/status when WP-CLI is available.

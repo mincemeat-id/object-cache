@@ -12,7 +12,11 @@ For a release candidate:
 2. Update `readme.txt` stable tag and changelog section.
 3. Update `README.md` status text.
 4. Update `src/Api.php` implementation version.
-5. Regenerate the drop-in with `php tools/build-dropin.php`.
+5. Before regeneration changes the drop-in, record the previous immutable
+   release's tracked `stubs/object-cache.php.sha256` in
+   `Lifecycle::RELEASE_DROPIN_HASHES`. Never add development builds or test
+   fixtures to this ownership registry.
+6. Regenerate the drop-in with `php tools/build-dropin.php`.
 
 ## Public Changelog Policy
 

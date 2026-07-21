@@ -1,11 +1,13 @@
 # Mincemeat Object Cache - Implementation Guide
 
-Date: 2026-07-13
+Date: 2026-07-22
 Audience: maintainers, contributors, release engineers, and AI agents.
 
 ## Current Status
 
-The implementation is public-testing release-candidate quality. No release-blocking issues are documented in this repository.
+The implementation is public-testing release-candidate quality. RC2 hardening
+is in progress; release-facing behavior and validation changes are documented
+directly in this guide, the design document, release guide, and changelog.
 
 The maintained validation surface includes Composer metadata, PHPCS, PHPStan level 8, PHPUnit, PCOV coverage thresholds, generated artifact parity, deterministic package builds, browser/WP-CLI E2E tests, benchmark guardrails, and a Redis/Valkey CI matrix.
 
