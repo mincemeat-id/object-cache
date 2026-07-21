@@ -2,19 +2,31 @@
 /**
  * Repeatable performance and command-count guardrails for hot cache paths.
  *
- * Usage: php tools/benchmark-soak.php [host] [port] [--save-baseline|--compare|--json]
+ * Usage: php tools/benchmark-soak.php [host] [port] [options]
  *
- * Latencies are medians from fixed-size samples. Local baseline snapshots are
- * intentionally ignored by Git; only compare results from the same controlled
- * runner and backend environment.
+ * Latencies are medians from fixed-size samples. Release evidence is written as
+ * a CI artifact and compared only on an identical controlled runner/backend.
  *
  * @package Mincemeat\ObjectCache
  */
 
 declare(strict_types=1);
 
-require_once __DIR__ . '/../tests/bootstrap.php';
+$benchmark_runtime_root = dirname( __DIR__ );
+foreach (array_slice( $argv, 1 ) as $benchmark_argument) {
+	if (strpos( $benchmark_argument, '--runtime-root=' ) === 0) {
+		$benchmark_runtime_root = substr( $benchmark_argument, strlen( '--runtime-root=' ) );
+	}
+}
+$benchmark_runtime_root = realpath( $benchmark_runtime_root );
+if ( ! is_string( $benchmark_runtime_root ) || ! is_readable( $benchmark_runtime_root . '/tests/bootstrap.php' )) {
+	fwrite( STDERR, "Benchmark error: runtime root does not contain tests/bootstrap.php.\n" );
+	exit( 2 );
+}
 
+require_once $benchmark_runtime_root . '/tests/bootstrap.php';
+
+use Mincemeat\ObjectCache\Api;
 use Mincemeat\ObjectCache\Backend;
 use Mincemeat\ObjectCache\Config;
 use Mincemeat\ObjectCache\KeySpace;
@@ -22,12 +34,12 @@ use Mincemeat\ObjectCache\LuaScripts;
 use Mincemeat\ObjectCache\ObjectCache;
 use Mincemeat\ObjectCache\PhpRedisAdapter;
 
-const MINCEMEAT_BENCHMARK_SCHEMA_VERSION = 1;
-const MINCEMEAT_BENCHMARK_SUITE_VERSION  = 2;
-const MINCEMEAT_BENCHMARK_SAMPLES        = 5;
-const MINCEMEAT_BENCHMARK_WARMUPS        = 1;
-const MINCEMEAT_BENCHMARK_REGRESSION_PCT = 75.0;
-const MINCEMEAT_BENCHMARK_NOISE_FLOOR_MS = 1.0;
+const MINCEMEAT_BENCHMARK_SCHEMA_VERSION = 2;
+const MINCEMEAT_BENCHMARK_SUITE_VERSION  = 3;
+const MINCEMEAT_BENCHMARK_SAMPLES        = 21;
+const MINCEMEAT_BENCHMARK_WARMUPS        = 3;
+const MINCEMEAT_BENCHMARK_REGRESSION_PCT = 25.0;
+const MINCEMEAT_BENCHMARK_NOISE_FLOOR_MS = 2.0;
 
 /**
  * Counts adapter calls that cross the network boundary.
@@ -183,6 +195,101 @@ function mincemeat_benchmark_median( array $values ): float {
 	}
 
 	return ( $values[ $mid - 1 ] + $values[ $mid ] ) / 2;
+}
+
+/**
+ * Returns a bounded CPU identity for controlled-runner comparison.
+ *
+ * @return array{model:string,logical_processors:int,architecture:string}
+ */
+function mincemeat_benchmark_cpu_identity(): array {
+	$model      = 'unknown';
+	$processors = 0;
+	$cpu_info   = is_readable( '/proc/cpuinfo' ) ? (string) file_get_contents( '/proc/cpuinfo' ) : '';
+	if ($cpu_info !== '') {
+		if (preg_match( '/^model name\s*:\s*(.+)$/mi', $cpu_info, $match ) === 1) {
+			$model = trim( $match[1] );
+		}
+		$processors = preg_match_all( '/^processor\s*:/mi', $cpu_info );
+		if ( ! is_int( $processors )) {
+			$processors = 0;
+		}
+	}
+
+	return array(
+		'model'              => substr( $model, 0, 160 ),
+		'logical_processors' => $processors,
+		'architecture'       => php_uname( 'm' ),
+	);
+}
+
+/**
+ * @return array<string,string>
+ */
+function mincemeat_benchmark_extension_versions(): array {
+	$extensions = get_loaded_extensions();
+	sort( $extensions, SORT_STRING );
+	$versions = array();
+	foreach ($extensions as $extension) {
+		$version                = phpversion( $extension );
+		$versions[ $extension ] = is_string( $version ) ? $version : 'built-in';
+	}
+
+	return $versions;
+}
+
+/**
+ * Returns the source commit without including a workspace path.
+ */
+function mincemeat_benchmark_source_commit( string $runtime_root ): string {
+	$override = getenv( 'MINCEMEAT_BENCHMARK_COMMIT' );
+	if (is_string( $override ) && preg_match( '/^[0-9A-Za-z.+_-]{1,128}$/', $override ) === 1) {
+		return $override;
+	}
+
+	$command = 'git -C ' . escapeshellarg( $runtime_root ) . ' rev-parse HEAD 2>/dev/null';
+	$commit  = shell_exec( $command );
+	$commit  = is_string( $commit ) ? trim( $commit ) : '';
+
+	return preg_match( '/^[a-f0-9]{40}$/', $commit ) === 1 ? $commit : 'working-tree';
+}
+
+/**
+ * @param array<string,string>|null $server_info
+ * @return array<string,mixed>
+ */
+function mincemeat_benchmark_environment( ?array $server_info ): array {
+	$loaded_ini  = php_ini_loaded_file();
+	$scanned_ini = php_ini_scanned_files();
+	$image       = getenv( 'MINCEMEAT_BENCHMARK_BACKEND_IMAGE_DIGEST' );
+	$runner      = getenv( 'MINCEMEAT_BENCHMARK_RUNNER' );
+
+	return array(
+		'runner_identity'     => is_string( $runner ) && $runner !== '' ? substr( $runner, 0, 160 ) : 'local-uncontrolled',
+		'operating_system'    => php_uname( 's' ) . ' ' . php_uname( 'r' ),
+		'cpu'                 => mincemeat_benchmark_cpu_identity(),
+		'php'                 => array(
+			'version'           => PHP_VERSION,
+			'sapi'              => PHP_SAPI,
+			'loaded_ini'        => is_string( $loaded_ini ) ? $loaded_ini : 'none',
+			'loaded_ini_sha256' => is_string( $loaded_ini ) && is_readable( $loaded_ini ) ? hash_file( 'sha256', $loaded_ini ) : 'none',
+			'scanned_ini'       => is_string( $scanned_ini ) ? array_values( array_filter( array_map( 'trim', explode( ',', $scanned_ini ) ) ) ) : array(),
+			'ini_values'        => array(
+				'opcache.enable_cli'             => (string) ini_get( 'opcache.enable_cli' ),
+				'opcache.jit'                    => (string) ini_get( 'opcache.jit' ),
+				'pcov.enabled'                   => (string) ini_get( 'pcov.enabled' ),
+				'redis.pconnect.pooling_enabled' => (string) ini_get( 'redis.pconnect.pooling_enabled' ),
+				'redis.pconnect.pool_pattern'    => (string) ini_get( 'redis.pconnect.pool_pattern' ),
+				'xdebug.mode'                    => (string) ini_get( 'xdebug.mode' ),
+			),
+			'extensions'        => mincemeat_benchmark_extension_versions(),
+		),
+		'backend'             => array(
+			'product'      => $server_info['product'] ?? 'unknown',
+			'version'      => $server_info['version'] ?? 'unknown',
+			'image_digest' => is_string( $image ) && $image !== '' ? substr( $image, 0, 256 ) : 'unreported',
+		),
+	);
 }
 
 /**
@@ -764,6 +871,9 @@ function mincemeat_benchmark_compare( array $report, string $baseline_file, bool
 $save_baseline = false;
 $compare       = false;
 $json_only     = false;
+$skip_guardrails = false;
+$output_file   = '';
+$run_label     = 'local';
 $positionals   = array();
 
 foreach (array_slice( $argv, 1 ) as $argument) {
@@ -773,6 +883,14 @@ foreach (array_slice( $argv, 1 ) as $argument) {
 		$compare = true;
 	} elseif ($argument === '--json') {
 		$json_only = true;
+	} elseif ($argument === '--skip-guardrails') {
+		$skip_guardrails = true;
+	} elseif (strpos( $argument, '--output=' ) === 0) {
+		$output_file = substr( $argument, strlen( '--output=' ) );
+	} elseif (strpos( $argument, '--label=' ) === 0) {
+		$run_label = substr( $argument, strlen( '--label=' ) );
+	} elseif (strpos( $argument, '--runtime-root=' ) === 0) {
+		continue;
 	} else {
 		$positionals[] = $argument;
 	}
@@ -802,22 +920,35 @@ try {
 	}
 
 	$run = mincemeat_benchmark_run( mincemeat_benchmark_definitions(), $host, $port, $json_only );
+	if ($skip_guardrails) {
+		$run['guardrail_failures'] = array();
+	}
 	$report = array(
 		'schema_version' => MINCEMEAT_BENCHMARK_SCHEMA_VERSION,
 		'suite_version'  => MINCEMEAT_BENCHMARK_SUITE_VERSION,
-		'environment'    => array(
-			'php_version'      => PHP_VERSION,
-			'phpredis_version' => phpversion( 'redis' ) ?: 'unknown',
-			'backend_product'  => $info['product'] ?? 'unknown',
-			'backend_version'  => $info['version'] ?? 'unknown',
+		'artifact'       => array(
+			'label'                 => preg_match( '/^[0-9A-Za-z.+_-]{1,80}$/', $run_label ) === 1 ? $run_label : 'invalid-label',
+			'generated_at_utc'      => gmdate( 'Y-m-d\TH:i:s\Z' ),
+			'source_commit'         => mincemeat_benchmark_source_commit( $benchmark_runtime_root ),
+			'runtime_version'       => Api::IMPLEMENTATION_VERSION,
+			'runtime_dropin_sha256' => hash_file( 'sha256', $benchmark_runtime_root . '/stubs/object-cache.php' ),
+			'harness_sha256'        => hash_file( 'sha256', __FILE__ ),
 		),
+		'environment'    => mincemeat_benchmark_environment( $info ),
 		'configuration'  => array(
 			'samples'                 => MINCEMEAT_BENCHMARK_SAMPLES,
 			'warmups'                 => MINCEMEAT_BENCHMARK_WARMUPS,
+			'warmup_policy'            => 'discard-first-3-per-workload',
+			'statistic'                => 'median',
 			'regression_threshold_pct' => MINCEMEAT_BENCHMARK_REGRESSION_PCT,
 			'noise_floor_ms'          => MINCEMEAT_BENCHMARK_NOISE_FLOOR_MS,
 		),
 		'benchmarks'     => $run['results'],
+		'guardrails'     => array(
+			'enforced' => ! $skip_guardrails,
+			'status'   => count( $run['guardrail_failures'] ) === 0 ? 'pass' : 'fail',
+			'failures' => $run['guardrail_failures'],
+		),
 		'comparisons'    => array(
 			'evalsha_vs_eval_pct' => round(
 				( ( $run['results']['lua_evalsha']['median_ms'] / $run['results']['lua_eval']['median_ms'] ) - 1 ) * 100,
@@ -826,8 +957,18 @@ try {
 		),
 	);
 
-	$failures     = $run['guardrail_failures'];
+	$failures      = $run['guardrail_failures'];
 	$baseline_file = __DIR__ . '/../tests/benchmarks-baseline.json';
+	$encoded_report = json_encode( $report, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_PRESERVE_ZERO_FRACTION );
+	if ( ! is_string( $encoded_report )) {
+		throw new RuntimeException( 'Unable to encode the benchmark report.' );
+	}
+	if ($output_file !== '') {
+		$output_dir = dirname( $output_file );
+		if ( ! is_dir( $output_dir ) || file_put_contents( $output_file, $encoded_report . "\n" ) === false) {
+			throw new RuntimeException( 'Unable to write the benchmark artifact.' );
+		}
+	}
 
 	if ( ! $json_only) {
 		echo sprintf(
@@ -837,8 +978,7 @@ try {
 	}
 
 	if ($save_baseline && count( $failures ) === 0) {
-		$encoded = json_encode( $report, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_PRESERVE_ZERO_FRACTION );
-		if ( ! is_string( $encoded ) || file_put_contents( $baseline_file, $encoded . "\n" ) === false) {
+		if (file_put_contents( $baseline_file, $encoded_report . "\n" ) === false) {
 			throw new RuntimeException( 'Unable to write the local benchmark baseline.' );
 		}
 		if ( ! $json_only) {
@@ -849,7 +989,7 @@ try {
 	}
 
 	if ($json_only) {
-		echo json_encode( $report, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_PRESERVE_ZERO_FRACTION ) . "\n";
+		echo $encoded_report . "\n";
 	}
 
 	if (count( $failures ) > 0) {

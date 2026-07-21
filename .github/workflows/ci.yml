@@ -108,6 +108,51 @@ jobs:
       - name: PHPCompatibility
         run: vendor/bin/phpcs --standard=PHPCompatibility -p src stubs tools mincemeat-object-cache.php --runtime-set testVersion 7.4
 
+  controlled-performance:
+    name: Controlled RC1 to RC2 Performance Evidence
+    runs-on: ubuntu-24.04
+    services:
+      redis:
+        image: redis:8.8.0-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+
+    steps:
+      - name: Checkout with immutable RC1 tag
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup controlled PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.4'
+          extensions: redis-6.3.0
+          coverage: none
+          ini-values: opcache.enable_cli=0
+
+      - name: Capture backend image and run benchmark evidence
+        env:
+          MINCEMEAT_BENCHMARK_RUNNER: github-hosted-ubuntu-24.04-x64
+        run: |
+          BENCHMARK_IMAGE_DIGEST=$(docker image inspect redis:8.8.0-alpine --format '{{.Id}}')
+          echo "MINCEMEAT_BENCHMARK_BACKEND_IMAGE_DIGEST=$BENCHMARK_IMAGE_DIGEST" >> "$GITHUB_ENV"
+          export MINCEMEAT_BENCHMARK_BACKEND_IMAGE_DIGEST="$BENCHMARK_IMAGE_DIGEST"
+          bash tools/run-controlled-benchmarks.sh 127.0.0.1 6379 build/benchmarks
+
+      - name: Upload controlled benchmark evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rc2-controlled-performance-evidence
+          path: build/benchmarks/
+          if-no-files-found: error
+
   e2e:
     name: WordPress ${{ matrix.wordpress }} Browser and WP-CLI E2E
     runs-on: ubuntu-latest

@@ -105,11 +105,14 @@ Local Docker defaults use Redis 8 on `6383`, Valkey 9 on `6384`, and MariaDB on 
 Performance guardrails:
 
 ```bash
-composer benchmark -- 127.0.0.1 6383 --save-baseline
-composer benchmark -- 127.0.0.1 6383 --compare
+composer benchmark:controlled -- 127.0.0.1 6383
 ```
 
-Benchmark reports include PHP, PhpRedis, backend product, and backend version, but omit connection targets.
+The controlled run measures the immutable RC1 runtime and two clean current
+runs with the same harness, runner, and Redis image. Versioned artifacts under
+`build/benchmarks/` include raw samples, command/round-trip/connection counts,
+commit, CPU and runner identity, PHP INI/extensions, backend image digest, and
+the repeatability/release comparisons. Connection targets are omitted.
 
 ## Release Builds
 

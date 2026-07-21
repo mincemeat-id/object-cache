@@ -310,10 +310,16 @@ additional network exchanges even when wall-clock timings are noisy. The cold
 workloads include a new namespace, first hit, first miss, first set, and first
 group before the steady-state workloads.
 
-Benchmark baselines are machine-local by default. A comparison is valid only
-when PHP, PhpRedis, backend product/version, and the controlled runner match;
-benchmark output must not expose target hosts or other connection details.
-Release notes may quote results only when that execution context is documented.
+Release evidence is a CI artifact, not an ignored mutable baseline. The same
+harness measures the immutable prior tag and two clean candidate runs against
+one backend on one runner. Each workload discards three warmups and retains 21
+raw samples; median latency is compared with a dual 25%/2 ms tolerance so tiny
+timer noise cannot fail a build. Command, round-trip, and connection counts
+remain exact deterministic gates. Reports record the source commit, runner/CPU,
+OS, PHP INI and extensions, backend image digest, warmup policy, and raw data.
+A comparison is rejected when those controlled environment fields differ, and
+target hosts are never included. Release notes may quote results only from the
+uploaded artifact with that execution context.
 
 ## Companion Plugin Responsibilities
 

@@ -170,23 +170,28 @@ Generate fresh PCOV coverage and verify the configured thresholds:
 composer test:coverage
 ```
 
-Create and compare a local performance baseline against Redis 8:
+Create controlled RC1/current performance evidence against Redis 8:
 
 ```bash
-composer benchmark -- 127.0.0.1 6383 --save-baseline
-composer benchmark -- 127.0.0.1 6383 --compare
+composer benchmark:controlled -- 127.0.0.1 6383
 ```
 
-The benchmark uses fixed workloads, one warmup, five measured samples, and
-median latency. It asserts exact adapter command, round-trip, and connection
-counts for cold and hot cache paths. Existing namespace/group controls resolve
+The current harness runs the immutable `0.1.0-rc1` runtime and two current
+runtimes with fixed workloads, three discarded warmups, 21 measured samples,
+and median latency. It asserts exact adapter command, round-trip, and connection
+counts for current cold and hot paths. Existing namespace/group controls resolve
 in one `MGET`; missing controls are created in a single pipeline. The resulting
 first persistent hit, miss, or set uses two backend round trips once controls
-exist, while a brand-new namespace uses three. Local snapshots live at
-`tests/benchmarks-baseline.json` and remain
-ignored because timings are meaningful only on the same controlled runner,
-PHP/PhpRedis versions, and backend product/version. Use `--json` for the
-versioned machine-readable report; connection targets are intentionally omitted.
+exist, while a brand-new namespace uses three.
+
+Artifacts under `build/benchmarks/` record raw samples, source commit, CPU and
+runner identity, operating system, loaded/scanned PHP INI, relevant INI values,
+loaded extension versions, backend product/version, and backend image digest.
+The two current runs must agree unless both the absolute change exceeds 2 ms and
+the relative change exceeds 25%; an RC2 regression against RC1 uses the same
+dual threshold, while command, round-trip, and connection increases fail
+deterministically. CI uploads all reports and comparisons. Connection targets
+are intentionally omitted.
 
 Run the isolated real-WordPress browser and WP-CLI suite (Docker Compose required):
 
