@@ -237,7 +237,9 @@ Required behavior:
   configured to ignore the supplied persistent identifier; never mutate the
   global pool pattern from the drop-in.
 - Avoid throwing backend exceptions into ordinary WordPress execution paths.
-- Redact host/path/credential information in diagnostics unless explicitly safe.
+- Classify connection context in diagnostics without retaining supplied hosts,
+  ports, database indexes, Unix-socket paths, credentials, raw cache keys, or
+  cached values. This invariant also applies to non-public/debug diagnostics.
 - Use Lua for atomic numeric or token operations only where it is portable across Redis 8 and Valkey 9.
 
 ## Failure Model
@@ -255,6 +257,12 @@ When Redis/Valkey is unavailable:
   once; diagnostics reads must not inflate failure counters.
 - Metrics and Site Health should expose the same stable state and reason code
   without including backend exception traces or connection identity.
+- Backend exception messages and traces are never copied into logs or operator
+  diagnostics. Debug logging is opt-in and bounded: once per CLI process; for
+  web requests, once per stable category per five minutes through a shared APCu
+  throttle. Web logging is suppressed when that shared limiter is unavailable.
+- A partially initialized adapter is closed best-effort before its reference is
+  discarded; cleanup errors cannot replace the original stable failure reason.
 
 ## Performance Guardrails
 
@@ -300,7 +308,7 @@ Site Health should report:
 - backend connection status
 - backend type/version when safe
 - selected transport type
-- redacted namespace/endpoint details
+- namespace digest and classified endpoint state
 - feature support
 - basic metrics and failure counters
 
@@ -308,8 +316,9 @@ Site Health must redact:
 
 - password
 - username when sensitive
-- TLS peer values if they reveal internal infrastructure
-- non-local hostnames or paths when they can expose private topology
+- all supplied hostnames, addresses, ports, database indexes, and socket paths
+- TLS peer values and file paths
+- exception messages, stack traces, raw cache keys, and cached values
 
 ## WP-CLI Design
 

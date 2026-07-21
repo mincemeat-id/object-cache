@@ -486,9 +486,9 @@ class CompatibilityTest extends IntegrationTestCase
         // Verify key is automatically deleted from backend due to corruption
         $this->assertFalse($this->backend->get($item_key));
 
-        // Logging occurred
-        $this->assertNotEmpty($this->logged_messages);
-        $this->assertStringContainsString('Value codec decode failed: decode-magic', $this->logged_messages[count($this->logged_messages) - 1]);
+        // The stable reason remains available without emitting when debug is disabled.
+        $this->assertSame('Value codec decode failed: decode-magic', $this->cache->last_error());
+        $this->assertEmpty($this->logged_messages);
     }
 
     public function test_package_zip_lifecycle()

@@ -42,6 +42,15 @@ corrupt envelopes, and persistent-identity changes. Request error metrics count
 state transitions once and carry the same state/reason classification shown by
 Site Health.
 
+Configuration rejects unknown keys with only the stable
+`config-unknown-key` reason and accepts only scalar-or-null values under the
+flat TLS context map. Operator surfaces never echo supplied endpoint identity,
+socket paths, credentials, exception messages or traces, raw cache keys, or
+cached values. Failed initialization closes the partially configured adapter
+best-effort. Debug logging is disabled by default; CLI emits once per process,
+and web requests emit once per stable category per five minutes only when APCu
+provides the required process-shared throttle.
+
 The WordPress 6.9+ compatibility surface includes public `cache_hits` and
 `cache_misses` counters, magic read access to `global_groups` and `blog_prefix`,
 core-shaped `isset()` behavior, and `stats()` output. The magic properties are

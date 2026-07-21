@@ -13,13 +13,16 @@ namespace Mincemeat\ObjectCache\Tests\Failure;
 use Mincemeat\ObjectCache\Api;
 use Mincemeat\ObjectCache\Backend;
 use Mincemeat\ObjectCache\BackendException;
+use Mincemeat\ObjectCache\CliCommand;
 use Mincemeat\ObjectCache\Config;
 use Mincemeat\ObjectCache\ConfigException;
 use Mincemeat\ObjectCache\KeySpace;
 use Mincemeat\ObjectCache\ObjectCache;
 use Mincemeat\ObjectCache\PhpRedisAdapter;
+use Mincemeat\ObjectCache\SiteHealth;
 use Mincemeat\ObjectCache\ValueCodec;
 use PHPUnit\Framework\TestCase;
+use WP_CLI;
 
 class FailureTest extends TestCase
 {
@@ -139,11 +142,13 @@ class FailureTest extends TestCase
         $this->assertSame(ObjectCache::STATE_RUNTIME_ONLY, $backend->state());
         $this->assertSame('auth-failed', $backend->reason());
 
-        // Verify that the secret was redacted in the log message!
+        // Exception text is never copied into the log message.
         $this->assertCount(1, $this->logged_messages);
         $this->assertStringContainsString('Initialization failed: auth-failed', $this->logged_messages[0]);
         $this->assertStringNotContainsString('secret-password', $this->logged_messages[0]);
-        $this->assertStringContainsString('[REDACTED]', $this->logged_messages[0]);
+        $this->assertSame('Mincemeat Object Cache: Initialization failed: auth-failed', $this->logged_messages[0]);
+        $this->assertStringNotContainsString('[REDACTED]', $this->logged_messages[0]);
+        $this->assertSame('Initialization failed: auth-failed', $backend->last_error());
     }
 
     public function test_initialization_failure_bad_database()
@@ -160,6 +165,19 @@ class FailureTest extends TestCase
 
         $this->assertSame(ObjectCache::STATE_RUNTIME_ONLY, $backend->state());
         $this->assertSame('select-db-failed', $backend->reason());
+    }
+
+    public function test_debug_disabled_records_reason_without_emitting_log()
+    {
+        $adapter = new MockPhpRedisAdapter();
+        $adapter->connect_callback = function () {
+            throw new BackendException('connect-failed', 'exception contains supplied-secret');
+        };
+        $backend = new Backend(new KeySpace(false, 1), $adapter);
+        $backend->initialize($this->get_config(array('debug' => false)));
+
+        $this->assertSame('Initialization failed: connect-failed', $backend->last_error());
+        $this->assertCount(0, $this->logged_messages);
     }
 
     public function test_config_invalid_via_facade()
@@ -180,8 +198,7 @@ class FailureTest extends TestCase
 
         $this->assertSame(ObjectCache::STATE_RUNTIME_ONLY, Api::status()['state']);
         $this->assertSame('config-invalid', Api::status()['reason']);
-        $this->assertCount(1, $this->logged_messages);
-        $this->assertStringContainsString('Initialization failed: config-invalid', $this->logged_messages[0]);
+        $this->assertCount(0, $this->logged_messages, 'Invalid configuration cannot opt in to debug logging.');
         $this->assertSecretFree($this->logged_messages);
         $this->assertSecretFree(Api::diagnostics());
     }
@@ -230,11 +247,12 @@ class FailureTest extends TestCase
         $this->assertCount(1, $GLOBALS['__mincemeat_actions']['mincemeat_object_cache_degraded']);
         $this->assertSame(array('command-failed'), $GLOBALS['__mincemeat_actions']['mincemeat_object_cache_degraded'][0]);
 
-        // Verify error logged exactly once, and secret password is redacted
+        // Verify error logged exactly once without copying exception text.
         $this->assertCount(1, $this->logged_messages);
         $this->assertStringContainsString('Backend degraded: command-failed', $this->logged_messages[0]);
         $this->assertStringNotContainsString('secret-password', $this->logged_messages[0]);
-        $this->assertStringContainsString('[REDACTED]', $this->logged_messages[0]);
+        $this->assertSame('Mincemeat Object Cache: Backend degraded: command-failed', $this->logged_messages[0]);
+        $this->assertStringNotContainsString('[REDACTED]', $this->logged_messages[0]);
 
         // Subsequent get/set operations should be served in memory and should NOT attempt backend connection/commands
         // Let's set callbacks to throw exception if called, to prove the circuit is open and no backend command is attempted.
@@ -301,7 +319,7 @@ class FailureTest extends TestCase
         $this->assertSame($expected_key, $deleted_keys[0]);
     }
 
-    public function test_advanced_credential_and_dsn_redaction()
+    public function test_diagnostics_never_copy_adversarial_exception_content()
     {
         $config = new Config(array(
             'namespace' => 'my-secret-ns',
@@ -319,38 +337,76 @@ class FailureTest extends TestCase
         $key_space = new KeySpace(false, 1);
         $adapter = new MockPhpRedisAdapter();
         $adapter->connect_callback = function ($cfg) {
-            // Emulate an exception throwing secrets including DSN style url
-            throw new BackendException('connect-failed', 'Could not connect to redis://secret-user:secret-p%40ssword@my-secret-redis-host.com:6389/0. Namespace: my-secret-ns. SSL file: /path/to/my-secret-ca.pem');
+            throw new BackendException(
+                'connect-failed',
+                'Could not connect to redis://secret-user:secret-p%40ssword@my-secret-redis-host.com:6389/0. Namespace: my-secret-ns. SSL file: /path/to/my-secret-ca.pem. Socket: /private/run/cache.sock. Key: wp:options:raw-secret-key. Value: raw-secret-cached-value. Trace: /srv/private/plugin.php:123.'
+            );
         };
 
         $backend = new Backend($key_space, $adapter);
         $backend->initialize($config);
 
+        $cache = new ObjectCache($key_space, $backend);
+        $GLOBALS['wp_object_cache'] = $cache;
+        WP_CLI::reset();
+        (new CliCommand())->status(array(), array());
+
+        $surfaces = array(
+            'logs' => $this->logged_messages,
+            'backend' => $backend->last_error(),
+            'public API' => Api::diagnostics(true),
+            'private API' => Api::diagnostics(false),
+            'Site Health' => SiteHealth::debug_information(array()),
+            'WP-CLI' => WP_CLI::$lines,
+        );
+        $secrets = array(
+            'my-secret-ns',
+            'my-secret-redis-host.com',
+            '6389',
+            'secret-p@ssword',
+            'secret-p%40ssword',
+            'secret-user',
+            '/path/to/my-secret-ca.pem',
+            '/private/run/cache.sock',
+            'wp:options:raw-secret-key',
+            'raw-secret-cached-value',
+            '/srv/private/plugin.php:123',
+            'secret-user:secret-p%40ssword@',
+        );
+
+        foreach ($surfaces as $name => $surface) {
+            $encoded = json_encode($surface);
+            $this->assertIsString($encoded);
+            foreach ($secrets as $secret) {
+                $this->assertStringNotContainsString($secret, $encoded, $name . ' leaked supplied data.');
+            }
+        }
+
         $this->assertCount(1, $this->logged_messages);
-        $log = $this->logged_messages[0];
+        $this->assertSame('Initialization failed: connect-failed', $backend->last_error());
+        $this->assertStringContainsString('connect-failed', json_encode($surfaces['Site Health']));
+        $this->assertStringContainsString('connect-failed', implode("\n", WP_CLI::$lines));
+    }
 
-        // Ensure all sensitive parts are redacted
-        $this->assertStringNotContainsString('my-secret-ns', $log);
-        $this->assertStringNotContainsString('my-secret-redis-host.com', $log);
-        $this->assertStringNotContainsString('secret-p@ssword', $log);
-        $this->assertStringNotContainsString('secret-p%40ssword', $log); // urlencoded pass
-        $this->assertStringNotContainsString('secret-user', $log);
-        $this->assertStringNotContainsString('/path/to/my-secret-ca.pem', $log);
+    public function test_failed_initialization_closes_partial_adapter()
+    {
+        $adapter = new MockPhpRedisAdapter();
+        $close_calls = 0;
+        $adapter->connect_callback = function () {
+            throw new BackendException('connect-failed', 'partial client contains secret material');
+        };
+        $adapter->close_callback = function () use (&$close_calls) {
+            ++$close_calls;
+            throw new \RedisException('close also contained secret material');
+        };
 
-        // Ensure that DSN credentials pattern is matched and replaced
-        $this->assertStringNotContainsString('secret-user:secret-p%40ssword@', $log);
-        $this->assertStringContainsString('[REDACTED]', $log);
+        $backend = new Backend(new KeySpace(false, 1), $adapter);
+        $backend->initialize($this->get_config());
 
-        // Verify last_error() on the backend is also redacted
-        $last_err = $backend->last_error();
-        $this->assertNotEmpty($last_err);
-        $this->assertStringNotContainsString('my-secret-ns', $last_err);
-        $this->assertStringNotContainsString('my-secret-redis-host.com', $last_err);
-        $this->assertStringNotContainsString('secret-p@ssword', $last_err);
-        $this->assertStringNotContainsString('secret-p%40ssword', $last_err);
-        $this->assertStringNotContainsString('secret-user', $last_err);
-        $this->assertStringNotContainsString('/path/to/my-secret-ca.pem', $last_err);
-        $this->assertStringContainsString('[REDACTED]', $last_err);
+        $this->assertSame(1, $close_calls);
+        $this->assertSame(ObjectCache::STATE_RUNTIME_ONLY, $backend->state());
+        $this->assertSame(Backend::REASON_CONNECT_FAILED, $backend->reason());
+        $this->assertSame('Initialization failed: connect-failed', $backend->last_error());
     }
 
     public function test_token_creator_and_race_loser_paths()
@@ -719,7 +775,8 @@ class FailureTest extends TestCase
 
         $this->assertSame(ObjectCache::STATE_RUNTIME_ONLY, $backend->state());
         $this->assertSame(Backend::REASON_CONFIG_INVALID, $backend->reason());
-        $this->assertSame('invalid config', $backend->last_error());
+        $this->assertSame('Initialization failed: config-invalid', $backend->last_error());
+        $this->assertCount(0, $this->logged_messages);
     }
 }
 
@@ -732,6 +789,7 @@ class MockPhpRedisAdapter extends PhpRedisAdapter
     public $eval_callback;
     public $pipeline_callback;
     public $del_callback;
+    public $close_callback;
 
     public function connect(Config $config): void
     {
@@ -791,6 +849,13 @@ class MockPhpRedisAdapter extends PhpRedisAdapter
             return call_user_func($this->pipeline_callback, $commands);
         }
         return array_fill(0, count($commands), true);
+    }
+
+    public function close(): void
+    {
+        if ($this->close_callback) {
+            call_user_func($this->close_callback);
+        }
     }
 }
 

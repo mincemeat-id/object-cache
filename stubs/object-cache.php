@@ -7,7 +7,7 @@
  * Version: 0.1.0-rc1
  * Drop-in Version: 0.1.0-rc1
  * Schema Version: 1
- * Build Hash: 463577015040a3e828cd5693519f5fddc774b52563af57bca4f0e13b47f74375
+ * Build Hash: 21b603ce27ca6e56a517450d3e43da4a98781050b480dcecc3c93f130342691b
  *
  * @package Mincemeat\ObjectCache
  */
@@ -219,11 +219,12 @@ namespace Mincemeat\ObjectCache {
 	final class Backend {
 
 		/** Reason codes for the circuit breaker. */
-		public const REASON_NO_BACKEND        = 'no-backend';
-		public const REASON_MISSING_EXTENSION = 'missing-extension';
-		public const REASON_CONFIG_INVALID    = 'config-invalid';
-		public const REASON_CONNECT_FAILED    = 'connect-failed';
-		public const REASON_AUTH_FAILED       = 'auth-failed';
+		public const REASON_NO_BACKEND             = 'no-backend';
+		public const REASON_MISSING_EXTENSION      = 'missing-extension';
+		public const REASON_UNSUPPORTED_EXTENSION = 'unsupported-extension';
+		public const REASON_CONFIG_INVALID         = 'config-invalid';
+		public const REASON_CONNECT_FAILED         = 'connect-failed';
+		public const REASON_AUTH_FAILED            = 'auth-failed';
 		public const REASON_SELECT_DB_FAILED  = 'select-db-failed';
 		public const REASON_COMMAND_FAILED    = 'command-failed';
 
@@ -331,6 +332,12 @@ namespace Mincemeat\ObjectCache {
 			try {
 				$this->adapter->connect( $config );
 			} catch (BackendException $e) {
+				try {
+					$this->adapter->close();
+				} catch (\Throwable $close_error) {
+					// Initialization reason remains the actionable failure category.
+					unset( $close_error );
+				}
 				$this->state   = ObjectCache::STATE_RUNTIME_ONLY;
 				$this->reason  = $e->reason();
 				$this->adapter = null;
@@ -1125,99 +1132,56 @@ namespace Mincemeat\ObjectCache {
 		}
 
 		/**
-		 * Logs a sanitized, redacted error message to the error log exactly once per request.
+		 * Records a stable error category and emits a bounded debug log.
+		 *
+		 * Web logs require both debug mode and a shared APCu throttle. Without a
+		 * process-shared limiter, web logging is suppressed so a backend outage can
+		 * never emit once per request indefinitely. CLI processes may emit once.
 		 *
 		 * @internal
 		 * @param string          $message   The log message.
 		 * @param \Throwable|null $exception Optional associated exception.
 		 */
 		public function log_error( string $message, ?\Throwable $exception = null ): void {
+			unset( $exception );
 			if ( $this->logged ) {
 				return;
 			}
 			$this->logged = true;
 
-			$raw_msg                  = $exception !== null ? $exception->getMessage() : $message;
-			$this->last_error_message = $this->redact_secrets( $raw_msg );
+			$this->last_error_message = $message;
 
-			$log_msg = 'Mincemeat Object Cache: ' . $message;
-			if ( $this->config !== null && $this->config->debug() ) {
-				if ( $exception !== null ) {
-					$log_msg .= sprintf(
-						' (Exception: %s, Message: %s, Code: %d)',
-						get_class( $exception ),
-						$this->redact_secrets( $exception->getMessage() ),
-						$exception->getCode()
-					);
-				}
+			if ( ! $this->should_emit_log( $message )) {
+				return;
 			}
 
+			$log_msg = 'Mincemeat Object Cache: ' . $message;
 			error_log( $log_msg );
 		}
 
 		/**
-		 * Redacts credentials and other sensitive data from a string.
+		 * Determines whether this process/request may emit an error log entry.
 		 *
-		 * @param string $msg Input string.
-		 * @return string Redacted string.
+		 * @param string $message Stable error category.
 		 */
-		private function redact_secrets( string $msg ): string {
-			if ( $this->config === null ) {
-				return $msg;
+		private function should_emit_log( string $message ): bool {
+			if ( $this->config === null || ! $this->config->debug()) {
+				return false;
 			}
 
-			$search = array();
-
-			$password = $this->config->password();
-			if ( $password !== null && $password !== '' ) {
-				$search[] = $password;
+			if ( PHP_SAPI === 'cli' ) {
+				return true;
 			}
 
-			$username = $this->config->username();
-			if ( $username !== null && $username !== '' ) {
-				$search[] = $username;
+			if ( ! function_exists( 'apcu_add' ) || ! function_exists( 'apcu_enabled' ) || ! apcu_enabled()) {
+				return false;
 			}
 
-			$namespace = $this->config->namespace();
-			if ( $namespace !== null && $namespace !== '' ) {
-				$search[] = $namespace;
+			try {
+				return apcu_add( 'mcoc:log:' . hash( 'sha256', $message ), 1, 300 );
+			} catch (\Throwable $e) {
+				return false;
 			}
-
-			$path = $this->config->path();
-			if ( $path !== null && $path !== '' ) {
-				$search[] = $path;
-			}
-
-			$host = $this->config->host();
-			if ( $host !== null && $host !== '' && ! in_array( strtolower( $host ), array( '127.0.0.1', 'localhost', '::1' ), true ) ) {
-				$search[] = $host;
-			}
-
-			$tls = $this->config->tls();
-			if ( is_array( $tls ) ) {
-				foreach ( $tls as $k => $v ) {
-					if ( is_string( $v ) && $v !== '' ) {
-						$search[] = $v;
-					}
-				}
-			}
-
-			if ( count( $search ) > 0 ) {
-				usort(
-					$search,
-					function ( $a, $b ) {
-						return strlen( $b ) - strlen( $a );
-					}
-				);
-				$msg = str_replace( $search, '[REDACTED]', $msg );
-			}
-
-			// Redact any DSN/URL credentials style (e.g. scheme://username:password@host)
-			$msg = (string) preg_replace( '/([a-zA-Z0-9+-.]+\:\/\/)?([^:@\s\/\?\#]+):([^@\s\/\?\#]+)@/', '$1[REDACTED]:[REDACTED]@', $msg );
-			// Redact password only credentials like scheme://:password@host or :password@host
-			$msg = (string) preg_replace( '/([a-zA-Z0-9+-.]+\:\/\/)?([^:@\s\/\?\#]*):([^@\s\/\?\#]+)@/', '$1[REDACTED]:[REDACTED]@', $msg );
-
-			return $msg;
 		}
 
 		/**
@@ -1639,10 +1603,15 @@ namespace Mincemeat\ObjectCache {
 		 * identifiers; never the source namespace, username, password, DSN, or
 		 * TLS key material paths.
 		 *
-		 * @param bool $is_public If true, obfuscates host, port, database, and unix paths.
+		 * The public flag is retained for API compatibility. Connection identity is
+		 * never exposed in either mode; non-public diagnostics may include broader
+		 * server metadata through Api::diagnostics(), but not endpoint details.
+		 *
+		 * @param bool $is_public Whether the caller requested the public view.
 		 * @return array<string,mixed>
 		 */
 		public function redacted_diagnostics( bool $is_public = false ): array {
+			unset( $is_public );
 			$tls_summary = array();
 			if ( $this->scheme === self::SCHEME_TLS ) {
 				$tls_summary = array(
@@ -1651,27 +1620,12 @@ namespace Mincemeat\ObjectCache {
 				);
 			}
 
-			$host = $this->host;
-			$port = $this->port;
-			$database = $this->database;
-			$path = $this->path;
-
-			if ( $is_public ) {
-				if ( $this->scheme === self::SCHEME_UNIX ) {
-					$path = $path !== null ? '/****/' . basename( $path ) : null;
-				} else {
-					$host = $this->mask_host( $host );
-					$port = '***';
-				}
-				$database = '***';
-			}
-
 			return array(
 				'scheme'            => $this->scheme,
-				'host'              => $this->scheme === self::SCHEME_UNIX ? '' : $host,
-				'port'              => $this->scheme === self::SCHEME_UNIX ? null : $port,
-				'path'              => $path,
-				'database'          => $database,
+				'host'              => $this->scheme === self::SCHEME_UNIX ? '' : 'configured',
+				'port'              => $this->scheme === self::SCHEME_UNIX ? null : '***',
+				'path'              => $this->scheme === self::SCHEME_UNIX ? 'configured' : null,
+				'database'          => '***',
 				'namespace_digest'  => substr( $this->namespace_digest, 0, 16 ),
 				'connect_timeout'   => $this->connect_timeout,
 				'read_timeout'      => $this->read_timeout,
@@ -1685,34 +1639,6 @@ namespace Mincemeat\ObjectCache {
 				'debug'             => $this->debug,
 				'tls'               => $tls_summary,
 			);
-		}
-
-		/**
-		 * Masks remote IP addresses/hostnames for public diagnostics.
-		 *
-		 * @param string $host The hostname or IP to mask.
-		 * @return string The masked host.
-		 */
-		private function mask_host( string $host ): string {
-			$lower = strtolower( $host );
-			if ( in_array( $lower, array( '127.0.0.1', 'localhost', '::1' ), true ) ) {
-				return $host;
-			}
-
-			if ( filter_var( $host, FILTER_VALIDATE_IP ) ) {
-				$parts = explode( '.', $host );
-				if ( count( $parts ) === 4 ) {
-					return $parts[0] . '.***.***.' . $parts[3];
-				}
-				return '***.***.***.***';
-			}
-
-			$len = strlen( $host );
-			if ( $len <= 4 ) {
-				return '****';
-			}
-
-			return substr( $host, 0, 2 ) . '***' . substr( $host, -2 );
 		}
 
 		/**
@@ -1752,7 +1678,7 @@ namespace Mincemeat\ObjectCache {
 		private function reject_unknown_keys( array $input ): void {
 			foreach (array_keys( $input ) as $key) {
 				if ( ! array_key_exists( $key, self::KNOWN_KEYS )) {
-					throw new ConfigException( self::REASON_UNKNOWN_KEY, sprintf( 'Unknown config key "%s".', $this->redact_value( $key ) ) );
+					throw new ConfigException( self::REASON_UNKNOWN_KEY );
 				}
 			}
 		}
@@ -1944,19 +1870,12 @@ namespace Mincemeat\ObjectCache {
 			if ( ! is_array( $value )) {
 				throw new ConfigException( self::REASON_TLS, 'TLS context must be an array.' );
 			}
-		}
 
-		/**
-		 * Best-effort redaction of a value used in error messages.
-		 *
-		 * @param mixed $value
-		 */
-		private function redact_value( $value ): string {
-			if ( ! is_string( $value )) {
-				return '(non-string)';
+			foreach ($value as $key => $option) {
+				if ( ! is_string( $key ) || is_array( $option ) || is_object( $option ) || is_resource( $option )) {
+					throw new ConfigException( self::REASON_TLS, 'TLS context values must be scalar or null.' );
+				}
 			}
-
-			return $value;
 		}
 	}
 

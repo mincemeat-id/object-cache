@@ -23,6 +23,9 @@
   unexpected PHP diagnostics, and database errors; updated the exact
   WooCommerce, Yoast SEO, and Easy Digital Downloads fixtures and report them
   in bounded machine-readable output.
+- Hardened configuration and failure diagnostics around stable reason codes,
+  flat scalar TLS options, endpoint classification, partial-client cleanup,
+  adversarial secret/key/value inputs, and bounded opt-in error logging.
 
 ## [0.1.0-rc1] - 2026-07-13
 

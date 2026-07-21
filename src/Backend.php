@@ -26,11 +26,12 @@ namespace Mincemeat\ObjectCache;
 final class Backend {
 
 	/** Reason codes for the circuit breaker. */
-	public const REASON_NO_BACKEND        = 'no-backend';
-	public const REASON_MISSING_EXTENSION = 'missing-extension';
-	public const REASON_CONFIG_INVALID    = 'config-invalid';
-	public const REASON_CONNECT_FAILED    = 'connect-failed';
-	public const REASON_AUTH_FAILED       = 'auth-failed';
+	public const REASON_NO_BACKEND             = 'no-backend';
+	public const REASON_MISSING_EXTENSION      = 'missing-extension';
+	public const REASON_UNSUPPORTED_EXTENSION = 'unsupported-extension';
+	public const REASON_CONFIG_INVALID         = 'config-invalid';
+	public const REASON_CONNECT_FAILED         = 'connect-failed';
+	public const REASON_AUTH_FAILED            = 'auth-failed';
 	public const REASON_SELECT_DB_FAILED  = 'select-db-failed';
 	public const REASON_COMMAND_FAILED    = 'command-failed';
 
@@ -138,6 +139,12 @@ final class Backend {
 		try {
 			$this->adapter->connect( $config );
 		} catch (BackendException $e) {
+			try {
+				$this->adapter->close();
+			} catch (\Throwable $close_error) {
+				// Initialization reason remains the actionable failure category.
+				unset( $close_error );
+			}
 			$this->state   = ObjectCache::STATE_RUNTIME_ONLY;
 			$this->reason  = $e->reason();
 			$this->adapter = null;
@@ -932,99 +939,56 @@ final class Backend {
 	}
 
 	/**
-	 * Logs a sanitized, redacted error message to the error log exactly once per request.
+	 * Records a stable error category and emits a bounded debug log.
+	 *
+	 * Web logs require both debug mode and a shared APCu throttle. Without a
+	 * process-shared limiter, web logging is suppressed so a backend outage can
+	 * never emit once per request indefinitely. CLI processes may emit once.
 	 *
 	 * @internal
 	 * @param string          $message   The log message.
 	 * @param \Throwable|null $exception Optional associated exception.
 	 */
 	public function log_error( string $message, ?\Throwable $exception = null ): void {
+		unset( $exception );
 		if ( $this->logged ) {
 			return;
 		}
 		$this->logged = true;
 
-		$raw_msg                  = $exception !== null ? $exception->getMessage() : $message;
-		$this->last_error_message = $this->redact_secrets( $raw_msg );
+		$this->last_error_message = $message;
 
-		$log_msg = 'Mincemeat Object Cache: ' . $message;
-		if ( $this->config !== null && $this->config->debug() ) {
-			if ( $exception !== null ) {
-				$log_msg .= sprintf(
-					' (Exception: %s, Message: %s, Code: %d)',
-					get_class( $exception ),
-					$this->redact_secrets( $exception->getMessage() ),
-					$exception->getCode()
-				);
-			}
+		if ( ! $this->should_emit_log( $message )) {
+			return;
 		}
 
+		$log_msg = 'Mincemeat Object Cache: ' . $message;
 		error_log( $log_msg );
 	}
 
 	/**
-	 * Redacts credentials and other sensitive data from a string.
+	 * Determines whether this process/request may emit an error log entry.
 	 *
-	 * @param string $msg Input string.
-	 * @return string Redacted string.
+	 * @param string $message Stable error category.
 	 */
-	private function redact_secrets( string $msg ): string {
-		if ( $this->config === null ) {
-			return $msg;
+	private function should_emit_log( string $message ): bool {
+		if ( $this->config === null || ! $this->config->debug()) {
+			return false;
 		}
 
-		$search = array();
-
-		$password = $this->config->password();
-		if ( $password !== null && $password !== '' ) {
-			$search[] = $password;
+		if ( PHP_SAPI === 'cli' ) {
+			return true;
 		}
 
-		$username = $this->config->username();
-		if ( $username !== null && $username !== '' ) {
-			$search[] = $username;
+		if ( ! function_exists( 'apcu_add' ) || ! function_exists( 'apcu_enabled' ) || ! apcu_enabled()) {
+			return false;
 		}
 
-		$namespace = $this->config->namespace();
-		if ( $namespace !== null && $namespace !== '' ) {
-			$search[] = $namespace;
+		try {
+			return apcu_add( 'mcoc:log:' . hash( 'sha256', $message ), 1, 300 );
+		} catch (\Throwable $e) {
+			return false;
 		}
-
-		$path = $this->config->path();
-		if ( $path !== null && $path !== '' ) {
-			$search[] = $path;
-		}
-
-		$host = $this->config->host();
-		if ( $host !== null && $host !== '' && ! in_array( strtolower( $host ), array( '127.0.0.1', 'localhost', '::1' ), true ) ) {
-			$search[] = $host;
-		}
-
-		$tls = $this->config->tls();
-		if ( is_array( $tls ) ) {
-			foreach ( $tls as $k => $v ) {
-				if ( is_string( $v ) && $v !== '' ) {
-					$search[] = $v;
-				}
-			}
-		}
-
-		if ( count( $search ) > 0 ) {
-			usort(
-				$search,
-				function ( $a, $b ) {
-					return strlen( $b ) - strlen( $a );
-				}
-			);
-			$msg = str_replace( $search, '[REDACTED]', $msg );
-		}
-
-		// Redact any DSN/URL credentials style (e.g. scheme://username:password@host)
-		$msg = (string) preg_replace( '/([a-zA-Z0-9+-.]+\:\/\/)?([^:@\s\/\?\#]+):([^@\s\/\?\#]+)@/', '$1[REDACTED]:[REDACTED]@', $msg );
-		// Redact password only credentials like scheme://:password@host or :password@host
-		$msg = (string) preg_replace( '/([a-zA-Z0-9+-.]+\:\/\/)?([^:@\s\/\?\#]*):([^@\s\/\?\#]+)@/', '$1[REDACTED]:[REDACTED]@', $msg );
-
-		return $msg;
 	}
 
 	/**

@@ -314,7 +314,7 @@ class SiteHealthTest extends TestCase
 		$this->assertSame( '6.3.0', $fields['phpredis_minimum']['value'] );
 		$this->assertSame( '***', $fields['database']['value'] );
 		$this->assertStringContainsString( 'Redis 8.0.0', $fields['server_identity']['value'] );
-		$this->assertStringContainsString( 'tcp://127.0.0.1:***', $fields['endpoint']['value'] );
+		$this->assertSame( 'tcp://configured:***', $fields['endpoint']['value'] );
 		$this->assertSame( 'absent', $fields['dropin_status']['value'] );
 	}
 }
