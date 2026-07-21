@@ -2,7 +2,7 @@
 Contributors: mincemeat
 Tags: cache, object cache, redis, valkey, performance
 Requires at least: 6.9
-Tested up to: 6.9
+Tested up to: 7.0
 Requires PHP: 7.4
 Stable tag: 0.1.0-rc1
 License: GPL-3.0-or-later

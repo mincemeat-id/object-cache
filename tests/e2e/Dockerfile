@@ -1,6 +1,18 @@
-FROM wordpress:6.9.4-php8.4-apache
+FROM wordpress:php8.4-apache
+
+ARG WORDPRESS_VERSION=6.9.5
 
 RUN set -eux; \
+	case "$WORDPRESS_VERSION" in \
+		trunk) wordpress_url='https://wordpress.org/nightly-builds/wordpress-latest.tar.gz' ;; \
+		*) wordpress_url="https://wordpress.org/wordpress-$WORDPRESS_VERSION.tar.gz" ;; \
+	esac; \
+	curl -fL --retry 3 --retry-all-errors -o /tmp/wordpress.tar.gz "$wordpress_url"; \
+	cp /usr/src/wordpress/wp-config-docker.php /tmp/wp-config-docker.php; \
+	rm -rf /usr/src/wordpress; \
+	tar -xzf /tmp/wordpress.tar.gz -C /usr/src; \
+	mv /tmp/wp-config-docker.php /usr/src/wordpress/wp-config-docker.php; \
+	rm /tmp/wordpress.tar.gz; \
 	apt-get update; \
 	apt-get install -y --no-install-recommends $PHPIZE_DEPS; \
 	pecl install redis-6.3.0; \

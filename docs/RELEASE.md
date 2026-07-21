@@ -45,6 +45,10 @@ git diff --exit-code stubs/object-cache.php stubs/object-cache.php.sha256
 php tools/build-package.php
 ```
 
+The release matrix must include the maintained minimum WordPress patch and the
+current stable WordPress patch in single-site and multisite modes. A scheduled
+trunk job is an allowed-failure early warning and does not replace those gates.
+
 Full release confidence comes from CI across supported PHP versions, Redis 8, Valkey 9, single site, multisite, TCP, TLS, ACL, Unix socket, backend outages, browser flows, and WP-CLI lifecycle checks.
 
 ## Package Artifacts

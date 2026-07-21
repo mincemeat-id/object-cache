@@ -109,14 +109,22 @@ jobs:
         run: vendor/bin/phpcs --standard=PHPCompatibility -p src stubs tools mincemeat-object-cache.php --runtime-set testVersion 7.4
 
   e2e:
-    name: WordPress Browser and WP-CLI E2E
+    name: WordPress ${{ matrix.wordpress }} Browser and WP-CLI E2E
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        wordpress:
+          - '6.9.5'
+          - '7.0.2'
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
       - name: Run isolated E2E suite
+        env:
+          MINCEMEAT_E2E_WORDPRESS_VERSION: ${{ matrix.wordpress }}
         run: composer test:e2e
 
       - name: Upload browser failure artifacts
@@ -128,7 +136,7 @@ jobs:
           if-no-files-found: ignore
 
   integration:
-    name: Integration (PHP ${{ matrix.php }}, ${{ matrix.backend }}, multisite=${{ matrix.multisite }})
+    name: Integration (WP ${{ matrix.wordpress }}, PHP ${{ matrix.php }}, ${{ matrix.backend }}, multisite=${{ matrix.multisite }})
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -147,6 +155,17 @@ jobs:
         multisite:
           - false
           - true
+        wordpress:
+          - '6.9.5'
+        include:
+          - php: '8.4'
+            backend: redis8
+            multisite: false
+            wordpress: '7.0.2'
+          - php: '8.4'
+            backend: redis8
+            multisite: true
+            wordpress: '7.0.2'
     services:
       redis:
         image: redis:8-alpine
@@ -217,6 +236,8 @@ jobs:
         run: php tools/build-package.php
 
       - name: Install WordPress Test Infrastructure
+        env:
+          WP_VERSION: ${{ matrix.wordpress }}
         run: bash tools/install-wp-tests.sh
 
       - name: Verify WordPress test provenance

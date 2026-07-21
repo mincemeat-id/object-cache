@@ -1,10 +1,10 @@
 <?php
 /**
- * Contract tests: adapt the authoritative WordPress 6.9 core cache tests
+ * Contract tests: adapt the authoritative supported WordPress core cache tests
  * against the Mincemeat runtime ObjectCache and the wp_cache_* facade.
  *
  * These mirror the behavior assertions in
- * tests/phpunit/tests/cache.php of the WordPress 6.9 tag. Runtime-only here;
+ * tests/phpunit/tests/cache.php of the maintained WordPress tags. Runtime-only here;
  * the same suite is run against Redis 8 and Valkey 9 in the Integration phase.
  *
  * @package Mincemeat\ObjectCache
@@ -19,7 +19,7 @@ use Mincemeat\ObjectCache\ObjectCache;
 use PHPUnit\Framework\TestCase;
 
 /**
- * Adapts the WordPress 6.9 core cache contract tests.
+ * Adapts the supported WordPress core cache contract tests.
  */
 /**
  * @group contract
@@ -66,7 +66,7 @@ class ObjectCacheContractTest extends TestCase
     }
 
     /**
-     * Loads WordPress 6.9's compatibility helpers for direct contract tests.
+     * Loads WordPress compatibility helpers for direct contract tests.
      */
     private function loadWordPressCacheCompatibilityHelpers(): void
     {

@@ -29,6 +29,8 @@ services:
     build:
       context: ../..
       dockerfile: tests/e2e/Dockerfile
+      args:
+        WORDPRESS_VERSION: ${MINCEMEAT_E2E_WORDPRESS_VERSION:-6.9.5}
     depends_on:
       database:
         condition: service_healthy

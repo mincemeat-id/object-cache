@@ -35,7 +35,7 @@ corrupt envelopes, and persistent-identity changes. Request error metrics count
 state transitions once and carry the same state/reason classification shown by
 Site Health.
 
-The WordPress 6.9 compatibility surface includes public `cache_hits` and
+The WordPress 6.9+ compatibility surface includes public `cache_hits` and
 `cache_misses` counters, magic read access to `global_groups` and `blog_prefix`,
 core-shaped `isset()` behavior, and `stats()` output. The magic properties are
 read-only views over `KeySpace`, which remains the source of truth for group and
@@ -153,7 +153,13 @@ Run the isolated real-WordPress browser and WP-CLI suite (Docker Compose require
 composer test:e2e
 ```
 
-The E2E orchestrator owns a dedicated Compose project and disposable volumes. It builds WordPress 6.9 with PhpRedis 6.3, uses local-only MariaDB/Redis credentials, executes Playwright in its official container, and cleans up automatically. Set `MINCEMEAT_E2E_KEEP_ENV=1` only when retaining a failed environment for debugging.
+The E2E orchestrator owns a dedicated Compose project and disposable volumes.
+Release CI runs the maintained minimum WordPress 6.9 patch and current
+WordPress 7.0 patch with PhpRedis 6.3, while scheduled CI exercises WordPress
+trunk as an allowed-failure early warning. It uses local-only MariaDB/Redis
+credentials, executes Playwright in its official container, and cleans up
+automatically. Set `MINCEMEAT_E2E_KEEP_ENV=1` only when retaining a failed
+environment for debugging.
 
 Drop-in parity:
 
