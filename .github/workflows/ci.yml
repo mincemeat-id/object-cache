@@ -135,6 +135,28 @@ jobs:
           path: tests/e2e/test-results/
           if-no-files-found: ignore
 
+  lifecycle-e2e:
+    name: Packaged RC1 Upgrade and Rollback E2E
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout with release history
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup package builder
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.4'
+          extensions: zip
+          coverage: none
+
+      - name: Run packaged lifecycle E2E suite
+        env:
+          MINCEMEAT_E2E_WORDPRESS_VERSION: '7.0.2'
+        run: composer test:e2e:lifecycle
+
   integration:
     name: Integration (WP ${{ matrix.wordpress }}, PHP ${{ matrix.php }}, ${{ matrix.backend }}, multisite=${{ matrix.multisite }})
     runs-on: ubuntu-latest

@@ -156,6 +156,7 @@ Run the isolated real-WordPress browser and WP-CLI suite (Docker Compose require
 
 ```bash
 composer test:e2e
+composer test:e2e:lifecycle
 ```
 
 The E2E orchestrator owns a dedicated Compose project and disposable volumes.
@@ -165,6 +166,12 @@ trunk as an allowed-failure early warning. It uses local-only MariaDB/Redis
 credentials, executes Playwright in its official container, and cleans up
 automatically. Set `MINCEMEAT_E2E_KEEP_ENV=1` only when retaining a failed
 environment for debugging.
+
+The lifecycle suite builds packages from the immutable `0.1.0-rc1` tag and the
+current checkout, then exercises stale detection, atomic upgrade, failed-update
+preservation and recovery, foreign-file refusal, deliberate rollback, and
+companion-plugin deactivation. A full Git history containing the RC1 tag is
+required.
 
 Drop-in parity:
 

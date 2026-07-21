@@ -48,6 +48,7 @@
         "test:integration": "phpunit --group integration",
         "test:smoke": "php tools/run-smoke-tests.php",
         "test:e2e": "bash tools/run-e2e-tests.sh",
+        "test:e2e:lifecycle": "bash tools/run-lifecycle-upgrade-e2e.sh",
         "test:coverage": "phpunit --coverage-clover build/logs/clover.xml && php tools/verify-coverage.php",
         "lint": "phpcs",
         "compat": "phpcs --standard=PHPCompatibility -p src stubs tools mincemeat-object-cache.php --runtime-set testVersion 7.4",

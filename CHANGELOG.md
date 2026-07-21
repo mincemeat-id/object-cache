@@ -13,6 +13,9 @@
 - Unified numeric coercion and saturation across request memory, Redis, and
   Valkey; boolean `true` now follows WordPress normalization instead of being
   counted as one before incrementing.
+- Added a packaged RC1-to-current lifecycle gate covering atomic upgrade,
+  failed-update recovery, deliberate rollback, deactivation, and foreign
+  drop-in preservation.
 
 ## [0.1.0-rc1] - 2026-07-13
 
