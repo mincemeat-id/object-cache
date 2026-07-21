@@ -118,6 +118,30 @@ class ConfigTest extends TestCase
         }
     }
 
+    /** @dataProvider secret_shaped_unknown_keys */
+    public function test_unknown_key_error_never_echoes_supplied_key($key)
+    {
+        try {
+            new Config(array('namespace' => 'ns', $key => 1));
+            $this->fail('Expected ConfigException');
+        } catch (ConfigException $e) {
+            $this->assertSame(Config::REASON_UNKNOWN_KEY, $e->reason());
+            $this->assertSame(Config::REASON_UNKNOWN_KEY, $e->getMessage());
+            $this->assertStringNotContainsString((string) $key, $e->getMessage());
+        }
+    }
+
+    public function secret_shaped_unknown_keys(): array
+    {
+        return array(
+            'credential' => array('password_super-secret-value'),
+            'dsn' => array('redis://secret-user:secret-pass@private.example:6380'),
+            'socket path' => array('/private/run/secret-cache.sock'),
+            'raw cache key' => array('wp:options:secret-key-material'),
+            'integer key' => array(42),
+        );
+    }
+
     /**
      * @dataProvider invalid_namespace
      */
@@ -354,6 +378,44 @@ class ConfigTest extends TestCase
         new Config(array('namespace' => 'ns', 'tls' => 'invalid'));
     }
 
+    /** @dataProvider malformed_tls_contexts */
+    public function test_tls_rejects_nested_or_non_string_key_values(array $tls)
+    {
+        try {
+            new Config(array('namespace' => 'ns', 'tls' => $tls));
+            $this->fail('Expected ConfigException');
+        } catch (ConfigException $e) {
+            $this->assertSame(Config::REASON_TLS, $e->reason());
+            $this->assertSame('TLS context values must be scalar or null.', $e->getMessage());
+            $this->assertStringNotContainsString('secret', $e->getMessage());
+        }
+    }
+
+    public function malformed_tls_contexts(): array
+    {
+        return array(
+            'nested array' => array(array('cafile' => array('/secret/ca.pem'))),
+            'object' => array(array('cafile' => (object) array('path' => '/secret/ca.pem'))),
+            'numeric option key' => array(array('/secret/ca.pem')),
+        );
+    }
+
+    public function test_tls_rejects_resource_value_without_echoing_it()
+    {
+        $resource = fopen('php://memory', 'rb');
+        $this->assertIsResource($resource);
+
+        try {
+            new Config(array('namespace' => 'ns', 'tls' => array('cafile' => $resource)));
+            $this->fail('Expected ConfigException');
+        } catch (ConfigException $e) {
+            $this->assertSame(Config::REASON_TLS, $e->reason());
+            $this->assertSame('TLS context values must be scalar or null.', $e->getMessage());
+        } finally {
+            fclose($resource);
+        }
+    }
+
     public function test_debug_must_be_bool()
     {
         $this->expectException(ConfigException::class);
@@ -419,10 +481,10 @@ class ConfigTest extends TestCase
         $this->assertStringNotContainsString('cert.pem', $dump);
         $this->assertStringNotContainsString('key.pem', $dump);
 
-        // Debug mode exposes actual host, port, database
-        $this->assertSame('cache.internal', $d['host']);
-        $this->assertSame(6379, $d['port']);
-        $this->assertSame(0, $d['database']);
+        // Endpoint identity remains classified in every diagnostics mode.
+        $this->assertSame('configured', $d['host']);
+        $this->assertSame('***', $d['port']);
+        $this->assertSame('***', $d['database']);
         $this->assertSame(1, $d['max_retries']);
         $this->assertSame('decorrelated_jitter', $d['backoff_algorithm']);
         $this->assertSame(10, $d['backoff_base_ms']);
@@ -436,24 +498,24 @@ class ConfigTest extends TestCase
 
         // 2. Test Public mode diagnostics (when $public is true)
         $d_public = $c->redacted_diagnostics(true);
-        $this->assertSame('ca***al', $d_public['host']);
+        $this->assertSame('configured', $d_public['host']);
         $this->assertSame('***', $d_public['port']);
         $this->assertSame('***', $d_public['database']);
         
-        // Loopback / local hosts are not masked
+        // Supplied loopback and remote endpoints receive the same classification.
         $c_local = new Config(array('namespace' => 'ns', 'host' => '127.0.0.1'));
         $d_local = $c_local->redacted_diagnostics(true);
-        $this->assertSame('127.0.0.1', $d_local['host']);
+        $this->assertSame('configured', $d_local['host']);
         
         // Remote IPs are masked
         $c_remote_ip = new Config(array('namespace' => 'ns', 'host' => '10.0.0.5'));
         $d_remote_ip = $c_remote_ip->redacted_diagnostics(true);
-        $this->assertSame('10.***.***.5', $d_remote_ip['host']);
+        $this->assertSame('configured', $d_remote_ip['host']);
 
-        // Unix path is masked
+        // Unix paths are classified without retaining their basename.
         $c_unix = new Config(array('namespace' => 'ns', 'scheme' => 'unix', 'path' => '/var/run/redis.sock'));
         $d_unix = $c_unix->redacted_diagnostics(true);
-        $this->assertSame('/****/redis.sock', $d_unix['path']);
+        $this->assertSame('configured', $d_unix['path']);
     }
 
     public function test_known_keys_returns_expected_set()

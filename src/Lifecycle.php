@@ -14,11 +14,14 @@ namespace Mincemeat\ObjectCache;
  */
 final class Lifecycle {
 
-	/** Known historical drop-in hashes (SHA-256) for backward compatibility. */
-	private const HISTORICAL_HASHES = array(
-		'8494a34b2f831224f875535bd00fe13ec494f40ddf07775b02d196cfae93ac10', // mock old drop-in used in unit tests
-		'2710d9cf9e04ff79deb5c7045b9e75593b47fe66bc51c9c5c82cc9ae938e5149', // mock old drop-in used in unit tests
-		'62923e13aef566c4810ec648a319a2d31f447b7160390565aad877f4e0c583a5', // mock old drop-in used in unit tests
+	/**
+	 * Drop-in hashes from immutable public releases.
+	 *
+	 * Entries must be copied from the tagged release's tracked
+	 * stubs/object-cache.php.sha256 file before a new drop-in is generated.
+	 */
+	private const RELEASE_DROPIN_HASHES = array(
+		'0.1.0-rc1' => '31b7cdb96010219ecb336b77028088cf95f6422ff84f5a6edc4efb6eb00b3207',
 	);
 
 	/** Drop-in state constants. */
@@ -49,28 +52,21 @@ final class Lifecycle {
 			return self::STATE_INVALID_READABLE;
 		}
 
-		$source = dirname( __DIR__ ) . '/stubs/object-cache.php';
-		if ( ! file_exists( $source ) || ! is_readable( $source ) ) {
-			// If source stub is missing (should not happen), treat target as stale to encourage rebuild/re-install.
-			return self::STATE_OWNED_STALE;
-		}
-
 		$target_hash = @hash_file( 'sha256', $target );
 		if ( $target_hash === false ) {
 			return self::STATE_INVALID_READABLE;
 		}
 
-		$source_hash = @hash_file( 'sha256', $source );
-		if ( $source_hash === false ) {
-			return self::STATE_OWNED_STALE;
+		$source = dirname( __DIR__ ) . '/stubs/object-cache.php';
+		if ( file_exists( $source ) && is_readable( $source ) ) {
+			$source_hash = @hash_file( 'sha256', $source );
+			if ( $source_hash !== false && $target_hash === $source_hash ) {
+				return self::STATE_OWNED_CURRENT;
+			}
 		}
 
-		if ( $target_hash === $source_hash ) {
-			return self::STATE_OWNED_CURRENT;
-		}
-
-		// Check against allowlist of known historical hashes.
-		if ( in_array( $target_hash, self::HISTORICAL_HASHES, true ) ) {
+		// Only exact bytes from an immutable release are considered stale-owned.
+		if ( in_array( $target_hash, self::RELEASE_DROPIN_HASHES, true ) ) {
 			return self::STATE_OWNED_STALE;
 		}
 

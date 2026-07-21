@@ -26,11 +26,12 @@ namespace Mincemeat\ObjectCache;
 final class Backend {
 
 	/** Reason codes for the circuit breaker. */
-	public const REASON_NO_BACKEND        = 'no-backend';
-	public const REASON_MISSING_EXTENSION = 'missing-extension';
-	public const REASON_CONFIG_INVALID    = 'config-invalid';
-	public const REASON_CONNECT_FAILED    = 'connect-failed';
-	public const REASON_AUTH_FAILED       = 'auth-failed';
+	public const REASON_NO_BACKEND             = 'no-backend';
+	public const REASON_MISSING_EXTENSION      = 'missing-extension';
+	public const REASON_UNSUPPORTED_EXTENSION = 'unsupported-extension';
+	public const REASON_CONFIG_INVALID         = 'config-invalid';
+	public const REASON_CONNECT_FAILED         = 'connect-failed';
+	public const REASON_AUTH_FAILED            = 'auth-failed';
 	public const REASON_SELECT_DB_FAILED  = 'select-db-failed';
 	public const REASON_COMMAND_FAILED    = 'command-failed';
 
@@ -85,6 +86,13 @@ final class Backend {
 	private $server_info;
 
 	/**
+	 * Whether server identity has been requested this request.
+	 *
+	 * @var bool
+	 */
+	private $server_info_loaded = false;
+
+	/**
 	 * Whether an error has been logged already this request.
 	 *
 	 * @var bool
@@ -131,6 +139,12 @@ final class Backend {
 		try {
 			$this->adapter->connect( $config );
 		} catch (BackendException $e) {
+			try {
+				$this->adapter->close();
+			} catch (\Throwable $close_error) {
+				// Initialization reason remains the actionable failure category.
+				unset( $close_error );
+			}
 			$this->state   = ObjectCache::STATE_RUNTIME_ONLY;
 			$this->reason  = $e->reason();
 			$this->adapter = null;
@@ -142,9 +156,6 @@ final class Backend {
 
 		$this->state  = ObjectCache::STATE_PERSISTENT;
 		$this->reason = '';
-
-		// Capture server identity for diagnostics (no behavior forks).
-		$this->server_info = $this->adapter->server_info();
 	}
 
 	/**
@@ -172,6 +183,13 @@ final class Backend {
 	 */
 	public function is_persistent(): bool {
 		return $this->state === ObjectCache::STATE_PERSISTENT;
+	}
+
+	/**
+	 * Whether PhpRedis process-persistent connection reuse is effective.
+	 */
+	public function persistent_reuse(): bool {
+		return $this->adapter !== null && $this->adapter->persistent_reuse();
 	}
 
 	/**
@@ -214,6 +232,15 @@ final class Backend {
 	 * @return array<string,string>|null
 	 */
 	public function server_info(): ?array {
+		if ( ! $this->server_info_loaded && $this->is_persistent()) {
+			$this->server_info_loaded = true;
+			try {
+				$this->server_info = $this->adapter()->server_info();
+			} catch (\Throwable $e) {
+				$this->server_info = null;
+			}
+		}
+
 		return $this->server_info;
 	}
 
@@ -291,6 +318,64 @@ final class Backend {
 		$this->tokens[ $cache_key ] = $token;
 
 		return $token;
+	}
+
+	/**
+	 * Resolves namespace and group generation tokens together.
+	 *
+	 * Existing controls use one MGET. Missing controls are created in one
+	 * pipeline, with a coalesced readback if another request wins a SET NX
+	 * race. Tokens remain memoized for the request so flushes cannot change the
+	 * key generation midway through an operation sequence.
+	 *
+	 * @param string $group Normalized group name.
+	 * @return array{0:string,1:string} Namespace and group tokens.
+	 */
+	public function generation_tokens( string $group ): array {
+		if ( ! $this->is_persistent()) {
+			return array( '', '' );
+		}
+
+		$group_cache_key = 'grp:' . $group;
+		$controls       = array();
+		if ( ! $this->namespace_token_loaded) {
+			$controls['ns'] = $this->key_space->namespace_control_key();
+		}
+		if ( ! isset( $this->tokens[ $group_cache_key ] )) {
+			$controls[ $group_cache_key ] = $this->key_space->group_control_key( $group );
+		}
+
+		if (count( $controls ) > 0) {
+			$labels = array_keys( $controls );
+			try {
+				$values = $this->adapter()->mget( array_values( $controls ) );
+			} catch (\Throwable $e) {
+				$this->degrade( self::REASON_COMMAND_FAILED, $e );
+				return array( KeySpace::generate_token(), KeySpace::generate_token() );
+			}
+
+			$missing = array();
+			foreach ($labels as $index => $label) {
+				$value = $values[ $index ] ?? false;
+				$token = is_string( $value ) ? trim( $value ) : '';
+				if ($token !== '') {
+					$this->tokens[ $label ] = $token;
+				} else {
+					$missing[ $label ] = $controls[ $label ];
+				}
+			}
+
+			if (count( $missing ) > 0) {
+				$this->initialize_missing_tokens( $missing );
+			}
+		}
+
+		$this->namespace_token_loaded = true;
+
+		return array(
+			$this->tokens['ns'] ?? KeySpace::generate_token(),
+			$this->tokens[ $group_cache_key ] ?? KeySpace::generate_token(),
+		);
 	}
 
 	/**
@@ -381,7 +466,8 @@ final class Backend {
 		}
 
 		if ($ok) {
-			$this->tokens['ns'] = $token;
+			$this->tokens['ns']           = $token;
+			$this->namespace_token_loaded = true;
 		}
 
 		return $ok;
@@ -786,6 +872,57 @@ final class Backend {
 	}
 
 	/**
+	 * Creates control tokens that were absent in a coalesced read.
+	 *
+	 * @param array<string,string> $missing Token cache label => control key.
+	 */
+	private function initialize_missing_tokens( array $missing ): void {
+		$candidates = array();
+		$commands   = array();
+		foreach ($missing as $label => $key) {
+			$candidates[ $label ] = KeySpace::generate_token();
+			$commands[]            = array( 'set', array( $key, $candidates[ $label ], array( 'NX' ) ) );
+		}
+
+		try {
+			$results = $this->adapter()->pipeline( $commands );
+		} catch (\Throwable $e) {
+			$this->degrade( self::REASON_COMMAND_FAILED, $e );
+			return;
+		}
+
+		$losers = array();
+		$i      = 0;
+		foreach ($missing as $label => $key) {
+			if (( $results[ $i ] ?? false ) === true) {
+				$this->tokens[ $label ] = $candidates[ $label ];
+			} else {
+				$losers[ $label ] = $key;
+			}
+			++$i;
+		}
+
+		if (count( $losers ) === 0) {
+			return;
+		}
+
+		try {
+			$values = $this->adapter()->mget( array_values( $losers ) );
+		} catch (\Throwable $e) {
+			$this->degrade( self::REASON_COMMAND_FAILED, $e );
+			return;
+		}
+
+		$i = 0;
+		foreach ($losers as $label => $key) {
+			$value = $values[ $i ] ?? false;
+			$token = is_string( $value ) ? trim( $value ) : '';
+			$this->tokens[ $label ] = $token !== '' ? $token : $this->init_token( $key );
+			++$i;
+		}
+	}
+
+	/**
 	 * Opens the circuit breaker: transitions to degraded state, fires the
 	 * low-volume action once, and prevents all further backend commands.
 	 *
@@ -809,99 +946,56 @@ final class Backend {
 	}
 
 	/**
-	 * Logs a sanitized, redacted error message to the error log exactly once per request.
+	 * Records a stable error category and emits a bounded debug log.
+	 *
+	 * Web logs require both debug mode and a shared APCu throttle. Without a
+	 * process-shared limiter, web logging is suppressed so a backend outage can
+	 * never emit once per request indefinitely. CLI processes may emit once.
 	 *
 	 * @internal
 	 * @param string          $message   The log message.
 	 * @param \Throwable|null $exception Optional associated exception.
 	 */
 	public function log_error( string $message, ?\Throwable $exception = null ): void {
+		unset( $exception );
 		if ( $this->logged ) {
 			return;
 		}
 		$this->logged = true;
 
-		$raw_msg                  = $exception !== null ? $exception->getMessage() : $message;
-		$this->last_error_message = $this->redact_secrets( $raw_msg );
+		$this->last_error_message = $message;
 
-		$log_msg = 'Mincemeat Object Cache: ' . $message;
-		if ( $this->config !== null && $this->config->debug() ) {
-			if ( $exception !== null ) {
-				$log_msg .= sprintf(
-					' (Exception: %s, Message: %s, Code: %d)',
-					get_class( $exception ),
-					$this->redact_secrets( $exception->getMessage() ),
-					$exception->getCode()
-				);
-			}
+		if ( ! $this->should_emit_log( $message )) {
+			return;
 		}
 
+		$log_msg = 'Mincemeat Object Cache: ' . $message;
 		error_log( $log_msg );
 	}
 
 	/**
-	 * Redacts credentials and other sensitive data from a string.
+	 * Determines whether this process/request may emit an error log entry.
 	 *
-	 * @param string $msg Input string.
-	 * @return string Redacted string.
+	 * @param string $message Stable error category.
 	 */
-	private function redact_secrets( string $msg ): string {
-		if ( $this->config === null ) {
-			return $msg;
+	private function should_emit_log( string $message ): bool {
+		if ( $this->config === null || ! $this->config->debug()) {
+			return false;
 		}
 
-		$search = array();
-
-		$password = $this->config->password();
-		if ( $password !== null && $password !== '' ) {
-			$search[] = $password;
+		if ( PHP_SAPI === 'cli' ) {
+			return true;
 		}
 
-		$username = $this->config->username();
-		if ( $username !== null && $username !== '' ) {
-			$search[] = $username;
+		if ( ! function_exists( 'apcu_add' ) || ! function_exists( 'apcu_enabled' ) || ! apcu_enabled()) {
+			return false;
 		}
 
-		$namespace = $this->config->namespace();
-		if ( $namespace !== null && $namespace !== '' ) {
-			$search[] = $namespace;
+		try {
+			return apcu_add( 'mcoc:log:' . hash( 'sha256', $message ), 1, 300 );
+		} catch (\Throwable $e) {
+			return false;
 		}
-
-		$path = $this->config->path();
-		if ( $path !== null && $path !== '' ) {
-			$search[] = $path;
-		}
-
-		$host = $this->config->host();
-		if ( $host !== null && $host !== '' && ! in_array( strtolower( $host ), array( '127.0.0.1', 'localhost', '::1' ), true ) ) {
-			$search[] = $host;
-		}
-
-		$tls = $this->config->tls();
-		if ( is_array( $tls ) ) {
-			foreach ( $tls as $k => $v ) {
-				if ( is_string( $v ) && $v !== '' ) {
-					$search[] = $v;
-				}
-			}
-		}
-
-		if ( count( $search ) > 0 ) {
-			usort(
-				$search,
-				function ( $a, $b ) {
-					return strlen( $b ) - strlen( $a );
-				}
-			);
-			$msg = str_replace( $search, '[REDACTED]', $msg );
-		}
-
-		// Redact any DSN/URL credentials style (e.g. scheme://username:password@host)
-		$msg = (string) preg_replace( '/([a-zA-Z0-9+-.]+\:\/\/)?([^:@\s\/\?\#]+):([^@\s\/\?\#]+)@/', '$1[REDACTED]:[REDACTED]@', $msg );
-		// Redact password only credentials like scheme://:password@host or :password@host
-		$msg = (string) preg_replace( '/([a-zA-Z0-9+-.]+\:\/\/)?([^:@\s\/\?\#]*):([^@\s\/\?\#]+)@/', '$1[REDACTED]:[REDACTED]@', $msg );
-
-		return $msg;
 	}
 
 	/**

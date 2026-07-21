@@ -1,0 +1,18 @@
+--- a/tests/phpunit/tests/cache.php
++++ b/tests/phpunit/tests/cache.php
+@@ -212,13 +212,13 @@
+ 
+ 		$this->assertSame( $val, wp_cache_get( $key, 'group-test' ), 'group-test should contain my-val' );
+ 
+-		if ( wp_using_ext_object_cache() ) {
++		if ( wp_using_ext_object_cache() && ! wp_cache_supports( 'flush_group' ) ) {
+ 			$this->setExpectedIncorrectUsage( 'wp_cache_flush_group' );
+ 		}
+ 
+ 		$results = wp_cache_flush_group( 'group-test' );
+ 
+-		if ( wp_using_ext_object_cache() ) {
++		if ( wp_using_ext_object_cache() && ! wp_cache_supports( 'flush_group' ) ) {
+ 			$this->assertFalse( $results );
+ 		} else {
+ 			$this->assertTrue( $results );

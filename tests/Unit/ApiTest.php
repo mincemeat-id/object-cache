@@ -120,6 +120,10 @@ class ApiTest extends TestCase
         $this->assertSame(PHP_VERSION, $diag['php_version']);
         $this->assertArrayHasKey('phpredis_version', $diag);
         $this->assertSame('6.3.0', $diag['phpredis_minimum']);
+		$this->assertSame(Api::TOPOLOGY_UNVERIFIED, $diag['topology_status']);
+		$this->assertSame('unknown', $diag['topology_mode']);
+		$this->assertSame('unknown', $diag['topology_role']);
+		$this->assertSame('disabled', $diag['connection_reuse']);
         $this->assertArrayNotHasKey('scheme', $diag);
     }
 
@@ -131,6 +135,8 @@ class ApiTest extends TestCase
         $adapter->method('server_info')->willReturn(array(
             'product' => 'redis',
             'version' => '8.0',
+            'mode' => 'standalone',
+            'role' => 'master',
             'maxmemory_policy' => 'allkeys-lru'
         ));
 
@@ -150,21 +156,30 @@ class ApiTest extends TestCase
         $diag = Api::diagnostics(true);
         $this->assertSame('persistent', $diag['state']);
         $this->assertSame('tcp', $diag['scheme']);
-        $this->assertSame('127.0.0.1', $diag['host']); // Localhost/loopback IP not masked
+        $this->assertSame('configured', $diag['host']);
         $this->assertSame('***', $diag['port']);
         $this->assertSame('***', $diag['database']);
+		$this->assertSame(Api::TOPOLOGY_POLICY, $diag['topology_policy']);
+		$this->assertSame(Api::TOPOLOGY_COMPATIBLE, $diag['topology_status']);
+		$this->assertSame('standalone', $diag['topology_mode']);
+		$this->assertSame('primary', $diag['topology_role']);
+		$this->assertFalse($diag['persistent_requested']);
+		$this->assertFalse($diag['persistent_reuse']);
+		$this->assertSame('disabled', $diag['connection_reuse']);
         $this->assertNotSame('test-ns', $diag['namespace_digest']);
         // Sanitized to product and version only
         $this->assertSame(array('product' => 'redis', 'version' => '8.0'), $diag['server']);
 
-        // 2. Debug Mode
+        // 2. Debug Mode retains richer server metadata, never endpoint identity.
         $diag_debug = Api::diagnostics(false);
-        $this->assertSame('127.0.0.1', $diag_debug['host']);
-        $this->assertSame(6379, $diag_debug['port']);
-        $this->assertSame(0, $diag_debug['database']);
+        $this->assertSame('configured', $diag_debug['host']);
+        $this->assertSame('***', $diag_debug['port']);
+        $this->assertSame('***', $diag_debug['database']);
         $this->assertSame(array(
             'product' => 'redis',
             'version' => '8.0',
+            'mode' => 'standalone',
+            'role' => 'master',
             'maxmemory_policy' => 'allkeys-lru'
         ), $diag_debug['server']);
     }

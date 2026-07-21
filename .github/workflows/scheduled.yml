@@ -12,6 +12,28 @@ concurrency:
 
 
 jobs:
+  wordpress-trunk-e2e:
+    name: WordPress trunk E2E (allowed failure)
+    runs-on: ubuntu-latest
+    continue-on-error: true
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Run isolated E2E suite against WordPress trunk
+        env:
+          MINCEMEAT_E2E_WORDPRESS_VERSION: trunk
+        run: composer test:e2e
+
+      - name: Upload browser failure artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: wordpress-trunk-e2e-failure-artifacts
+          path: tests/e2e/test-results/
+          if-no-files-found: ignore
+
   integration:
     name: Integration (PHP ${{ matrix.php }}, ${{ matrix.backend }}, multisite=${{ matrix.multisite }})
     runs-on: ubuntu-latest
@@ -103,6 +125,9 @@ jobs:
 
       - name: Install WordPress Test Infrastructure
         run: bash tools/install-wp-tests.sh
+
+      - name: Verify WordPress test provenance
+        run: bash tools/verify-wp-test-provenance.sh
 
       - name: Setup connection scenario test services
         run: bash tools/setup-test-services.sh

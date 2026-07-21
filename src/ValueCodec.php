@@ -273,6 +273,10 @@ final class ValueCodec {
 	 * @return string
 	 */
 	private static function header( int $tag, int $length ): string {
+		if ( $tag < 0 || $tag > 255 ) {
+			throw new \LogicException( 'Value envelope tags must fit in one byte.' );
+		}
+
 		return self::MAGIC
 			. chr( self::VERSION )
 			. chr( $tag )

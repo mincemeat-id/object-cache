@@ -49,6 +49,13 @@ class PhpRedisAdapter {
 	 */
 	private $script_shas = array();
 
+	/**
+	 * Whether the active connection uses PhpRedis process-persistent reuse.
+	 *
+	 * @var bool
+	 */
+	private $persistent_reuse = false;
+
 	public function __construct() {
 	}
 
@@ -69,7 +76,8 @@ class PhpRedisAdapter {
 		}
 
 		$this->redis = $this->create_redis_instance();
-		$this->script_shas = array();
+		$this->script_shas      = array();
+		$this->persistent_reuse = false;
 
 		$connected     = false;
 		$persistent_id = $config->persistent() && $this->persistent_pool_honors_id()
@@ -132,6 +140,7 @@ class PhpRedisAdapter {
 		if ( ! $connected) {
 			throw new BackendException( 'connect-failed', 'Connection attempt failed.' );
 		}
+		$this->persistent_reuse = $persistent_id !== '';
 
 		$this->configure_options( $config );
 		if ($this->redis === null) {
@@ -170,10 +179,6 @@ class PhpRedisAdapter {
 
 		// Unlink is supported on all supported backends (Redis >= 4.0).
 		$this->unlink_supported = true;
-
-		// Preload the numeric script. Failure is non-fatal because EVAL remains
-		// a correct fallback for servers or ACLs that do not permit SCRIPT LOAD.
-		$this->load_script( LuaScripts::INCR_DECR );
 	}
 
 	/**
@@ -362,7 +367,12 @@ class PhpRedisAdapter {
 		$loaded_sha = $this->script_shas[ $source_sha ] ?? null;
 
 		if ($loaded_sha === null) {
-			return $this->redis->eval( $script, $arguments, count( $keys ) );
+			$result = $this->redis->eval( $script, $arguments, count( $keys ) );
+			if ($result !== false) {
+				// EVAL also populates the server-side script cache.
+				$this->script_shas[ $source_sha ] = $source_sha;
+			}
+			return $result;
 		}
 
 		$result = $this->redis->evalSha( $loaded_sha, $arguments, count( $keys ) );
@@ -379,7 +389,11 @@ class PhpRedisAdapter {
 
 		// EVAL executes and repopulates the server's script cache, allowing the
 		// next call on this connection to return to EVALSHA.
-		return $this->redis->eval( $script, $arguments, count( $keys ) );
+		$result = $this->redis->eval( $script, $arguments, count( $keys ) );
+		if ($result !== false) {
+			$this->script_shas[ $source_sha ] = $source_sha;
+		}
+		return $result;
 	}
 
 	/**
@@ -494,10 +508,21 @@ class PhpRedisAdapter {
 			$product = 'unknown';
 		}
 
+		$mode = isset( $info['redis_mode'] ) ? strtolower( trim( (string) $info['redis_mode'] ) ) : 'standalone';
+		if ( ! in_array( $mode, array( 'standalone', 'cluster', 'sentinel' ), true ) ) {
+			$mode = 'unknown';
+		}
+
+		$role = isset( $info['role'] ) ? strtolower( trim( (string) $info['role'] ) ) : 'unknown';
+		if ( ! in_array( $role, array( 'master', 'primary', 'slave', 'replica', 'sentinel' ), true ) ) {
+			$role = 'unknown';
+		}
+
 		$identity = array();
 		$identity['product']          = $product;
 		$identity['version']          = preg_match( '/^[0-9][0-9A-Za-z.+_-]{0,63}$/', $version ) === 1 ? $version : '';
-		$identity['mode']             = isset( $info['redis_mode'] ) ? (string) $info['redis_mode'] : 'standalone';
+		$identity['mode']             = $mode;
+		$identity['role']             = $role;
 		$identity['os']               = isset( $info['os'] ) ? (string) $info['os'] : '';
 		$identity['maxmemory_policy'] = isset( $info['maxmemory_policy'] ) ? (string) $info['maxmemory_policy'] : '';
 
@@ -525,8 +550,16 @@ class PhpRedisAdapter {
 			$this->redis->close();
 		}
 
-		$this->redis = null;
-		$this->script_shas = array();
+		$this->redis            = null;
+		$this->script_shas       = array();
+		$this->persistent_reuse = false;
+	}
+
+	/**
+	 * Whether the active connection is reused across PHP requests/process work.
+	 */
+	public function persistent_reuse(): bool {
+		return $this->persistent_reuse;
 	}
 
 	/**
@@ -701,26 +734,5 @@ class PhpRedisAdapter {
 		}
 
 		return (string) $actual === (string) $expected;
-	}
-
-	/**
-	 * Best-effort SCRIPT LOAD for this adapter connection.
-	 */
-	private function load_script( string $script ): void {
-		if ($this->redis === null) {
-			return;
-		}
-
-		$source_sha = sha1( $script );
-		try {
-			$loaded_sha = $this->redis->script( 'load', $script );
-			if (is_string( $loaded_sha ) && hash_equals( $source_sha, strtolower( $loaded_sha ) )) {
-				$this->script_shas[ $source_sha ] = $loaded_sha;
-			}
-			$this->redis->clearLastError();
-		} catch (\Throwable $e) {
-			// EVAL remains available as the correctness fallback.
-			return;
-		}
 	}
 }

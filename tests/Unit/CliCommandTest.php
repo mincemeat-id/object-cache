@@ -27,6 +27,7 @@ namespace Mincemeat\ObjectCache\Tests\Unit {
 			parent::setUp();
 			WP_CLI::reset();
 			unset( $GLOBALS['wp_object_cache'] );
+			$GLOBALS['__mincemeat_filters'] = array();
 
 			if (!defined('WP_CONTENT_DIR')) {
 				define('WP_CONTENT_DIR', sys_get_temp_dir() . '/wp-content-cli-' . uniqid());
@@ -39,6 +40,7 @@ namespace Mincemeat\ObjectCache\Tests\Unit {
 		protected function tearDown(): void
 		{
 			unset( $GLOBALS['wp_object_cache'] );
+			$GLOBALS['__mincemeat_filters'] = array();
 			$target = WP_CONTENT_DIR . '/object-cache.php';
 			if (file_exists($target)) {
 				@unlink($target);
@@ -55,6 +57,27 @@ namespace Mincemeat\ObjectCache\Tests\Unit {
 			$this->assertStringContainsString('Drop-in Status:', $output);
 			$this->assertStringContainsString('Cache Status:', $output);
 			$this->assertStringContainsString('Reason:', $output);
+			$this->assertStringContainsString('Topology:', $output);
+			$this->assertStringContainsString('Connection Reuse:', $output);
+		}
+
+		public function test_status_tolerates_older_dropin_diagnostics()
+		{
+			add_filter('mincemeat_object_cache_diagnostics', function (array $diagnostics): array {
+				unset(
+					$diagnostics['topology_status'],
+					$diagnostics['topology_mode'],
+					$diagnostics['topology_role'],
+					$diagnostics['connection_reuse']
+				);
+				return $diagnostics;
+			});
+
+			(new CliCommand())->status(array(), array());
+			$output = implode("\n", WP_CLI::$lines);
+
+			$this->assertStringContainsString('Topology:       unverified (unknown/unknown)', $output);
+			$this->assertStringContainsString('Connection Reuse: unknown', $output);
 		}
 
 		public function test_install_dropin_already_current()
@@ -136,16 +159,16 @@ namespace Mincemeat\ObjectCache\Tests\Unit {
 			$cmd->update_dropin(array(), array());
 		}
 
-		public function test_update_dropin_success()
+		public function test_update_dropin_marker_spoof_refused()
 		{
-			// Seed a stale drop-in.
+			// Header markers alone never establish ownership.
 			file_put_contents(WP_CONTENT_DIR . '/object-cache.php', "<?php\n/**\n * Owner: mincemeat-object-cache\n * Version: 0.1.0\n * Build Hash: oldhash\n */\n");
 
 			$cmd = new CliCommand();
-			$cmd->update_dropin(array(), array());
 
-			$this->assertCount(1, WP_CLI::$successes);
-			$this->assertStringContainsString('updated successfully', WP_CLI::$successes[0]);
+			$this->expectException(\RuntimeException::class);
+			$this->expectExceptionMessage('WP_CLI_ERROR: A foreign object-cache.php drop-in is present');
+			$cmd->update_dropin(array(), array());
 		}
 
 		public function test_remove_dropin_absent()

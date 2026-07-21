@@ -108,15 +108,68 @@ jobs:
       - name: PHPCompatibility
         run: vendor/bin/phpcs --standard=PHPCompatibility -p src stubs tools mincemeat-object-cache.php --runtime-set testVersion 7.4
 
+  controlled-performance:
+    name: Controlled RC1 to RC2 Performance Evidence
+    runs-on: ubuntu-24.04
+    services:
+      redis:
+        image: redis:8.8.0-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+
+    steps:
+      - name: Checkout with immutable RC1 tag
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup controlled PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.4'
+          extensions: redis-6.3.0
+          coverage: none
+          ini-values: opcache.enable_cli=0
+
+      - name: Capture backend image and run benchmark evidence
+        env:
+          MINCEMEAT_BENCHMARK_RUNNER: github-hosted-ubuntu-24.04-x64
+        run: |
+          BENCHMARK_IMAGE_DIGEST=$(docker image inspect redis:8.8.0-alpine --format '{{.Id}}')
+          echo "MINCEMEAT_BENCHMARK_BACKEND_IMAGE_DIGEST=$BENCHMARK_IMAGE_DIGEST" >> "$GITHUB_ENV"
+          export MINCEMEAT_BENCHMARK_BACKEND_IMAGE_DIGEST="$BENCHMARK_IMAGE_DIGEST"
+          bash tools/run-controlled-benchmarks.sh 127.0.0.1 6379 build/benchmarks
+
+      - name: Upload controlled benchmark evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rc2-controlled-performance-evidence
+          path: build/benchmarks/
+          if-no-files-found: error
+
   e2e:
-    name: WordPress Browser and WP-CLI E2E
+    name: WordPress ${{ matrix.wordpress }} Browser and WP-CLI E2E
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        wordpress:
+          - '6.9.5'
+          - '7.0.2'
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
       - name: Run isolated E2E suite
+        env:
+          MINCEMEAT_E2E_WORDPRESS_VERSION: ${{ matrix.wordpress }}
         run: composer test:e2e
 
       - name: Upload browser failure artifacts
@@ -127,8 +180,30 @@ jobs:
           path: tests/e2e/test-results/
           if-no-files-found: ignore
 
+  lifecycle-e2e:
+    name: Packaged RC1 Upgrade and Rollback E2E
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout with release history
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup package builder
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.4'
+          extensions: zip
+          coverage: none
+
+      - name: Run packaged lifecycle E2E suite
+        env:
+          MINCEMEAT_E2E_WORDPRESS_VERSION: '7.0.2'
+        run: composer test:e2e:lifecycle
+
   integration:
-    name: Integration (PHP ${{ matrix.php }}, ${{ matrix.backend }}, multisite=${{ matrix.multisite }})
+    name: Integration (WP ${{ matrix.wordpress }}, PHP ${{ matrix.php }}, ${{ matrix.backend }}, multisite=${{ matrix.multisite }})
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -147,6 +222,17 @@ jobs:
         multisite:
           - false
           - true
+        wordpress:
+          - '6.9.5'
+        include:
+          - php: '8.4'
+            backend: redis8
+            multisite: false
+            wordpress: '7.0.2'
+          - php: '8.4'
+            backend: redis8
+            multisite: true
+            wordpress: '7.0.2'
     services:
       redis:
         image: redis:8-alpine
@@ -217,7 +303,12 @@ jobs:
         run: php tools/build-package.php
 
       - name: Install WordPress Test Infrastructure
+        env:
+          WP_VERSION: ${{ matrix.wordpress }}
         run: bash tools/install-wp-tests.sh
+
+      - name: Verify WordPress test provenance
+        run: bash tools/verify-wp-test-provenance.sh
 
       - name: Setup connection scenario test services
         run: bash tools/setup-test-services.sh

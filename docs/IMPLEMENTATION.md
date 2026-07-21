@@ -1,18 +1,33 @@
 # Mincemeat Object Cache - Implementation Guide
 
-Date: 2026-07-13
+Date: 2026-07-22
 Audience: maintainers, contributors, release engineers, and AI agents.
 
 ## Current Status
 
-The implementation is public-testing release-candidate quality. No release-blocking issues are documented in this repository.
+The implementation is public-testing release-candidate quality. RC2 hardening
+is in progress; release-facing behavior and validation changes are documented
+directly in this guide, the design document, release guide, and changelog.
 
 The maintained validation surface includes Composer metadata, PHPCS, PHPStan level 8, PHPUnit, PCOV coverage thresholds, generated artifact parity, deterministic package builds, browser/WP-CLI E2E tests, benchmark guardrails, and a Redis/Valkey CI matrix.
 
+WordPress test setup verifies the exact upstream cache-test checksum before
+applying the reviewed `tests/patches/wordpress/cache-flush-group-support.patch`
+adaptation. `composer test:provenance` reverses and reapplies that patch to
+prove the installed test is derived only from the recorded upstream source and
+the tracked patch; unexpected upstream drift fails setup.
+
 PhpRedis 6.3.0 is the minimum required extension version and is installed
 explicitly in CI. Connection setup verifies serializer, compression, prefix,
-reply, timeout, retry/backoff, and keepalive options. Numeric Lua operations use
-per-connection `SCRIPT LOAD`/`EVALSHA` with `EVAL` fallback after `NOSCRIPT`.
+reply, timeout, retry/backoff, and keepalive options. Server identity and `INFO`
+are lazy diagnostics. Numeric Lua operations use first-call `EVAL`, then
+per-connection `EVALSHA` with `EVAL` fallback after `NOSCRIPT`; ordinary cache
+requests do not preload scripts.
+The request-local and Lua numeric paths share a differential contract matrix:
+booleans and non-numeric values start at zero, decimal values truncate toward
+zero, results stay within `0..PHP_INT_MAX`, and persistent TTL is preserved.
+Intentional differences from WordPress core's incidental float/overflow return
+types are recorded in the design document.
 Persistent pool identifiers isolate database, namespace, ACL, TLS, transport,
 and retry identities using non-reversible digests. Stock PhpRedis pooling does
 not honor the identifier unless `redis.pconnect.pool_pattern` contains `i`, so
@@ -27,7 +42,27 @@ corrupt envelopes, and persistent-identity changes. Request error metrics count
 state transitions once and carry the same state/reason classification shown by
 Site Health.
 
-The WordPress 6.9 compatibility surface includes public `cache_hits` and
+Configuration rejects unknown keys with only the stable
+`config-unknown-key` reason and accepts only scalar-or-null values under the
+flat TLS context map. Operator surfaces never echo supplied endpoint identity,
+socket paths, credentials, exception messages or traces, raw cache keys, or
+cached values. Failed initialization closes the partially configured adapter
+best-effort. Debug logging is disabled by default; CLI emits once per process,
+and web requests emit once per stable category per five minutes only when APCu
+provides the required process-shared throttle.
+
+The v1 adapter is deliberately a direct `Redis` client for one standalone
+writable primary. Sanitized `INFO` mode/role fields drive Site Health topology
+classification; Cluster, Sentinel, replicas, and incomplete/proxy identities
+are reported as unsupported or unverified without adding cold-request `INFO`
+work. The adapter also records whether a requested persistent connection
+actually used `pconnect`; diagnostics distinguish `active`, `disabled`, and the
+`request-scoped-safety-fallback` used when PhpRedis pooling cannot isolate the
+connection identity. Mincemeat does not explicitly replay failed commands, but
+configured PhpRedis reconnect retries mean a failed mutating call can remain
+ambiguous and must never be treated as durable application storage.
+
+The WordPress 6.9+ compatibility surface includes public `cache_hits` and
 `cache_misses` counters, magic read access to `global_groups` and `blog_prefix`,
 core-shaped `isset()` behavior, and `stats()` output. The magic properties are
 read-only views over `KeySpace`, which remains the source of truth for group and
@@ -117,7 +152,20 @@ composer validate --strict --no-check-lock
 composer lint -- --report=summary
 composer stan -- --error-format=raw
 composer test
+composer test:smoke
 ```
+
+The strict compatibility smoke command loads the pinned WooCommerce 10.9.4,
+Yoast SEO 28.0, and Easy Digital Downloads 3.6.9 entry points, runs their real
+activation/schema installers, and fails for missing or mismatched plugins,
+unexpected PHP diagnostics, or any post-install WordPress database error. Its
+bounded JSON report is written to `build/logs/smoke-result.json` and names the
+exact WordPress, PHP, backend, and plugin versions. Missing-table probes for
+those exact plugin table families are counted only inside the bounded installer
+phase, and representative WooCommerce, Action Scheduler, Yoast, and EDD tables
+must exist afterward. The third-party diagnostic allowlist is empty; the only
+accepted warnings are narrowly matched missing generated script manifests in
+the WordPress 6.9 source-test fixture.
 
 Generate fresh PCOV coverage and verify the configured thresholds:
 
@@ -125,27 +173,52 @@ Generate fresh PCOV coverage and verify the configured thresholds:
 composer test:coverage
 ```
 
-Create and compare a local performance baseline against Redis 8:
+Create controlled RC1/current performance evidence against Redis 8:
 
 ```bash
-composer benchmark -- 127.0.0.1 6383 --save-baseline
-composer benchmark -- 127.0.0.1 6383 --compare
+composer benchmark:controlled -- 127.0.0.1 6383
 ```
 
-The benchmark uses fixed workloads, one warmup, five measured samples, and
-median latency. It also asserts exact adapter round-trip counts for cache hot
-paths. Local snapshots live at `tests/benchmarks-baseline.json` and remain
-ignored because timings are meaningful only on the same controlled runner,
-PHP/PhpRedis versions, and backend product/version. Use `--json` for the
-versioned machine-readable report; connection targets are intentionally omitted.
+The current harness runs the immutable `0.1.0-rc1` runtime and two current
+runtimes with fixed workloads, three discarded warmups, 21 measured samples,
+and median latency. It asserts exact adapter command, round-trip, and connection
+counts for current cold and hot paths. Existing namespace/group controls resolve
+in one `MGET`; missing controls are created in a single pipeline. The resulting
+first persistent hit, miss, or set uses two backend round trips once controls
+exist, while a brand-new namespace uses three.
+
+Artifacts under `build/benchmarks/` record raw samples, source commit, CPU and
+runner identity, operating system, loaded/scanned PHP INI, relevant INI values,
+loaded extension versions, backend product/version, and backend image digest.
+The two current runs must agree unless both the absolute change exceeds 5 ms and
+the relative change exceeds 25%; an RC2 regression against RC1 uses the same
+dual threshold, while command, round-trip, and connection increases fail
+deterministically. CI uploads all reports and comparisons. Connection targets
+are intentionally omitted. The raw Redis EVAL/EVALSHA controls remain visible
+but informational because they do not execute the compared runtime.
 
 Run the isolated real-WordPress browser and WP-CLI suite (Docker Compose required):
 
 ```bash
 composer test:e2e
+composer test:e2e:lifecycle
 ```
 
-The E2E orchestrator owns a dedicated Compose project and disposable volumes. It builds WordPress 6.9 with PhpRedis 6.3, uses local-only MariaDB/Redis credentials, executes Playwright in its official container, and cleans up automatically. Set `MINCEMEAT_E2E_KEEP_ENV=1` only when retaining a failed environment for debugging.
+The E2E orchestrator owns a dedicated Compose project and disposable volumes.
+Release CI runs the maintained minimum WordPress 6.9 patch and current
+WordPress 7.0 patch with PhpRedis 6.3, while scheduled CI exercises WordPress
+trunk as an allowed-failure early warning. It uses local-only MariaDB/Redis
+credentials, executes Playwright in its official container, and cleans up
+automatically. Set `MINCEMEAT_E2E_KEEP_ENV=1` only when retaining a failed
+environment for debugging.
+
+The lifecycle suite builds packages from the immutable `0.1.0-rc1` tag and the
+current checkout, then exercises stale detection, atomic upgrade, failed-update
+preservation and recovery, foreign-file refusal, deliberate rollback, and
+companion-plugin deactivation. The candidate companion must also consume the
+older drop-in's diagnostics without warnings during the mixed-version upgrade
+window; any PHP diagnostic fails the lifecycle gate. A full Git history
+containing the RC1 tag is required.
 
 Drop-in parity:
 

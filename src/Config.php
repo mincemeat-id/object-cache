@@ -372,10 +372,15 @@ final class Config {
 	 * identifiers; never the source namespace, username, password, DSN, or
 	 * TLS key material paths.
 	 *
-	 * @param bool $is_public If true, obfuscates host, port, database, and unix paths.
+	 * The public flag is retained for API compatibility. Connection identity is
+	 * never exposed in either mode; non-public diagnostics may include broader
+	 * server metadata through Api::diagnostics(), but not endpoint details.
+	 *
+	 * @param bool $is_public Whether the caller requested the public view.
 	 * @return array<string,mixed>
 	 */
 	public function redacted_diagnostics( bool $is_public = false ): array {
+		unset( $is_public );
 		$tls_summary = array();
 		if ( $this->scheme === self::SCHEME_TLS ) {
 			$tls_summary = array(
@@ -384,27 +389,12 @@ final class Config {
 			);
 		}
 
-		$host = $this->host;
-		$port = $this->port;
-		$database = $this->database;
-		$path = $this->path;
-
-		if ( $is_public ) {
-			if ( $this->scheme === self::SCHEME_UNIX ) {
-				$path = $path !== null ? '/****/' . basename( $path ) : null;
-			} else {
-				$host = $this->mask_host( $host );
-				$port = '***';
-			}
-			$database = '***';
-		}
-
 		return array(
 			'scheme'            => $this->scheme,
-			'host'              => $this->scheme === self::SCHEME_UNIX ? '' : $host,
-			'port'              => $this->scheme === self::SCHEME_UNIX ? null : $port,
-			'path'              => $path,
-			'database'          => $database,
+			'host'              => $this->scheme === self::SCHEME_UNIX ? '' : 'configured',
+			'port'              => $this->scheme === self::SCHEME_UNIX ? null : '***',
+			'path'              => $this->scheme === self::SCHEME_UNIX ? 'configured' : null,
+			'database'          => '***',
 			'namespace_digest'  => substr( $this->namespace_digest, 0, 16 ),
 			'connect_timeout'   => $this->connect_timeout,
 			'read_timeout'      => $this->read_timeout,
@@ -418,34 +408,6 @@ final class Config {
 			'debug'             => $this->debug,
 			'tls'               => $tls_summary,
 		);
-	}
-
-	/**
-	 * Masks remote IP addresses/hostnames for public diagnostics.
-	 *
-	 * @param string $host The hostname or IP to mask.
-	 * @return string The masked host.
-	 */
-	private function mask_host( string $host ): string {
-		$lower = strtolower( $host );
-		if ( in_array( $lower, array( '127.0.0.1', 'localhost', '::1' ), true ) ) {
-			return $host;
-		}
-
-		if ( filter_var( $host, FILTER_VALIDATE_IP ) ) {
-			$parts = explode( '.', $host );
-			if ( count( $parts ) === 4 ) {
-				return $parts[0] . '.***.***.' . $parts[3];
-			}
-			return '***.***.***.***';
-		}
-
-		$len = strlen( $host );
-		if ( $len <= 4 ) {
-			return '****';
-		}
-
-		return substr( $host, 0, 2 ) . '***' . substr( $host, -2 );
 	}
 
 	/**
@@ -485,7 +447,7 @@ final class Config {
 	private function reject_unknown_keys( array $input ): void {
 		foreach (array_keys( $input ) as $key) {
 			if ( ! array_key_exists( $key, self::KNOWN_KEYS )) {
-				throw new ConfigException( self::REASON_UNKNOWN_KEY, sprintf( 'Unknown config key "%s".', $this->redact_value( $key ) ) );
+				throw new ConfigException( self::REASON_UNKNOWN_KEY );
 			}
 		}
 	}
@@ -677,18 +639,11 @@ final class Config {
 		if ( ! is_array( $value )) {
 			throw new ConfigException( self::REASON_TLS, 'TLS context must be an array.' );
 		}
-	}
 
-	/**
-	 * Best-effort redaction of a value used in error messages.
-	 *
-	 * @param mixed $value
-	 */
-	private function redact_value( $value ): string {
-		if ( ! is_string( $value )) {
-			return '(non-string)';
+		foreach ($value as $key => $option) {
+			if ( ! is_string( $key ) || is_array( $option ) || is_object( $option ) || is_resource( $option )) {
+				throw new ConfigException( self::REASON_TLS, 'TLS context values must be scalar or null.' );
+			}
 		}
-
-		return $value;
 	}
 }

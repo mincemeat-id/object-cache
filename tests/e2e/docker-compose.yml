@@ -29,6 +29,8 @@ services:
     build:
       context: ../..
       dockerfile: tests/e2e/Dockerfile
+      args:
+        WORDPRESS_VERSION: ${MINCEMEAT_E2E_WORDPRESS_VERSION:-6.9.5}
     depends_on:
       database:
         condition: service_healthy
@@ -55,7 +57,7 @@ services:
       - "${MINCEMEAT_E2E_PORT:-8091}:80"
     volumes:
       - wordpress-data:/var/www/html
-      - ../..:/var/www/html/wp-content/plugins/mincemeat-object-cache:ro
+      - ${MINCEMEAT_E2E_PLUGIN_DIR:-../..}:/var/www/html/wp-content/plugins/mincemeat-object-cache:ro
 
 volumes:
   database-data:

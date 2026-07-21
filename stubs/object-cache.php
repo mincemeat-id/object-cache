@@ -4,10 +4,10 @@
  * Mincemeat Object Cache Drop-In
  *
  * Owner: mincemeat-object-cache
- * Version: 0.1.0-rc1
- * Drop-in Version: 0.1.0-rc1
+ * Version: 0.1.0-rc2
+ * Drop-in Version: 0.1.0-rc2
  * Schema Version: 1
- * Build Hash: 9f70c2a3ae6a052db4a95740377c308245a297af05eb8f4bdedfc050576199f5
+ * Build Hash: 3f749599dcd619f14beae0bb27781af14a3d124da546472f18456cb63146a018
  *
  * @package Mincemeat\ObjectCache
  */
@@ -26,10 +26,18 @@ namespace Mincemeat\ObjectCache {
 	final class Api {
 
 		/** Implementation version. */
-		public const IMPLEMENTATION_VERSION = '0.1.0-rc1';
+		public const IMPLEMENTATION_VERSION = '0.1.0-rc2';
 
 		/** Value envelope schema version. */
 		public const SCHEMA_VERSION = '1';
+
+		/** Supported v1 backend topology. */
+		public const TOPOLOGY_POLICY = 'standalone-single-primary';
+
+		/** Server-reported topology classifications. */
+		public const TOPOLOGY_COMPATIBLE = 'compatible';
+		public const TOPOLOGY_UNSUPPORTED = 'unsupported';
+		public const TOPOLOGY_UNVERIFIED  = 'unverified';
 
 		/** Native WordPress cache features implemented by this drop-in. */
 		public const NATIVE_FEATURES = array(
@@ -147,13 +155,24 @@ namespace Mincemeat\ObjectCache {
 				'php_version'           => PHP_VERSION,
 				'phpredis_version'      => $redis_version,
 				'phpredis_minimum'      => PhpRedisAdapter::MINIMUM_VERSION,
+				'topology_policy'       => self::TOPOLOGY_POLICY,
+				'persistent_requested'  => false,
+				'persistent_reuse'      => false,
+				'connection_reuse'      => 'disabled',
 			);
 
+			$server_info = null;
 			if ( $cache ) {
 				$config = $cache->config();
 				if ( $config ) {
 					$diagnostics = array_merge( $diagnostics, $config->redacted_diagnostics( $is_public ) );
+					$diagnostics['persistent_requested'] = $config->persistent();
 				}
+				$diagnostics['persistent_reuse'] = $cache->persistent_reuse();
+				if ( $diagnostics['persistent_requested'] ) {
+					$diagnostics['connection_reuse'] = $diagnostics['persistent_reuse'] ? 'active' : 'request-scoped-safety-fallback';
+				}
+
 				$server_info = $cache->server_info();
 				if ( $server_info ) {
 					if ( $is_public ) {
@@ -166,6 +185,7 @@ namespace Mincemeat\ObjectCache {
 					}
 				}
 			}
+			$diagnostics = array_merge( $diagnostics, self::topology_diagnostics( $server_info ) );
 
 			if ( function_exists( 'apply_filters' ) ) {
 				$diagnostics = apply_filters( 'mincemeat_object_cache_diagnostics', $diagnostics );
@@ -208,6 +228,45 @@ namespace Mincemeat\ObjectCache {
 		private static function non_persistent_group_names( ObjectCache $cache ): array {
 			return array_keys( $cache->non_persistent_groups() );
 		}
+
+		/**
+		 * Classifies only bounded, server-reported topology fields.
+		 *
+		 * Managed proxies cannot be detected reliably and therefore remain outside
+		 * the support policy even when they report a compatible-looking identity.
+		 *
+		 * @param array<string,string>|null $server_info Sanitized server identity.
+		 * @return array{topology_status:string,topology_mode:string,topology_role:string}
+		 */
+		private static function topology_diagnostics( ?array $server_info ): array {
+			$mode = $server_info !== null ? strtolower( trim( (string) ( $server_info['mode'] ?? '' ) ) ) : '';
+			$role = $server_info !== null ? strtolower( trim( (string) ( $server_info['role'] ?? '' ) ) ) : '';
+
+			if ( ! in_array( $mode, array( 'standalone', 'cluster', 'sentinel' ), true ) ) {
+				$mode = 'unknown';
+			}
+
+			if ( in_array( $role, array( 'master', 'primary' ), true ) ) {
+				$role = 'primary';
+			} elseif ( in_array( $role, array( 'slave', 'replica' ), true ) ) {
+				$role = 'replica';
+			} elseif ( $role !== 'sentinel' ) {
+				$role = 'unknown';
+			}
+
+			$status = self::TOPOLOGY_UNVERIFIED;
+			if ( in_array( $mode, array( 'cluster', 'sentinel' ), true ) || in_array( $role, array( 'replica', 'sentinel' ), true ) ) {
+				$status = self::TOPOLOGY_UNSUPPORTED;
+			} elseif ( $mode === 'standalone' && $role === 'primary' ) {
+				$status = self::TOPOLOGY_COMPATIBLE;
+			}
+
+			return array(
+				'topology_status' => $status,
+				'topology_mode'   => $mode,
+				'topology_role'   => $role,
+			);
+		}
 	}
 
 	// --- Backend.php ---
@@ -219,11 +278,12 @@ namespace Mincemeat\ObjectCache {
 	final class Backend {
 
 		/** Reason codes for the circuit breaker. */
-		public const REASON_NO_BACKEND        = 'no-backend';
-		public const REASON_MISSING_EXTENSION = 'missing-extension';
-		public const REASON_CONFIG_INVALID    = 'config-invalid';
-		public const REASON_CONNECT_FAILED    = 'connect-failed';
-		public const REASON_AUTH_FAILED       = 'auth-failed';
+		public const REASON_NO_BACKEND             = 'no-backend';
+		public const REASON_MISSING_EXTENSION      = 'missing-extension';
+		public const REASON_UNSUPPORTED_EXTENSION = 'unsupported-extension';
+		public const REASON_CONFIG_INVALID         = 'config-invalid';
+		public const REASON_CONNECT_FAILED         = 'connect-failed';
+		public const REASON_AUTH_FAILED            = 'auth-failed';
 		public const REASON_SELECT_DB_FAILED  = 'select-db-failed';
 		public const REASON_COMMAND_FAILED    = 'command-failed';
 
@@ -278,6 +338,13 @@ namespace Mincemeat\ObjectCache {
 		private $server_info;
 
 		/**
+		 * Whether server identity has been requested this request.
+		 *
+		 * @var bool
+		 */
+		private $server_info_loaded = false;
+
+		/**
 		 * Whether an error has been logged already this request.
 		 *
 		 * @var bool
@@ -324,6 +391,12 @@ namespace Mincemeat\ObjectCache {
 			try {
 				$this->adapter->connect( $config );
 			} catch (BackendException $e) {
+				try {
+					$this->adapter->close();
+				} catch (\Throwable $close_error) {
+					// Initialization reason remains the actionable failure category.
+					unset( $close_error );
+				}
 				$this->state   = ObjectCache::STATE_RUNTIME_ONLY;
 				$this->reason  = $e->reason();
 				$this->adapter = null;
@@ -335,9 +408,6 @@ namespace Mincemeat\ObjectCache {
 
 			$this->state  = ObjectCache::STATE_PERSISTENT;
 			$this->reason = '';
-
-			// Capture server identity for diagnostics (no behavior forks).
-			$this->server_info = $this->adapter->server_info();
 		}
 
 		/**
@@ -365,6 +435,13 @@ namespace Mincemeat\ObjectCache {
 		 */
 		public function is_persistent(): bool {
 			return $this->state === ObjectCache::STATE_PERSISTENT;
+		}
+
+		/**
+		 * Whether PhpRedis process-persistent connection reuse is effective.
+		 */
+		public function persistent_reuse(): bool {
+			return $this->adapter !== null && $this->adapter->persistent_reuse();
 		}
 
 		/**
@@ -407,6 +484,15 @@ namespace Mincemeat\ObjectCache {
 		 * @return array<string,string>|null
 		 */
 		public function server_info(): ?array {
+			if ( ! $this->server_info_loaded && $this->is_persistent()) {
+				$this->server_info_loaded = true;
+				try {
+					$this->server_info = $this->adapter()->server_info();
+				} catch (\Throwable $e) {
+					$this->server_info = null;
+				}
+			}
+
 			return $this->server_info;
 		}
 
@@ -484,6 +570,64 @@ namespace Mincemeat\ObjectCache {
 			$this->tokens[ $cache_key ] = $token;
 
 			return $token;
+		}
+
+		/**
+		 * Resolves namespace and group generation tokens together.
+		 *
+		 * Existing controls use one MGET. Missing controls are created in one
+		 * pipeline, with a coalesced readback if another request wins a SET NX
+		 * race. Tokens remain memoized for the request so flushes cannot change the
+		 * key generation midway through an operation sequence.
+		 *
+		 * @param string $group Normalized group name.
+		 * @return array{0:string,1:string} Namespace and group tokens.
+		 */
+		public function generation_tokens( string $group ): array {
+			if ( ! $this->is_persistent()) {
+				return array( '', '' );
+			}
+
+			$group_cache_key = 'grp:' . $group;
+			$controls       = array();
+			if ( ! $this->namespace_token_loaded) {
+				$controls['ns'] = $this->key_space->namespace_control_key();
+			}
+			if ( ! isset( $this->tokens[ $group_cache_key ] )) {
+				$controls[ $group_cache_key ] = $this->key_space->group_control_key( $group );
+			}
+
+			if (count( $controls ) > 0) {
+				$labels = array_keys( $controls );
+				try {
+					$values = $this->adapter()->mget( array_values( $controls ) );
+				} catch (\Throwable $e) {
+					$this->degrade( self::REASON_COMMAND_FAILED, $e );
+					return array( KeySpace::generate_token(), KeySpace::generate_token() );
+				}
+
+				$missing = array();
+				foreach ($labels as $index => $label) {
+					$value = $values[ $index ] ?? false;
+					$token = is_string( $value ) ? trim( $value ) : '';
+					if ($token !== '') {
+						$this->tokens[ $label ] = $token;
+					} else {
+						$missing[ $label ] = $controls[ $label ];
+					}
+				}
+
+				if (count( $missing ) > 0) {
+					$this->initialize_missing_tokens( $missing );
+				}
+			}
+
+			$this->namespace_token_loaded = true;
+
+			return array(
+				$this->tokens['ns'] ?? KeySpace::generate_token(),
+				$this->tokens[ $group_cache_key ] ?? KeySpace::generate_token(),
+			);
 		}
 
 		/**
@@ -574,7 +718,8 @@ namespace Mincemeat\ObjectCache {
 			}
 
 			if ($ok) {
-				$this->tokens['ns'] = $token;
+				$this->tokens['ns']           = $token;
+				$this->namespace_token_loaded = true;
 			}
 
 			return $ok;
@@ -979,6 +1124,57 @@ namespace Mincemeat\ObjectCache {
 		}
 
 		/**
+		 * Creates control tokens that were absent in a coalesced read.
+		 *
+		 * @param array<string,string> $missing Token cache label => control key.
+		 */
+		private function initialize_missing_tokens( array $missing ): void {
+			$candidates = array();
+			$commands   = array();
+			foreach ($missing as $label => $key) {
+				$candidates[ $label ] = KeySpace::generate_token();
+				$commands[]            = array( 'set', array( $key, $candidates[ $label ], array( 'NX' ) ) );
+			}
+
+			try {
+				$results = $this->adapter()->pipeline( $commands );
+			} catch (\Throwable $e) {
+				$this->degrade( self::REASON_COMMAND_FAILED, $e );
+				return;
+			}
+
+			$losers = array();
+			$i      = 0;
+			foreach ($missing as $label => $key) {
+				if (( $results[ $i ] ?? false ) === true) {
+					$this->tokens[ $label ] = $candidates[ $label ];
+				} else {
+					$losers[ $label ] = $key;
+				}
+				++$i;
+			}
+
+			if (count( $losers ) === 0) {
+				return;
+			}
+
+			try {
+				$values = $this->adapter()->mget( array_values( $losers ) );
+			} catch (\Throwable $e) {
+				$this->degrade( self::REASON_COMMAND_FAILED, $e );
+				return;
+			}
+
+			$i = 0;
+			foreach ($losers as $label => $key) {
+				$value = $values[ $i ] ?? false;
+				$token = is_string( $value ) ? trim( $value ) : '';
+				$this->tokens[ $label ] = $token !== '' ? $token : $this->init_token( $key );
+				++$i;
+			}
+		}
+
+		/**
 		 * Opens the circuit breaker: transitions to degraded state, fires the
 		 * low-volume action once, and prevents all further backend commands.
 		 *
@@ -1002,99 +1198,56 @@ namespace Mincemeat\ObjectCache {
 		}
 
 		/**
-		 * Logs a sanitized, redacted error message to the error log exactly once per request.
+		 * Records a stable error category and emits a bounded debug log.
+		 *
+		 * Web logs require both debug mode and a shared APCu throttle. Without a
+		 * process-shared limiter, web logging is suppressed so a backend outage can
+		 * never emit once per request indefinitely. CLI processes may emit once.
 		 *
 		 * @internal
 		 * @param string          $message   The log message.
 		 * @param \Throwable|null $exception Optional associated exception.
 		 */
 		public function log_error( string $message, ?\Throwable $exception = null ): void {
+			unset( $exception );
 			if ( $this->logged ) {
 				return;
 			}
 			$this->logged = true;
 
-			$raw_msg                  = $exception !== null ? $exception->getMessage() : $message;
-			$this->last_error_message = $this->redact_secrets( $raw_msg );
+			$this->last_error_message = $message;
 
-			$log_msg = 'Mincemeat Object Cache: ' . $message;
-			if ( $this->config !== null && $this->config->debug() ) {
-				if ( $exception !== null ) {
-					$log_msg .= sprintf(
-						' (Exception: %s, Message: %s, Code: %d)',
-						get_class( $exception ),
-						$this->redact_secrets( $exception->getMessage() ),
-						$exception->getCode()
-					);
-				}
+			if ( ! $this->should_emit_log( $message )) {
+				return;
 			}
 
+			$log_msg = 'Mincemeat Object Cache: ' . $message;
 			error_log( $log_msg );
 		}
 
 		/**
-		 * Redacts credentials and other sensitive data from a string.
+		 * Determines whether this process/request may emit an error log entry.
 		 *
-		 * @param string $msg Input string.
-		 * @return string Redacted string.
+		 * @param string $message Stable error category.
 		 */
-		private function redact_secrets( string $msg ): string {
-			if ( $this->config === null ) {
-				return $msg;
+		private function should_emit_log( string $message ): bool {
+			if ( $this->config === null || ! $this->config->debug()) {
+				return false;
 			}
 
-			$search = array();
-
-			$password = $this->config->password();
-			if ( $password !== null && $password !== '' ) {
-				$search[] = $password;
+			if ( PHP_SAPI === 'cli' ) {
+				return true;
 			}
 
-			$username = $this->config->username();
-			if ( $username !== null && $username !== '' ) {
-				$search[] = $username;
+			if ( ! function_exists( 'apcu_add' ) || ! function_exists( 'apcu_enabled' ) || ! apcu_enabled()) {
+				return false;
 			}
 
-			$namespace = $this->config->namespace();
-			if ( $namespace !== null && $namespace !== '' ) {
-				$search[] = $namespace;
+			try {
+				return apcu_add( 'mcoc:log:' . hash( 'sha256', $message ), 1, 300 );
+			} catch (\Throwable $e) {
+				return false;
 			}
-
-			$path = $this->config->path();
-			if ( $path !== null && $path !== '' ) {
-				$search[] = $path;
-			}
-
-			$host = $this->config->host();
-			if ( $host !== null && $host !== '' && ! in_array( strtolower( $host ), array( '127.0.0.1', 'localhost', '::1' ), true ) ) {
-				$search[] = $host;
-			}
-
-			$tls = $this->config->tls();
-			if ( is_array( $tls ) ) {
-				foreach ( $tls as $k => $v ) {
-					if ( is_string( $v ) && $v !== '' ) {
-						$search[] = $v;
-					}
-				}
-			}
-
-			if ( count( $search ) > 0 ) {
-				usort(
-					$search,
-					function ( $a, $b ) {
-						return strlen( $b ) - strlen( $a );
-					}
-				);
-				$msg = str_replace( $search, '[REDACTED]', $msg );
-			}
-
-			// Redact any DSN/URL credentials style (e.g. scheme://username:password@host)
-			$msg = (string) preg_replace( '/([a-zA-Z0-9+-.]+\:\/\/)?([^:@\s\/\?\#]+):([^@\s\/\?\#]+)@/', '$1[REDACTED]:[REDACTED]@', $msg );
-			// Redact password only credentials like scheme://:password@host or :password@host
-			$msg = (string) preg_replace( '/([a-zA-Z0-9+-.]+\:\/\/)?([^:@\s\/\?\#]*):([^@\s\/\?\#]+)@/', '$1[REDACTED]:[REDACTED]@', $msg );
-
-			return $msg;
 		}
 
 		/**
@@ -1516,10 +1669,15 @@ namespace Mincemeat\ObjectCache {
 		 * identifiers; never the source namespace, username, password, DSN, or
 		 * TLS key material paths.
 		 *
-		 * @param bool $is_public If true, obfuscates host, port, database, and unix paths.
+		 * The public flag is retained for API compatibility. Connection identity is
+		 * never exposed in either mode; non-public diagnostics may include broader
+		 * server metadata through Api::diagnostics(), but not endpoint details.
+		 *
+		 * @param bool $is_public Whether the caller requested the public view.
 		 * @return array<string,mixed>
 		 */
 		public function redacted_diagnostics( bool $is_public = false ): array {
+			unset( $is_public );
 			$tls_summary = array();
 			if ( $this->scheme === self::SCHEME_TLS ) {
 				$tls_summary = array(
@@ -1528,27 +1686,12 @@ namespace Mincemeat\ObjectCache {
 				);
 			}
 
-			$host = $this->host;
-			$port = $this->port;
-			$database = $this->database;
-			$path = $this->path;
-
-			if ( $is_public ) {
-				if ( $this->scheme === self::SCHEME_UNIX ) {
-					$path = $path !== null ? '/****/' . basename( $path ) : null;
-				} else {
-					$host = $this->mask_host( $host );
-					$port = '***';
-				}
-				$database = '***';
-			}
-
 			return array(
 				'scheme'            => $this->scheme,
-				'host'              => $this->scheme === self::SCHEME_UNIX ? '' : $host,
-				'port'              => $this->scheme === self::SCHEME_UNIX ? null : $port,
-				'path'              => $path,
-				'database'          => $database,
+				'host'              => $this->scheme === self::SCHEME_UNIX ? '' : 'configured',
+				'port'              => $this->scheme === self::SCHEME_UNIX ? null : '***',
+				'path'              => $this->scheme === self::SCHEME_UNIX ? 'configured' : null,
+				'database'          => '***',
 				'namespace_digest'  => substr( $this->namespace_digest, 0, 16 ),
 				'connect_timeout'   => $this->connect_timeout,
 				'read_timeout'      => $this->read_timeout,
@@ -1562,34 +1705,6 @@ namespace Mincemeat\ObjectCache {
 				'debug'             => $this->debug,
 				'tls'               => $tls_summary,
 			);
-		}
-
-		/**
-		 * Masks remote IP addresses/hostnames for public diagnostics.
-		 *
-		 * @param string $host The hostname or IP to mask.
-		 * @return string The masked host.
-		 */
-		private function mask_host( string $host ): string {
-			$lower = strtolower( $host );
-			if ( in_array( $lower, array( '127.0.0.1', 'localhost', '::1' ), true ) ) {
-				return $host;
-			}
-
-			if ( filter_var( $host, FILTER_VALIDATE_IP ) ) {
-				$parts = explode( '.', $host );
-				if ( count( $parts ) === 4 ) {
-					return $parts[0] . '.***.***.' . $parts[3];
-				}
-				return '***.***.***.***';
-			}
-
-			$len = strlen( $host );
-			if ( $len <= 4 ) {
-				return '****';
-			}
-
-			return substr( $host, 0, 2 ) . '***' . substr( $host, -2 );
 		}
 
 		/**
@@ -1629,7 +1744,7 @@ namespace Mincemeat\ObjectCache {
 		private function reject_unknown_keys( array $input ): void {
 			foreach (array_keys( $input ) as $key) {
 				if ( ! array_key_exists( $key, self::KNOWN_KEYS )) {
-					throw new ConfigException( self::REASON_UNKNOWN_KEY, sprintf( 'Unknown config key "%s".', $this->redact_value( $key ) ) );
+					throw new ConfigException( self::REASON_UNKNOWN_KEY );
 				}
 			}
 		}
@@ -1821,19 +1936,12 @@ namespace Mincemeat\ObjectCache {
 			if ( ! is_array( $value )) {
 				throw new ConfigException( self::REASON_TLS, 'TLS context must be an array.' );
 			}
-		}
 
-		/**
-		 * Best-effort redaction of a value used in error messages.
-		 *
-		 * @param mixed $value
-		 */
-		private function redact_value( $value ): string {
-			if ( ! is_string( $value )) {
-				return '(non-string)';
+			foreach ($value as $key => $option) {
+				if ( ! is_string( $key ) || is_array( $option ) || is_object( $option ) || is_resource( $option )) {
+					throw new ConfigException( self::REASON_TLS, 'TLS context values must be scalar or null.' );
+				}
 			}
-
-			return $value;
 		}
 	}
 
@@ -2246,9 +2354,6 @@ namespace Mincemeat\ObjectCache {
 		/** The key does not exist in the backend. */
 		public const RESULT_MISSING = 'MISSING';
 
-		/** The key exists but the value is not a supported numeric envelope. */
-		public const RESULT_INVALID = 'INVALID';
-
 		/** The envelope is corrupt or has an unknown version/tag. */
 		public const RESULT_CORRUPT = 'CORRUPT';
 
@@ -2261,7 +2366,6 @@ namespace Mincemeat\ObjectCache {
 		 * Returns:
 		 *   {RESULT_OK,    <new_value>}  on success.
 		 *   {RESULT_MISSING}             when the key is absent.
-		 *   {RESULT_INVALID}             when the value is not an integer envelope.
 		 *   {RESULT_CORRUPT}             when the envelope is malformed.
 		 *
 		 * The script uses only Redis/Valkey-compatible Lua and string/TTL
@@ -2400,6 +2504,18 @@ namespace Mincemeat\ObjectCache {
 	    return s
 	end
 
+	local function normalize_unsigned(value)
+	    value = value:gsub("^0+", "")
+	    if value == "" then
+	        return "0"
+	    end
+	    return value
+	end
+
+	local function trim(value)
+	    return value:match("^%s*(.-)%s*$")
+	end
+
 	local key = KEYS[1]
 	local offset_str = ARGV[1]
 	local is_negative = false
@@ -2439,7 +2555,33 @@ namespace Mincemeat\ObjectCache {
 	    return {'CORRUPT'}
 	end
 
-	local is_int_payload = (tag == 1) or (tag == 4) or (tag == 5) or (tag == 3 and string.match(payload, "^%-?%d+$") ~= nil)
+	if tag < 1 or tag > 6 then
+	    return {'CORRUPT'}
+	end
+
+	if tag == 1 and string.match(payload, "^%-?%d+$") == nil then
+	    return {'CORRUPT'}
+	end
+
+	if tag == 2 and string.len(payload) ~= 8 then
+	    return {'CORRUPT'}
+	end
+
+	if tag == 4 and (string.len(payload) ~= 1 or (payload ~= string.char(0) and payload ~= string.char(1))) then
+	    return {'CORRUPT'}
+	end
+
+	if tag == 5 and string.len(payload) ~= 0 then
+	    return {'CORRUPT'}
+	end
+
+	local string_value = tag == 3 and trim(payload) or ""
+	local string_is_integer = string.match(string_value, "^[%+%-]?%d+$") ~= nil
+	local string_is_decimal = string_value ~= ""
+	    and string.match(string_value, "^[%+%-%.%deE]+$") ~= nil
+	    and tonumber(string_value) ~= nil
+
+	local is_int_payload = (tag == 1) or (tag == 4) or (tag == 5) or (tag == 3 and string_is_integer)
 
 	local new_tag = 1
 	local new_payload = ''
@@ -2450,15 +2592,18 @@ namespace Mincemeat\ObjectCache {
 	    local is_current_negative = false
 
 	    if tag == 1 or tag == 3 then
-	        local raw_payload = payload
+	        local raw_payload = tag == 3 and string_value or payload
 	        if string.sub(raw_payload, 1, 1) == '-' then
 	            is_current_negative = true
-	            current_str = string.sub(raw_payload, 2)
+	            current_str = normalize_unsigned(string.sub(raw_payload, 2))
 	        else
-	            current_str = raw_payload
+	            if string.sub(raw_payload, 1, 1) == '+' then
+	                raw_payload = string.sub(raw_payload, 2)
+	            end
+	            current_str = normalize_unsigned(raw_payload)
 	        end
 	    elseif tag == 4 then
-	        current_str = (payload == string.char(1)) and "1" or "0"
+	        current_str = "0"
 	    end
 
 	    local new_val_str = ""
@@ -2494,12 +2639,13 @@ namespace Mincemeat\ObjectCache {
 	else
 	    local current = 0
 	    if tag == 2 then
-	        if string.len(payload) ~= 8 then
-	            return {'CORRUPT'}
-	        end
 	        current = decode_double(payload)
-	    else
-	        current = tonumber(payload) or 0
+	    elseif tag == 3 and string_is_decimal then
+	        current = tonumber(string_value) or 0
+	    end
+
+	    if current ~= current or current == math.huge or current == -math.huge then
+	        current = 0
 	    end
 
 	    if current < 0 then
@@ -2768,8 +2914,7 @@ namespace Mincemeat\ObjectCache {
 			$entries = array();
 			$out = array();
 
-			$ns_tok  = $this->backend()->namespace_token();
-			$grp_tok = $this->backend()->group_token( $group );
+			list($ns_tok, $grp_tok) = $this->backend()->generation_tokens( $group );
 			$ttl_ms  = $this->resolve_ttl_ms( $expire );
 
 			foreach ($data as $key => $value) {
@@ -2940,8 +3085,7 @@ namespace Mincemeat\ObjectCache {
 			$entries = array();
 			$out = array();
 
-			$ns_tok  = $this->backend()->namespace_token();
-			$grp_tok = $this->backend()->group_token( $group );
+			list($ns_tok, $grp_tok) = $this->backend()->generation_tokens( $group );
 			$ttl_ms  = $this->resolve_ttl_ms( $expire );
 
 			foreach ($data as $key => $value) {
@@ -3112,8 +3256,7 @@ namespace Mincemeat\ObjectCache {
 			$backend_keys = array();
 			$out = array();
 
-			$ns_tok  = $this->backend()->namespace_token();
-			$grp_tok = $this->backend()->group_token( $group );
+			list($ns_tok, $grp_tok) = $this->backend()->generation_tokens( $group );
 
 			foreach ($keys as $key) {
 				if ( ! $this->key_space->is_valid_key( $key )) {
@@ -3413,6 +3556,13 @@ namespace Mincemeat\ObjectCache {
 		}
 
 		/**
+		 * Whether PhpRedis process-persistent connection reuse is effective.
+		 */
+		public function persistent_reuse(): bool {
+			return $this->backend !== null && $this->backend->persistent_reuse();
+		}
+
+		/**
 		 * Returns the configured maximum TTL in seconds.
 		 *
 		 * @return int
@@ -3561,8 +3711,7 @@ namespace Mincemeat\ObjectCache {
 		 * @return mixed|false
 		 */
 		private function persistent_get( $key, string $group, bool $force, &$found, string $storage_id ) {
-			$ns_tok   = $this->backend()->namespace_token();
-			$grp_tok  = $this->backend()->group_token( $group );
+			list($ns_tok, $grp_tok) = $this->backend()->generation_tokens( $group );
 			$item_key = $this->key_space->item_key( $ns_tok, $grp_tok, $group, $key );
 
 			$this->backend_calls += 1;
@@ -3634,8 +3783,7 @@ namespace Mincemeat\ObjectCache {
 				return $values;
 			}
 
-			$ns_tok  = $this->backend()->namespace_token();
-			$grp_tok = $this->backend()->group_token( $group );
+			list($ns_tok, $grp_tok) = $this->backend()->generation_tokens( $group );
 
 			$backend_keys = array();
 			foreach ($missing as $key) {
@@ -3705,8 +3853,7 @@ namespace Mincemeat\ObjectCache {
 				return false;
 			}
 
-			$ns_tok   = $this->backend()->namespace_token();
-			$grp_tok  = $this->backend()->group_token( $group );
+			list($ns_tok, $grp_tok) = $this->backend()->generation_tokens( $group );
 			$item_key = $this->key_space->item_key( $ns_tok, $grp_tok, $group, $key );
 			$ttl_ms   = $this->resolve_ttl_ms( $expire );
 
@@ -3743,8 +3890,7 @@ namespace Mincemeat\ObjectCache {
 				return false;
 			}
 
-			$ns_tok   = $this->backend()->namespace_token();
-			$grp_tok  = $this->backend()->group_token( $group );
+			list($ns_tok, $grp_tok) = $this->backend()->generation_tokens( $group );
 			$item_key = $this->key_space->item_key( $ns_tok, $grp_tok, $group, $key );
 			$ttl_ms   = $this->resolve_ttl_ms( $expire );
 
@@ -3790,8 +3936,7 @@ namespace Mincemeat\ObjectCache {
 				return false;
 			}
 
-			$ns_tok   = $this->backend()->namespace_token();
-			$grp_tok  = $this->backend()->group_token( $group );
+			list($ns_tok, $grp_tok) = $this->backend()->generation_tokens( $group );
 			$item_key = $this->key_space->item_key( $ns_tok, $grp_tok, $group, $key );
 			$ttl_ms   = $this->resolve_ttl_ms( $expire );
 
@@ -3824,8 +3969,7 @@ namespace Mincemeat\ObjectCache {
 		 * @return bool
 		 */
 		private function persistent_delete( $key, string $group, string $storage_id ): bool {
-			$ns_tok   = $this->backend()->namespace_token();
-			$grp_tok  = $this->backend()->group_token( $group );
+			list($ns_tok, $grp_tok) = $this->backend()->generation_tokens( $group );
 			$item_key = $this->key_space->item_key( $ns_tok, $grp_tok, $group, $key );
 
 			$this->backend_calls += 1;
@@ -3920,8 +4064,7 @@ namespace Mincemeat\ObjectCache {
 		 * @return int|false
 		 */
 		private function persistent_delta( $key, int $offset, string $group, string $storage_id ) {
-			$ns_tok   = $this->backend()->namespace_token();
-			$grp_tok  = $this->backend()->group_token( $group );
+			list($ns_tok, $grp_tok) = $this->backend()->generation_tokens( $group );
 			$item_key = $this->key_space->item_key( $ns_tok, $grp_tok, $group, $key );
 
 			$this->backend_calls   += 1;
@@ -3960,7 +4103,7 @@ namespace Mincemeat\ObjectCache {
 		 * @param mixed $value
 		 */
 		private function apply_integer_delta( $value, int $offset ): int {
-			$current = is_numeric( $value ) ? (int) $value : 0;
+			$current = $this->coerce_numeric_value( $value );
 
 			if ($offset === 0) {
 				return max( 0, $current );
@@ -3979,6 +4122,34 @@ namespace Mincemeat\ObjectCache {
 			}
 
 			return $current + $offset;
+		}
+
+		/**
+		 * Coerces a cached value according to the cross-tier numeric contract.
+		 *
+		 * Integers, floats, and decimal numeric strings are truncated toward zero.
+		 * Other values, including booleans and null, normalize to zero as they do in
+		 * WordPress core before arithmetic. The explicit decimal grammar prevents
+		 * Redis Lua's tonumber() extensions (for example hexadecimal strings) from
+		 * diverging from the request-local tier.
+		 *
+		 * @param mixed $value
+		 */
+		private function coerce_numeric_value( $value ): int {
+			if (is_int( $value ) || is_float( $value )) {
+				return (int) $value;
+			}
+
+			if ( ! is_string( $value )) {
+				return 0;
+			}
+
+			$candidate = trim( $value );
+			if ($candidate === '' || preg_match( '/^[+-]?(?:(?:\d+\.?\d*)|(?:\.\d+))(?:[eE][+-]?\d+)?$/D', $candidate ) !== 1) {
+				return 0;
+			}
+
+			return (int) $candidate;
 		}
 	}
 
@@ -4019,6 +4190,13 @@ namespace Mincemeat\ObjectCache {
 		 */
 		private $script_shas = array();
 
+		/**
+		 * Whether the active connection uses PhpRedis process-persistent reuse.
+		 *
+		 * @var bool
+		 */
+		private $persistent_reuse = false;
+
 		public function __construct() {
 		}
 
@@ -4039,7 +4217,8 @@ namespace Mincemeat\ObjectCache {
 			}
 
 			$this->redis = $this->create_redis_instance();
-			$this->script_shas = array();
+			$this->script_shas      = array();
+			$this->persistent_reuse = false;
 
 			$connected     = false;
 			$persistent_id = $config->persistent() && $this->persistent_pool_honors_id()
@@ -4102,6 +4281,7 @@ namespace Mincemeat\ObjectCache {
 			if ( ! $connected) {
 				throw new BackendException( 'connect-failed', 'Connection attempt failed.' );
 			}
+			$this->persistent_reuse = $persistent_id !== '';
 
 			$this->configure_options( $config );
 			if ($this->redis === null) {
@@ -4140,10 +4320,6 @@ namespace Mincemeat\ObjectCache {
 
 			// Unlink is supported on all supported backends (Redis >= 4.0).
 			$this->unlink_supported = true;
-
-			// Preload the numeric script. Failure is non-fatal because EVAL remains
-			// a correct fallback for servers or ACLs that do not permit SCRIPT LOAD.
-			$this->load_script( LuaScripts::INCR_DECR );
 		}
 
 		/**
@@ -4332,7 +4508,12 @@ namespace Mincemeat\ObjectCache {
 			$loaded_sha = $this->script_shas[ $source_sha ] ?? null;
 
 			if ($loaded_sha === null) {
-				return $this->redis->eval( $script, $arguments, count( $keys ) );
+				$result = $this->redis->eval( $script, $arguments, count( $keys ) );
+				if ($result !== false) {
+					// EVAL also populates the server-side script cache.
+					$this->script_shas[ $source_sha ] = $source_sha;
+				}
+				return $result;
 			}
 
 			$result = $this->redis->evalSha( $loaded_sha, $arguments, count( $keys ) );
@@ -4349,7 +4530,11 @@ namespace Mincemeat\ObjectCache {
 
 			// EVAL executes and repopulates the server's script cache, allowing the
 			// next call on this connection to return to EVALSHA.
-			return $this->redis->eval( $script, $arguments, count( $keys ) );
+			$result = $this->redis->eval( $script, $arguments, count( $keys ) );
+			if ($result !== false) {
+				$this->script_shas[ $source_sha ] = $source_sha;
+			}
+			return $result;
 		}
 
 		/**
@@ -4464,10 +4649,21 @@ namespace Mincemeat\ObjectCache {
 				$product = 'unknown';
 			}
 
+			$mode = isset( $info['redis_mode'] ) ? strtolower( trim( (string) $info['redis_mode'] ) ) : 'standalone';
+			if ( ! in_array( $mode, array( 'standalone', 'cluster', 'sentinel' ), true ) ) {
+				$mode = 'unknown';
+			}
+
+			$role = isset( $info['role'] ) ? strtolower( trim( (string) $info['role'] ) ) : 'unknown';
+			if ( ! in_array( $role, array( 'master', 'primary', 'slave', 'replica', 'sentinel' ), true ) ) {
+				$role = 'unknown';
+			}
+
 			$identity = array();
 			$identity['product']          = $product;
 			$identity['version']          = preg_match( '/^[0-9][0-9A-Za-z.+_-]{0,63}$/', $version ) === 1 ? $version : '';
-			$identity['mode']             = isset( $info['redis_mode'] ) ? (string) $info['redis_mode'] : 'standalone';
+			$identity['mode']             = $mode;
+			$identity['role']             = $role;
 			$identity['os']               = isset( $info['os'] ) ? (string) $info['os'] : '';
 			$identity['maxmemory_policy'] = isset( $info['maxmemory_policy'] ) ? (string) $info['maxmemory_policy'] : '';
 
@@ -4495,8 +4691,16 @@ namespace Mincemeat\ObjectCache {
 				$this->redis->close();
 			}
 
-			$this->redis = null;
-			$this->script_shas = array();
+			$this->redis            = null;
+			$this->script_shas       = array();
+			$this->persistent_reuse = false;
+		}
+
+		/**
+		 * Whether the active connection is reused across PHP requests/process work.
+		 */
+		public function persistent_reuse(): bool {
+			return $this->persistent_reuse;
 		}
 
 		/**
@@ -4671,27 +4875,6 @@ namespace Mincemeat\ObjectCache {
 			}
 
 			return (string) $actual === (string) $expected;
-		}
-
-		/**
-		 * Best-effort SCRIPT LOAD for this adapter connection.
-		 */
-		private function load_script( string $script ): void {
-			if ($this->redis === null) {
-				return;
-			}
-
-			$source_sha = sha1( $script );
-			try {
-				$loaded_sha = $this->redis->script( 'load', $script );
-				if (is_string( $loaded_sha ) && hash_equals( $source_sha, strtolower( $loaded_sha ) )) {
-					$this->script_shas[ $source_sha ] = $loaded_sha;
-				}
-				$this->redis->clearLastError();
-			} catch (\Throwable $e) {
-				// EVAL remains available as the correctness fallback.
-				return;
-			}
 		}
 	}
 
@@ -5022,6 +5205,10 @@ namespace Mincemeat\ObjectCache {
 		 * @return string
 		 */
 		private static function header( int $tag, int $length ): string {
+			if ( $tag < 0 || $tag > 255 ) {
+				throw new \LogicException( 'Value envelope tags must fit in one byte.' );
+			}
+
 			return self::MAGIC
 				. chr( self::VERSION )
 				. chr( $tag )

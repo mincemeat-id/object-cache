@@ -135,6 +135,42 @@ Supported keys:
 
 Sensitive fields must never be emitted raw in Site Health, test failures, package manifests, or logs.
 
+## V1 Topology and Consistency Policy
+
+The supported client topology is a direct connection to one standalone,
+writable Redis 8 or Valkey 9 primary. A primary may replicate server-side, but
+Mincemeat neither discovers nor addresses replicas. The following modes are not
+supported by v1:
+
+- Redis Cluster and multi-primary/sharded routing
+- Sentinel discovery, monitoring, or automatic failover
+- direct replica endpoints, replica reads, or client-side read splitting
+- managed proxies or Redis-compatible services whose routing, consistency, and
+  retry behavior is not part of the release matrix
+
+The ordinary `Redis` PhpRedis client is intentional; the adapter does not use
+`RedisCluster`, `RedisSentinel`, or read-replica failover modes. Generation-token
+`MGET` and pipelines also assume every key reaches the same writable primary.
+Site Health classifies normalized server-reported mode/role as `compatible`,
+`unsupported`, or `unverified`. Proxy detection is not reliable, so a proxy
+that presents a standalone-primary identity remains outside official support.
+
+Object-cache persistence is best effort and is not a data durability mechanism.
+Mincemeat dispatches each adapter operation once and does not replay an operation
+after the adapter throws. PhpRedis `OPT_MAX_RETRIES`, however, permits up to
+`max_retries` internal reconnect retries, so a mutating command can be ambiguous
+after a timeout or disconnect: it may have committed although the caller sees a
+runtime-memory fallback or failure. No `WAIT`/replica acknowledgement or durable
+write barrier is used, and cross-request read-after-write consistency is not
+promised. The request-local circuit prevents further backend commands after the
+first observed command failure.
+
+When `persistent` is false, connections are request-scoped. When true, the
+adapter uses a non-reversible connection identity covering transport, database,
+namespace, ACL, TLS, and retry settings. If the PhpRedis process pool cannot
+honor that identity, reuse is rejected and a request-scoped safety fallback is
+reported. Diagnostics expose requested and effective reuse separately.
+
 ## Cache Semantics
 
 The runtime must follow WordPress object-cache behavior:
@@ -147,6 +183,28 @@ The runtime must follow WordPress object-cache behavior:
 - Multiple operations preserve WordPress input shape and result semantics.
 - Numeric operations preserve WordPress behavior for missing and non-numeric values.
 - Flush operations are scoped to the operation being requested.
+
+Numeric increments and decrements use the following contract in request memory,
+Redis, and Valkey:
+
+| Input or condition | Behavior |
+| --- | --- |
+| Missing key | Return `false`; do not create an item |
+| Integer | Use the exact integer value |
+| Float or decimal/exponent string | Truncate toward zero before arithmetic |
+| Boolean, `null`, array, object, or non-decimal string | Normalize to zero before arithmetic |
+| Offset | Cast to an integer before arithmetic |
+| `PHP_INT_MIN` offset | Saturate safely without attempting an unrepresentable negation |
+| Negative result | Clamp to zero |
+| Result above `PHP_INT_MAX` | Saturate at `PHP_INT_MAX` |
+| Existing persistent TTL | Preserve it atomically |
+| Corrupt persistent envelope | Return `false` without arithmetic |
+
+This matches WordPress core for misses, integer arithmetic, non-numeric
+normalization, offset coercion, and the zero floor. WordPress core can return a
+float after starting from a fractional value or overflowing an integer despite
+its documented `int|false` return. Mincemeat deliberately truncates fractions
+and saturates overflow so every tier returns the documented integer type.
 
 For compatibility with plugins that inspect the global cache object, the
 runtime also exposes core-shaped `cache_hits`, `cache_misses`, `global_groups`,
@@ -197,6 +255,9 @@ The PhpRedis adapter owns all direct Redis/Valkey calls.
 PhpRedis 6.3.0 is the minimum supported client version. The adapter uses its
 server identity methods, bounded retry/backoff options, and per-connection Lua
 script cache while preserving the same cache semantics for Redis and Valkey.
+Server identity is collected only when diagnostics request it. Numeric scripts
+start with `EVAL`, which populates the server cache, and use `EVALSHA` on later
+calls; normal non-numeric requests do not run `INFO` or `SCRIPT LOAD`.
 
 Required behavior:
 
@@ -212,7 +273,9 @@ Required behavior:
   configured to ignore the supplied persistent identifier; never mutate the
   global pool pattern from the drop-in.
 - Avoid throwing backend exceptions into ordinary WordPress execution paths.
-- Redact host/path/credential information in diagnostics unless explicitly safe.
+- Classify connection context in diagnostics without retaining supplied hosts,
+  ports, database indexes, Unix-socket paths, credentials, raw cache keys, or
+  cached values. This invariant also applies to non-public/debug diagnostics.
 - Use Lua for atomic numeric or token operations only where it is portable across Redis 8 and Valkey 9.
 
 ## Failure Model
@@ -230,19 +293,35 @@ When Redis/Valkey is unavailable:
   once; diagnostics reads must not inflate failure counters.
 - Metrics and Site Health should expose the same stable state and reason code
   without including backend exception traces or connection identity.
+- Backend exception messages and traces are never copied into logs or operator
+  diagnostics. Debug logging is opt-in and bounded: once per CLI process; for
+  web requests, once per stable category per five minutes through a shared APCu
+  throttle. Web logging is suppressed when that shared limiter is unavailable.
+- A partially initialized adapter is closed best-effort before its reference is
+  discarded; cleanup errors cannot replace the original stable failure reason.
 
 ## Performance Guardrails
 
 Hot-path performance is measured by `tools/benchmark-soak.php` with fixed
 workloads, isolated namespaces, repeated samples, and median latency. Adapter
-round trips are asserted exactly where the harness can observe them, so batch
-operations cannot silently regress into additional network exchanges even when
-wall-clock timings are noisy.
+commands, round trips, and cold connections are asserted exactly where the
+harness can observe them, so batch operations cannot silently regress into
+additional network exchanges even when wall-clock timings are noisy. The cold
+workloads include a new namespace, first hit, first miss, first set, and first
+group before the steady-state workloads.
 
-Benchmark baselines are machine-local by default. A comparison is valid only
-when PHP, PhpRedis, backend product/version, and the controlled runner match;
-benchmark output must not expose target hosts or other connection details.
-Release notes may quote results only when that execution context is documented.
+Release evidence is a CI artifact, not an ignored mutable baseline. The same
+harness measures the immutable prior tag and two clean candidate runs against
+one backend on one runner. Each workload discards three warmups and retains 21
+raw samples; median latency is compared with a dual 25%/5 ms tolerance so tiny
+timer noise cannot fail a build. Command, round-trip, and connection counts
+remain exact deterministic gates. Reports record the source commit, runner/CPU,
+OS, PHP INI and extensions, backend image digest, warmup policy, and raw data.
+A comparison is rejected when those controlled environment fields differ, and
+target hosts are never included. Release notes may quote results only from the
+uploaded artifact with that execution context. Raw Redis EVAL and EVALSHA
+controls are retained as environmental signals but do not gate releases because
+they do not execute candidate runtime code.
 
 ## Companion Plugin Responsibilities
 
@@ -251,7 +330,9 @@ The companion plugin is allowed to integrate with normal WordPress plugin lifecy
 Responsibilities:
 
 - Copy/install the generated drop-in to `wp-content/object-cache.php`.
-- Remove the drop-in only if it matches the plugin-managed checksum.
+- Remove or replace the drop-in only if its complete SHA-256 matches either the
+  bundled drop-in or an immutable public-release entry in the lifecycle
+  ownership registry. Header markers alone never establish ownership.
 - Validate drop-in integrity.
 - Expose Site Health information.
 - Provide WP-CLI operations for install/remove/status when WP-CLI is available.
@@ -271,7 +352,7 @@ Site Health should report:
 - backend connection status
 - backend type/version when safe
 - selected transport type
-- redacted namespace/endpoint details
+- namespace digest and classified endpoint state
 - feature support
 - basic metrics and failure counters
 
@@ -279,8 +360,9 @@ Site Health must redact:
 
 - password
 - username when sensitive
-- TLS peer values if they reveal internal infrastructure
-- non-local hostnames or paths when they can expose private topology
+- all supplied hostnames, addresses, ports, database indexes, and socket paths
+- TLS peer values and file paths
+- exception messages, stack traces, raw cache keys, and cached values
 
 ## WP-CLI Design
 

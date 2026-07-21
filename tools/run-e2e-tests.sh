@@ -8,6 +8,7 @@ E2E_PORT=${MINCEMEAT_E2E_PORT:-8091}
 E2E_URL="http://host.docker.internal:$E2E_PORT"
 ADMIN_PASSWORD=${MINCEMEAT_E2E_ADMIN_PASSWORD:-admin-e2e-only}
 KEEP_ENV=${MINCEMEAT_E2E_KEEP_ENV:-0}
+WORDPRESS_VERSION=${MINCEMEAT_E2E_WORDPRESS_VERSION:-6.9.5}
 
 compose() {
 	docker compose -f "$COMPOSE_FILE" "$@"
@@ -59,6 +60,11 @@ for _ in $(seq 1 60); do
 	sleep 2
 done
 wp core version >/dev/null 2>&1 || fail 'WordPress did not become ready.'
+ACTUAL_WORDPRESS_VERSION=$(wp core version)
+if [[ "$WORDPRESS_VERSION" != "trunk" && "$ACTUAL_WORDPRESS_VERSION" != "$WORDPRESS_VERSION" ]]; then
+	fail "Expected WordPress $WORDPRESS_VERSION, got $ACTUAL_WORDPRESS_VERSION."
+fi
+printf 'Testing WordPress %s (requested %s).\n' "$ACTUAL_WORDPRESS_VERSION" "$WORDPRESS_VERSION"
 
 wp core install \
 	--url="http://host.docker.internal:$E2E_PORT" \

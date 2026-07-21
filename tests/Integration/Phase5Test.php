@@ -238,8 +238,11 @@ class Phase5Test extends IntegrationTestCase
         $ref_safe = new \ReflectionClass($this->backend);
         $prop_safe = $ref_safe->getProperty('server_info');
         $prop_safe->setAccessible(true);
+        $loaded_safe = $ref_safe->getProperty('server_info_loaded');
+        $loaded_safe->setAccessible(true);
         $old_info = $prop_safe->getValue($this->backend) ?: [];
         $prop_safe->setValue($this->backend, array_merge($old_info, array('maxmemory_policy' => 'volatile-lru')));
+        $loaded_safe->setValue($this->backend, true);
 
         $result_evict = SiteHealth::test_eviction_policy();
         $this->assertSame('good', $result_evict['status']);
@@ -275,6 +278,8 @@ class Phase5Test extends IntegrationTestCase
         $ref = new \ReflectionClass($unsafe_be);
         $prop = $ref->getProperty('server_info');
         $prop->setAccessible(true);
+        $loaded = $ref->getProperty('server_info_loaded');
+        $loaded->setAccessible(true);
         $prop->setValue($unsafe_be, array(
             'product' => 'redis',
             'version' => '8.0.0',
@@ -282,6 +287,7 @@ class Phase5Test extends IntegrationTestCase
             'os' => 'Linux',
             'maxmemory_policy' => 'noeviction', // Mocked policy
         ));
+        $loaded->setValue($unsafe_be, true);
 
         $result_unsafe_evict = SiteHealth::test_eviction_policy();
         $this->assertSame('recommended', $result_unsafe_evict['status']);

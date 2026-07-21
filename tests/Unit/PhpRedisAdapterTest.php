@@ -107,14 +107,10 @@ class PhpRedisAdapterTest extends TestCase
         ));
 
         $mockRedis = $this->getMockBuilder(\Redis::class)
-            ->onlyMethods(array('connect', 'setOption', 'getOption', 'script', 'clearLastError'))
+            ->onlyMethods(array('connect', 'setOption', 'getOption'))
             ->getMock();
 
         $this->allowOptionConfiguration($mockRedis);
-        $mockRedis->expects($this->once())
-            ->method('script')
-            ->with('load', LuaScripts::INCR_DECR)
-            ->willReturn(sha1(LuaScripts::INCR_DECR));
 
         $mockRedis->expects($this->once())
             ->method('connect')
@@ -132,6 +128,7 @@ class PhpRedisAdapterTest extends TestCase
         $adapter = new TestablePhpRedisAdapter($mockRedis);
         $adapter->connect($config);
         $this->assertTrue($adapter->supports_unlink());
+		$this->assertFalse($adapter->persistent_reuse());
     }
 
     public function test_connect_with_persistent_generates_canonical_id()
@@ -192,6 +189,7 @@ class PhpRedisAdapterTest extends TestCase
 
         $adapter = new TestablePhpRedisAdapter($mockRedis);
         $adapter->connect($config);
+		$this->assertTrue($adapter->persistent_reuse());
     }
 
     public function test_persistent_identity_isolates_database_acl_tls_and_namespace_changes()
@@ -239,9 +237,9 @@ class PhpRedisAdapterTest extends TestCase
         $redis->expects($this->once())->method('connect')->willReturn(true);
         $redis->method('script')->willReturn(false);
 
-        (new TestablePhpRedisAdapter($redis, '6.3.0', false))->connect(
-            $this->config(array('persistent' => true))
-        );
+        $adapter = new TestablePhpRedisAdapter($redis, '6.3.0', false);
+        $adapter->connect($this->config(array('persistent' => true)));
+		$this->assertFalse($adapter->persistent_reuse());
     }
 
     public function test_ping_issues_exactly_one_command()
@@ -341,7 +339,7 @@ class PhpRedisAdapterTest extends TestCase
         ));
 
         $this->assertSame(
-            array('product' => 'valkey', 'version' => '9.0.1', 'mode' => 'standalone', 'os' => '', 'maxmemory_policy' => 'allkeys-lru'),
+            array('product' => 'valkey', 'version' => '9.0.1', 'mode' => 'standalone', 'role' => 'unknown', 'os' => '', 'maxmemory_policy' => 'allkeys-lru'),
             $this->adapterWithRedis($redis)->server_info()
         );
     }
@@ -349,9 +347,10 @@ class PhpRedisAdapterTest extends TestCase
     public function serverInfoProvider(): array
     {
         return array(
-            'redis' => array(array('redis_version' => '8.0', 'redis_mode' => 'cluster'), array('product' => 'redis', 'version' => '8.0', 'mode' => 'cluster', 'os' => '', 'maxmemory_policy' => '')),
-            'valkey' => array(array('redis_version' => '7.2', 'valkey_version' => '9.0', 'os' => 'linux'), array('product' => 'valkey', 'version' => '9.0', 'mode' => 'standalone', 'os' => 'linux', 'maxmemory_policy' => '')),
-            'unknown' => array(array(), array('product' => 'unknown', 'version' => '', 'mode' => 'standalone', 'os' => '', 'maxmemory_policy' => '')),
+            'redis cluster primary' => array(array('redis_version' => '8.0', 'redis_mode' => 'cluster', 'role' => 'master'), array('product' => 'redis', 'version' => '8.0', 'mode' => 'cluster', 'role' => 'master', 'os' => '', 'maxmemory_policy' => '')),
+            'valkey standalone replica' => array(array('redis_version' => '7.2', 'valkey_version' => '9.0', 'role' => 'slave', 'os' => 'linux'), array('product' => 'valkey', 'version' => '9.0', 'mode' => 'standalone', 'role' => 'slave', 'os' => 'linux', 'maxmemory_policy' => '')),
+            'unknown' => array(array(), array('product' => 'unknown', 'version' => '', 'mode' => 'standalone', 'role' => 'unknown', 'os' => '', 'maxmemory_policy' => '')),
+			'unsafe identity values' => array(array('redis_version' => '8.0', 'redis_mode' => '/private/mode', 'role' => 'proxy-secret'), array('product' => 'redis', 'version' => '8.0', 'mode' => 'unknown', 'role' => 'unknown', 'os' => '', 'maxmemory_policy' => '')),
         );
     }
 
@@ -482,6 +481,29 @@ class PhpRedisAdapterTest extends TestCase
         $property->setValue($adapter, array($sha => $sha));
 
         $this->assertSame(array('OK'), $adapter->eval($script, array('key'), array('arg')));
+    }
+
+    public function test_eval_loads_script_lazily_without_script_load()
+    {
+        $script = 'return ARGV[1]';
+        $sha = sha1($script);
+        $redis = $this->getMockBuilder(\Redis::class)
+            ->onlyMethods(array('eval', 'evalSha', 'script'))
+            ->getMock();
+        $redis->expects($this->never())->method('script');
+        $redis->expects($this->once())
+            ->method('eval')
+            ->with($script, array('key', 'first'), 1)
+            ->willReturn(array('first'));
+        $redis->expects($this->once())
+            ->method('evalSha')
+            ->with($sha, array('key', 'second'), 1)
+            ->willReturn(array('second'));
+
+        $adapter = $this->adapterWithRedis($redis);
+
+        $this->assertSame(array('first'), $adapter->eval($script, array('key'), array('first')));
+        $this->assertSame(array('second'), $adapter->eval($script, array('key'), array('second')));
     }
 
     public function test_eval_does_not_fallback_for_non_noscript_error()
