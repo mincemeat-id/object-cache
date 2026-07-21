@@ -4,7 +4,7 @@ Tags: cache, object cache, redis, valkey, performance
 Requires at least: 6.9
 Tested up to: 7.0
 Requires PHP: 7.4
-Stable tag: 0.1.0-rc1
+Stable tag: 0.1.0-rc2
 License: GPL-3.0-or-later
 License URI: https://www.gnu.org/licenses/gpl-3.0.html
 
@@ -54,6 +54,16 @@ Version 1 supports one direct standalone writable primary. Server-side replicas 
 No. Object-cache writes are best effort. PhpRedis can retry after connection trouble, so a write may have committed even when the request observes a timeout and switches to request memory. Mincemeat does not promise durable writes, replication acknowledgement, or cross-request read-after-write consistency.
 
 == Changelog ==
+
+= 0.1.0-rc2 =
+* Hardened drop-in ownership and added packaged upgrade, rollback, recovery, and foreign-file preservation checks.
+* Expanded compatibility coverage to WordPress 6.9.5 and 7.0.2, with scheduled trunk monitoring and provenance-verified core tests.
+* Unified increment and decrement behavior across request memory, Redis, and Valkey, including overflow and falsey-value cases.
+* Reduced cold-request Redis/Valkey commands by lazily loading diagnostics and scripts and coalescing generation-token reads.
+* Made WooCommerce, Yoast SEO, and Easy Digital Downloads smoke tests fail on missing plugins, database errors, or unexpected PHP diagnostics.
+* Redacted failure diagnostics more strictly, bounded outage logging, and closed partially initialized clients.
+* Documented and diagnosed the supported direct standalone writable-primary topology and persistent connection reuse behavior.
+* Added reproducible RC1-to-RC2 performance evidence with raw samples, environment metadata, and deterministic network-work gates.
 
 = 0.1.0-rc1 =
 * Initial release.

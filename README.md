@@ -2,7 +2,7 @@
 
 Mincemeat Object Cache is a Redis/Valkey object-cache drop-in for WordPress, built on the PhpRedis extension. It provides a generated standalone `object-cache.php` runtime plus a small companion plugin for drop-in lifecycle, Site Health diagnostics, and WP-CLI operations.
 
-Status: `0.1.0-rc1` public testing release candidate. The project uses ZeroVer while the public API and operational behavior settle.
+Status: `0.1.0-rc2` public testing release candidate. The project uses ZeroVer while the public API and operational behavior settle.
 
 ## Requirements
 
