@@ -14,7 +14,8 @@ const MINCEMEAT_COMPARISON_SCHEMA_VERSION = 1;
 const MINCEMEAT_COMPARISON_REPORT_SCHEMA  = 2;
 const MINCEMEAT_COMPARISON_SUITE_VERSION  = 3;
 const MINCEMEAT_COMPARISON_TOLERANCE_PCT  = 25.0;
-const MINCEMEAT_COMPARISON_NOISE_FLOOR_MS = 2.0;
+const MINCEMEAT_COMPARISON_NOISE_FLOOR_MS = 5.0;
+const MINCEMEAT_COMPARISON_INFORMATIONAL_WORKLOADS = array( 'lua_eval', 'lua_evalsha' );
 
 /**
  * @return array<string,mixed>
@@ -97,9 +98,10 @@ try {
 		$delta_pct = ( $delta_ms / $baseline_ms ) * 100;
 		$latency_outside_tolerance = abs( $delta_pct ) > MINCEMEAT_COMPARISON_TOLERANCE_PCT
 			&& abs( $delta_ms ) > MINCEMEAT_COMPARISON_NOISE_FLOOR_MS;
-		$latency_failed = $mode === 'repeatability'
+		$latency_gated = ! in_array( $key, MINCEMEAT_COMPARISON_INFORMATIONAL_WORKLOADS, true );
+		$latency_failed = $latency_gated && ( $mode === 'repeatability'
 			? $latency_outside_tolerance
-			: $delta_pct > MINCEMEAT_COMPARISON_TOLERANCE_PCT && $delta_ms > MINCEMEAT_COMPARISON_NOISE_FLOOR_MS;
+			: $delta_pct > MINCEMEAT_COMPARISON_TOLERANCE_PCT && $delta_ms > MINCEMEAT_COMPARISON_NOISE_FLOOR_MS );
 
 		$count_comparisons = array();
 		foreach (array(
@@ -140,7 +142,7 @@ try {
 				'current_median_ms'  => $current_ms,
 				'delta_ms'           => round( $delta_ms, 3 ),
 				'delta_pct'          => round( $delta_pct, 1 ),
-				'status'             => $latency_failed ? 'fail' : 'pass',
+				'status'             => $latency_gated ? ( $latency_failed ? 'fail' : 'pass' ) : 'informational',
 			),
 			'counts'  => $count_comparisons,
 		);

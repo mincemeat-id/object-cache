@@ -187,11 +187,12 @@ exist, while a brand-new namespace uses three.
 Artifacts under `build/benchmarks/` record raw samples, source commit, CPU and
 runner identity, operating system, loaded/scanned PHP INI, relevant INI values,
 loaded extension versions, backend product/version, and backend image digest.
-The two current runs must agree unless both the absolute change exceeds 2 ms and
+The two current runs must agree unless both the absolute change exceeds 5 ms and
 the relative change exceeds 25%; an RC2 regression against RC1 uses the same
 dual threshold, while command, round-trip, and connection increases fail
 deterministically. CI uploads all reports and comparisons. Connection targets
-are intentionally omitted.
+are intentionally omitted. The raw Redis EVAL/EVALSHA controls remain visible
+but informational because they do not execute the compared runtime.
 
 Run the isolated real-WordPress browser and WP-CLI suite (Docker Compose required):
 

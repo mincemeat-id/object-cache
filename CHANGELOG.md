@@ -31,7 +31,8 @@
   PhpRedis persistent connection reuse diagnostics.
 - Replaced the ignored local performance baseline with controlled immutable-RC1
   and two-run candidate evidence, including reproducibility metadata, raw
-  samples, deterministic network-work gates, and dual-threshold latency checks.
+  samples, deterministic network-work gates, dual-threshold runtime latency
+  checks, and non-gating raw-backend controls for interpreting runner noise.
 
 ## [0.1.0-rc1] - 2026-07-13
 

@@ -313,13 +313,15 @@ group before the steady-state workloads.
 Release evidence is a CI artifact, not an ignored mutable baseline. The same
 harness measures the immutable prior tag and two clean candidate runs against
 one backend on one runner. Each workload discards three warmups and retains 21
-raw samples; median latency is compared with a dual 25%/2 ms tolerance so tiny
+raw samples; median latency is compared with a dual 25%/5 ms tolerance so tiny
 timer noise cannot fail a build. Command, round-trip, and connection counts
 remain exact deterministic gates. Reports record the source commit, runner/CPU,
 OS, PHP INI and extensions, backend image digest, warmup policy, and raw data.
 A comparison is rejected when those controlled environment fields differ, and
 target hosts are never included. Release notes may quote results only from the
-uploaded artifact with that execution context.
+uploaded artifact with that execution context. Raw Redis EVAL and EVALSHA
+controls are retained as environmental signals but do not gate releases because
+they do not execute candidate runtime code.
 
 ## Companion Plugin Responsibilities
 
