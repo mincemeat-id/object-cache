@@ -25,7 +25,7 @@
   scripts and coalescing namespace/group generation-token resolution, with
   deterministic command and round-trip guardrails for cold requests.
 - Made compatibility smoke tests fail on missing or mismatched plugins,
-  unexpected PHP diagnostics, and database errors; updated the exact
+  unexpected PHP diagnostics, and post-install database errors; updated the exact
   WooCommerce, Yoast SEO, and Easy Digital Downloads fixtures and report them
   in bounded machine-readable output.
 - Hardened configuration and failure diagnostics around stable reason codes,

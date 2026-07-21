@@ -27,7 +27,11 @@ final class NumericContractCases
             'null'                   => array(null, 1, 1, 1),
             'non-numeric string'     => array('word', 2, 2, 2),
             'integer string'         => array('42', 1, 43, 43),
-            'signed integer string'  => array('  +42  ', 1, 43, 43),
+            // PHP 7.4 does not classify trailing whitespace as part of a
+            // numeric string, so the maintained WordPress core class starts
+            // from zero there. Mincemeat intentionally normalizes whitespace
+            // consistently across every supported PHP and backend tier.
+            'signed integer string'  => array('  +42  ', 1, 43, PHP_VERSION_ID < 80000 ? 1 : 43),
             'decimal string'         => array('3.75', 1, 4, 4.75),
             'exponent string'        => array('1e2', 1, 101, 101.0),
             'float'                  => array(3.75, 1, 4, 4.75),

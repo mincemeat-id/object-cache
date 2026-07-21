@@ -3,8 +3,9 @@
  * Strict compatibility smoke test for pinned third-party plugins.
  *
  * The command boots real plugin entry points against the WordPress test
- * installation, runs their activation installers, rejects PHP diagnostics and
- * database errors, and writes a bounded machine-readable result.
+ * installation, runs their activation installers, rejects unexpected PHP
+ * diagnostics and post-install database errors, and writes a bounded
+ * machine-readable result.
  *
  * @package Mincemeat\ObjectCache
  */
@@ -48,6 +49,35 @@ function mincemeat_smoke_plugin_version( string $path ): string {
 	return trim( $matches[1] );
 }
 
+/**
+ * Separates expected plugin schema-discovery misses from actionable errors.
+ *
+ * WordPress records a missing-table query even when a plugin installer is
+ * about to create that exact table. Only missing tables owned by the pinned
+ * plugin families are accepted, and representative tables are verified after
+ * all installers finish.
+ *
+ * @param array<int,mixed> $errors WordPress database errors.
+ * @param string           $prefix Active WordPress table prefix.
+ * @return array{0:array<int,mixed>,1:int} Remaining errors and accepted probes.
+ */
+function mincemeat_smoke_partition_installer_errors( array $errors, string $prefix ): array {
+	$remaining = array();
+	$accepted  = 0;
+	$pattern   = "/^Table '[^']+\\." . preg_quote( $prefix, '/' ) . "(?:yoast_|woocommerce_|wc_|actionscheduler_|edd_)[^']*' doesn't exist$/";
+
+	foreach ($errors as $error) {
+		$message = is_array( $error ) ? (string) ( $error['error_str'] ?? '' ) : '';
+		if (preg_match( $pattern, $message ) === 1) {
+			++$accepted;
+			continue;
+		}
+		$remaining[] = $error;
+	}
+
+	return array( $remaining, $accepted );
+}
+
 $root_dir    = dirname( __DIR__ );
 $wp_tests_dir = realpath( $root_dir . '/tests/wp-tests' );
 $dropin_src   = realpath( $root_dir . '/stubs/object-cache.php' );
@@ -65,6 +95,7 @@ $report = array(
 	'plugins'                 => array(),
 	'php_diagnostic_count'    => 0,
 	'allowed_diagnostic_count' => 0,
+	'installer_database_probe_count' => 0,
 	'database_error_count'    => 0,
 	'captured_output_bytes'   => 0,
 	'failures'                => array(),
@@ -203,7 +234,7 @@ $core_source_fixture_allowlist = array(
 	),
 	array(
 		'severity'       => E_WARNING,
-		'message_pattern' => '/^foreach\(\) argument must be of type array\|object, false given$/',
+		'message_pattern' => '/^foreach\(\) argument must be of type array\|object, (?:bool|false) given$/',
 		'file_pattern'    => '/wp-includes\/(?:script-loader|script-modules)\.php$/',
 	),
 );
@@ -235,11 +266,13 @@ set_error_handler(
 	}
 );
 
+$installer_database_probe_count = 0;
+
 require_once $wp_tests_dir . '/tests/phpunit/includes/functions.php';
 
 tests_add_filter(
 	'muplugins_loaded',
-	function () use ($plugins): void {
+	function () use ($plugins, &$installer_database_probe_count): void {
 		global $wpdb;
 		if (isset( $wpdb ) && is_object( $wpdb )) {
 			// Keep output bounded; EZSQL_ERROR remains the failure source of truth.
@@ -253,7 +286,8 @@ tests_add_filter(
 		// Install component tables before init-time cron loaders query them.
 		add_action(
 			'plugins_loaded',
-			function (): void {
+			function () use (&$installer_database_probe_count): void {
+				global $wpdb;
 				if (class_exists( 'WC_Install' )) {
 					WC_Install::create_tables();
 				}
@@ -261,6 +295,9 @@ tests_add_filter(
 					edd_setup_components();
 					edd_install_component_database_tables();
 				}
+				$errors = isset( $GLOBALS['EZSQL_ERROR'] ) && is_array( $GLOBALS['EZSQL_ERROR'] ) ? $GLOBALS['EZSQL_ERROR'] : array();
+				list( $GLOBALS['EZSQL_ERROR'], $accepted ) = mincemeat_smoke_partition_installer_errors( $errors, $wpdb->prefix );
+				$installer_database_probe_count += $accepted;
 			},
 			101
 		);
@@ -269,7 +306,8 @@ tests_add_filter(
 		// priority 1 data stores and WordPress rewrite globals are ready.
 		add_action(
 			'init',
-			function (): void {
+			function () use (&$installer_database_probe_count): void {
+				global $wpdb;
 				if (class_exists( 'WC_Install' )) {
 					WC_Install::install();
 				}
@@ -279,6 +317,9 @@ tests_add_filter(
 				if (function_exists( 'edd_install' )) {
 					edd_install( false );
 				}
+				$errors = isset( $GLOBALS['EZSQL_ERROR'] ) && is_array( $GLOBALS['EZSQL_ERROR'] ) ? $GLOBALS['EZSQL_ERROR'] : array();
+				list( $GLOBALS['EZSQL_ERROR'], $accepted ) = mincemeat_smoke_partition_installer_errors( $errors, $wpdb->prefix );
+				$installer_database_probe_count += $accepted;
 			},
 			6
 		);
@@ -306,6 +347,7 @@ try {
 }
 $captured_output = (string) ob_get_clean();
 $report['captured_output_bytes'] = strlen( $captured_output );
+$report['installer_database_probe_count'] = $installer_database_probe_count;
 if (strlen( $captured_output ) > MINCEMEAT_SMOKE_MAX_OUTPUT_BYTES) {
 	$report['failures'][] = 'bootstrap-output-limit-exceeded';
 }
@@ -367,7 +409,9 @@ if ( ! function_exists( 'EDD' ) || ! is_object( EDD() )) {
 
 if (isset( $wpdb ) && is_object( $wpdb )) {
 	$required_tables = array(
+		$wpdb->prefix . 'yoast_migrations',
 		$wpdb->prefix . 'woocommerce_sessions',
+		$wpdb->prefix . 'actionscheduler_actions',
 		$wpdb->prefix . 'edd_customers',
 	);
 	foreach ($required_tables as $required_table) {

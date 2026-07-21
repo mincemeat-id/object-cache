@@ -60,7 +60,7 @@ No. Object-cache writes are best effort. PhpRedis can retry after connection tro
 * Expanded compatibility coverage to WordPress 6.9.5 and 7.0.2, with scheduled trunk monitoring and provenance-verified core tests.
 * Unified increment and decrement behavior across request memory, Redis, and Valkey, including overflow and falsey-value cases.
 * Reduced cold-request Redis/Valkey commands by lazily loading diagnostics and scripts and coalescing generation-token reads.
-* Made WooCommerce, Yoast SEO, and Easy Digital Downloads smoke tests fail on missing plugins, database errors, or unexpected PHP diagnostics.
+* Made WooCommerce, Yoast SEO, and Easy Digital Downloads smoke tests fail on missing plugins, post-install database errors, or unexpected PHP diagnostics.
 * Redacted failure diagnostics more strictly, bounded outage logging, and closed partially initialized clients.
 * Documented and diagnosed the supported direct standalone writable-primary topology and persistent connection reuse behavior.
 * Added reproducible RC1-to-RC2 performance evidence with raw samples, environment metadata, and deterministic network-work gates.
