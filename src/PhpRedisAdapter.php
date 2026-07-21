@@ -49,6 +49,13 @@ class PhpRedisAdapter {
 	 */
 	private $script_shas = array();
 
+	/**
+	 * Whether the active connection uses PhpRedis process-persistent reuse.
+	 *
+	 * @var bool
+	 */
+	private $persistent_reuse = false;
+
 	public function __construct() {
 	}
 
@@ -69,7 +76,8 @@ class PhpRedisAdapter {
 		}
 
 		$this->redis = $this->create_redis_instance();
-		$this->script_shas = array();
+		$this->script_shas      = array();
+		$this->persistent_reuse = false;
 
 		$connected     = false;
 		$persistent_id = $config->persistent() && $this->persistent_pool_honors_id()
@@ -132,6 +140,7 @@ class PhpRedisAdapter {
 		if ( ! $connected) {
 			throw new BackendException( 'connect-failed', 'Connection attempt failed.' );
 		}
+		$this->persistent_reuse = $persistent_id !== '';
 
 		$this->configure_options( $config );
 		if ($this->redis === null) {
@@ -499,10 +508,21 @@ class PhpRedisAdapter {
 			$product = 'unknown';
 		}
 
+		$mode = isset( $info['redis_mode'] ) ? strtolower( trim( (string) $info['redis_mode'] ) ) : 'standalone';
+		if ( ! in_array( $mode, array( 'standalone', 'cluster', 'sentinel' ), true ) ) {
+			$mode = 'unknown';
+		}
+
+		$role = isset( $info['role'] ) ? strtolower( trim( (string) $info['role'] ) ) : 'unknown';
+		if ( ! in_array( $role, array( 'master', 'primary', 'slave', 'replica', 'sentinel' ), true ) ) {
+			$role = 'unknown';
+		}
+
 		$identity = array();
 		$identity['product']          = $product;
 		$identity['version']          = preg_match( '/^[0-9][0-9A-Za-z.+_-]{0,63}$/', $version ) === 1 ? $version : '';
-		$identity['mode']             = isset( $info['redis_mode'] ) ? (string) $info['redis_mode'] : 'standalone';
+		$identity['mode']             = $mode;
+		$identity['role']             = $role;
 		$identity['os']               = isset( $info['os'] ) ? (string) $info['os'] : '';
 		$identity['maxmemory_policy'] = isset( $info['maxmemory_policy'] ) ? (string) $info['maxmemory_policy'] : '';
 
@@ -530,8 +550,16 @@ class PhpRedisAdapter {
 			$this->redis->close();
 		}
 
-		$this->redis = null;
-		$this->script_shas = array();
+		$this->redis            = null;
+		$this->script_shas       = array();
+		$this->persistent_reuse = false;
+	}
+
+	/**
+	 * Whether the active connection is reused across PHP requests/process work.
+	 */
+	public function persistent_reuse(): bool {
+		return $this->persistent_reuse;
 	}
 
 	/**

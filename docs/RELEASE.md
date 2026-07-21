@@ -56,6 +56,15 @@ preservation before publishing a candidate.
 
 Full release confidence comes from CI across supported PHP versions, Redis 8, Valkey 9, single site, multisite, TCP, TLS, ACL, Unix socket, backend outages, browser flows, and WP-CLI lifecycle checks.
 
+RC2 and v1 release notes must describe the supported topology as one direct
+standalone writable primary. Do not imply support for Cluster, Sentinel,
+replica reads, direct replicas, multi-primary routing, or managed proxies until
+those modes have dedicated designs and release matrices. Release validation
+must confirm that Site Health reports a standalone primary as compatible,
+Cluster/Sentinel/replica identities as unsupported, and incomplete identities
+as unverified. It must also record requested versus effective PhpRedis
+persistent reuse and retain the documented ambiguous-write caveat.
+
 ## Package Artifacts
 
 `php tools/build-package.php` produces:

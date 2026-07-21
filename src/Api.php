@@ -27,6 +27,14 @@ final class Api {
 	/** Value envelope schema version. */
 	public const SCHEMA_VERSION = '1';
 
+	/** Supported v1 backend topology. */
+	public const TOPOLOGY_POLICY = 'standalone-single-primary';
+
+	/** Server-reported topology classifications. */
+	public const TOPOLOGY_COMPATIBLE = 'compatible';
+	public const TOPOLOGY_UNSUPPORTED = 'unsupported';
+	public const TOPOLOGY_UNVERIFIED  = 'unverified';
+
 	/** Native WordPress cache features implemented by this drop-in. */
 	public const NATIVE_FEATURES = array(
 		'add_multiple',
@@ -143,13 +151,24 @@ final class Api {
 			'php_version'           => PHP_VERSION,
 			'phpredis_version'      => $redis_version,
 			'phpredis_minimum'      => PhpRedisAdapter::MINIMUM_VERSION,
+			'topology_policy'       => self::TOPOLOGY_POLICY,
+			'persistent_requested'  => false,
+			'persistent_reuse'      => false,
+			'connection_reuse'      => 'disabled',
 		);
 
+		$server_info = null;
 		if ( $cache ) {
 			$config = $cache->config();
 			if ( $config ) {
 				$diagnostics = array_merge( $diagnostics, $config->redacted_diagnostics( $is_public ) );
+				$diagnostics['persistent_requested'] = $config->persistent();
 			}
+			$diagnostics['persistent_reuse'] = $cache->persistent_reuse();
+			if ( $diagnostics['persistent_requested'] ) {
+				$diagnostics['connection_reuse'] = $diagnostics['persistent_reuse'] ? 'active' : 'request-scoped-safety-fallback';
+			}
+
 			$server_info = $cache->server_info();
 			if ( $server_info ) {
 				if ( $is_public ) {
@@ -162,6 +181,7 @@ final class Api {
 				}
 			}
 		}
+		$diagnostics = array_merge( $diagnostics, self::topology_diagnostics( $server_info ) );
 
 		if ( function_exists( 'apply_filters' ) ) {
 			$diagnostics = apply_filters( 'mincemeat_object_cache_diagnostics', $diagnostics );
@@ -203,5 +223,44 @@ final class Api {
 	 */
 	private static function non_persistent_group_names( ObjectCache $cache ): array {
 		return array_keys( $cache->non_persistent_groups() );
+	}
+
+	/**
+	 * Classifies only bounded, server-reported topology fields.
+	 *
+	 * Managed proxies cannot be detected reliably and therefore remain outside
+	 * the support policy even when they report a compatible-looking identity.
+	 *
+	 * @param array<string,string>|null $server_info Sanitized server identity.
+	 * @return array{topology_status:string,topology_mode:string,topology_role:string}
+	 */
+	private static function topology_diagnostics( ?array $server_info ): array {
+		$mode = $server_info !== null ? strtolower( trim( (string) ( $server_info['mode'] ?? '' ) ) ) : '';
+		$role = $server_info !== null ? strtolower( trim( (string) ( $server_info['role'] ?? '' ) ) ) : '';
+
+		if ( ! in_array( $mode, array( 'standalone', 'cluster', 'sentinel' ), true ) ) {
+			$mode = 'unknown';
+		}
+
+		if ( in_array( $role, array( 'master', 'primary' ), true ) ) {
+			$role = 'primary';
+		} elseif ( in_array( $role, array( 'slave', 'replica' ), true ) ) {
+			$role = 'replica';
+		} elseif ( $role !== 'sentinel' ) {
+			$role = 'unknown';
+		}
+
+		$status = self::TOPOLOGY_UNVERIFIED;
+		if ( in_array( $mode, array( 'cluster', 'sentinel' ), true ) || in_array( $role, array( 'replica', 'sentinel' ), true ) ) {
+			$status = self::TOPOLOGY_UNSUPPORTED;
+		} elseif ( $mode === 'standalone' && $role === 'primary' ) {
+			$status = self::TOPOLOGY_COMPATIBLE;
+		}
+
+		return array(
+			'topology_status' => $status,
+			'topology_mode'   => $mode,
+			'topology_role'   => $role,
+		);
 	}
 }

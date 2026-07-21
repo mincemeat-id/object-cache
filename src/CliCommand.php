@@ -33,6 +33,8 @@ final class CliCommand {
 		WP_CLI::line( 'Drop-in Status: ' . $state );
 		WP_CLI::line( 'Cache Status:   ' . $diagnostics['state'] );
 		WP_CLI::line( 'Reason:         ' . $diagnostics['reason'] );
+		WP_CLI::line( 'Topology:       ' . $diagnostics['topology_status'] . ' (' . $diagnostics['topology_mode'] . '/' . $diagnostics['topology_role'] . ')' );
+		WP_CLI::line( 'Connection Reuse: ' . $diagnostics['connection_reuse'] );
 
 		if ( isset( $diagnostics['scheme'] ) ) {
 			WP_CLI::line( 'Scheme:         ' . $diagnostics['scheme'] );

@@ -59,6 +59,8 @@ class SiteHealthTest extends TestCase
 
 		$this->assertArrayHasKey( 'mincemeat_object_cache_dropin', $registered['direct'] );
 		$this->assertArrayHasKey( 'mincemeat_object_cache_connection', $registered['direct'] );
+		$this->assertArrayHasKey( 'mincemeat_object_cache_topology', $registered['direct'] );
+		$this->assertArrayHasKey( 'mincemeat_object_cache_connection_reuse', $registered['direct'] );
 		$this->assertArrayHasKey( 'mincemeat_object_cache_tls', $registered['direct'] );
 		$this->assertArrayHasKey( 'mincemeat_object_cache_ttl', $registered['direct'] );
 		$this->assertArrayHasKey( 'mincemeat_object_cache_eviction', $registered['direct'] );
@@ -285,6 +287,66 @@ class SiteHealthTest extends TestCase
 		$this->assertStringContainsString( 'disabled', $res['label'] );
 	}
 
+	/** @dataProvider topology_provider */
+	public function test_topology_classification( string $mode, string $role, string $expected_status, string $expected_health )
+	{
+		$key_space = new KeySpace( false, 1 );
+		$adapter   = $this->createMock( PhpRedisAdapter::class );
+		$adapter->method( 'server_info' )->willReturn( array(
+			'product' => 'redis',
+			'version' => '8.0.0',
+			'mode'    => $mode,
+			'role'    => $role,
+		) );
+		$backend = new Backend( $key_space, $adapter );
+		$backend->initialize( new Config( array( 'namespace' => 'topology-test' ) ) );
+		$GLOBALS['wp_object_cache'] = new ObjectCache( $key_space, $backend );
+
+		$diagnostics = Api::diagnostics();
+		$this->assertSame( $expected_status, $diagnostics['topology_status'] );
+
+		$result = SiteHealth::test_topology();
+		$this->assertSame( $expected_health, $result['status'] );
+	}
+
+	public function topology_provider(): array
+	{
+		return array(
+			'standalone primary' => array( 'standalone', 'master', Api::TOPOLOGY_COMPATIBLE, 'good' ),
+			'cluster primary' => array( 'cluster', 'master', Api::TOPOLOGY_UNSUPPORTED, 'critical' ),
+			'sentinel' => array( 'sentinel', 'sentinel', Api::TOPOLOGY_UNSUPPORTED, 'critical' ),
+			'direct replica' => array( 'standalone', 'replica', Api::TOPOLOGY_UNSUPPORTED, 'critical' ),
+			'unverified proxy' => array( 'unknown', 'unknown', Api::TOPOLOGY_UNVERIFIED, 'recommended' ),
+		);
+	}
+
+	/** @dataProvider connection_reuse_provider */
+	public function test_connection_reuse_classification( bool $requested, bool $effective, string $expected_status, string $expected_reuse )
+	{
+		$key_space = new KeySpace( false, 1 );
+		$adapter   = $this->createMock( PhpRedisAdapter::class );
+		$adapter->method( 'persistent_reuse' )->willReturn( $effective );
+		$backend = new Backend( $key_space, $adapter );
+		$backend->initialize( new Config( array(
+			'namespace'  => 'reuse-test',
+			'persistent' => $requested,
+		) ) );
+		$GLOBALS['wp_object_cache'] = new ObjectCache( $key_space, $backend );
+
+		$diagnostics = Api::diagnostics();
+		$this->assertSame( $expected_reuse, $diagnostics['connection_reuse'] );
+		$this->assertSame( $expected_status, SiteHealth::test_connection_reuse()['status'] );
+	}
+
+	public function connection_reuse_provider(): array
+	{
+		return array(
+			'disabled' => array( false, false, 'good', 'disabled' ),
+			'active' => array( true, true, 'good', 'active' ),
+			'safety fallback' => array( true, false, 'recommended', 'request-scoped-safety-fallback' ),
+		);
+	}
+
 	public function test_debug_information()
 	{
 		$key_space = new KeySpace( false, 1 );
@@ -293,6 +355,8 @@ class SiteHealthTest extends TestCase
 		$adapter->method( 'server_info' )->willReturn( array(
 			'product'          => 'redis',
 			'version'          => '8.0.0',
+			'mode'             => 'standalone',
+			'role'             => 'master',
 			'maxmemory_policy' => 'allkeys-lru',
 		) );
 		$backend = new Backend( $key_space, $adapter );
@@ -314,6 +378,11 @@ class SiteHealthTest extends TestCase
 		$this->assertSame( '6.3.0', $fields['phpredis_minimum']['value'] );
 		$this->assertSame( '***', $fields['database']['value'] );
 		$this->assertStringContainsString( 'Redis 8.0.0', $fields['server_identity']['value'] );
+		$this->assertSame( Api::TOPOLOGY_POLICY, $fields['topology_policy']['value'] );
+		$this->assertSame( Api::TOPOLOGY_COMPATIBLE, $fields['topology_status']['value'] );
+		$this->assertSame( 'standalone', $fields['topology_mode']['value'] );
+		$this->assertSame( 'primary', $fields['topology_role']['value'] );
+		$this->assertSame( 'disabled', $fields['connection_reuse']['value'] );
 		$this->assertSame( 'tcp://configured:***', $fields['endpoint']['value'] );
 		$this->assertSame( 'absent', $fields['dropin_status']['value'] );
 	}

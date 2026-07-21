@@ -873,6 +873,13 @@ final class ObjectCache {
 	}
 
 	/**
+	 * Whether PhpRedis process-persistent connection reuse is effective.
+	 */
+	public function persistent_reuse(): bool {
+		return $this->backend !== null && $this->backend->persistent_reuse();
+	}
+
+	/**
 	 * Returns the configured maximum TTL in seconds.
 	 *
 	 * @return int

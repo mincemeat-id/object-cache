@@ -186,6 +186,13 @@ final class Backend {
 	}
 
 	/**
+	 * Whether PhpRedis process-persistent connection reuse is effective.
+	 */
+	public function persistent_reuse(): bool {
+		return $this->adapter !== null && $this->adapter->persistent_reuse();
+	}
+
+	/**
 	 * Returns the adapter required by persistent-only operations.
 	 *
 	 * @throws \LogicException If called outside the persistent invariant.

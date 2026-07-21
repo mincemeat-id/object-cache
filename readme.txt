@@ -18,6 +18,7 @@ Key facts:
 
 * Requires PHP 7.4 or later. Official support is strictly limited to PHP versions actively tested in the continuous integration matrix (currently PHP 7.4 through PHP 8.5; PHP 8.5 support also depends on the wider WordPress installation stack). Future PHP versions (such as PHP 8.6+) are not officially supported until explicitly validated in the test suite.
 * Requires PhpRedis 6.3.0 or later (v1 of this plugin uses PhpRedis only).
+* Supports one direct Redis 8 or Valkey 9 standalone writable primary. Cluster, Sentinel discovery, direct replicas, replica reads, multi-primary routing, and managed proxies are outside the v1 support matrix.
 * Configured via the `MINCEMEAT_OBJECT_CACHE_CONFIG` array constant in wp-config.php.
 * Has NO settings page. All diagnostics are surfaced through WordPress Site Health.
 * The runtime cache implementation lives in the generated standalone `wp-content/object-cache.php` drop-in file. This companion plugin provides drop-in lifecycle, Site Health, and minimal WP-CLI integration.
@@ -43,6 +44,14 @@ There is no settings page. All configuration is done via the `MINCEMEAT_OBJECT_C
 = Do I need Predis/Relay? =
 
 No. Mincemeat Object Cache v1 uses the PhpRedis extension only. Predis and Relay are not required and are not loaded.
+
+= What Redis or Valkey topology is supported? =
+
+Version 1 supports one direct standalone writable primary. Server-side replicas are acceptable only when Mincemeat connects to the primary and never reads from replicas. Cluster, Sentinel discovery or failover, direct replica endpoints, read splitting, multi-primary systems, and managed proxies are unsupported or unverified. Site Health reports the server-provided mode and role when available.
+
+= Are cache writes guaranteed after a timeout? =
+
+No. Object-cache writes are best effort. PhpRedis can retry after connection trouble, so a write may have committed even when the request observes a timeout and switches to request memory. Mincemeat does not promise durable writes, replication acknowledgement, or cross-request read-after-write consistency.
 
 == Changelog ==
 

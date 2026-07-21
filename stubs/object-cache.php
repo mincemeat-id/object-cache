@@ -7,7 +7,7 @@
  * Version: 0.1.0-rc1
  * Drop-in Version: 0.1.0-rc1
  * Schema Version: 1
- * Build Hash: 21b603ce27ca6e56a517450d3e43da4a98781050b480dcecc3c93f130342691b
+ * Build Hash: f0f76f3612457bdf12faa88994b8704d81c5da5a9e0ea71d6452bf7746bc5da9
  *
  * @package Mincemeat\ObjectCache
  */
@@ -30,6 +30,14 @@ namespace Mincemeat\ObjectCache {
 
 		/** Value envelope schema version. */
 		public const SCHEMA_VERSION = '1';
+
+		/** Supported v1 backend topology. */
+		public const TOPOLOGY_POLICY = 'standalone-single-primary';
+
+		/** Server-reported topology classifications. */
+		public const TOPOLOGY_COMPATIBLE = 'compatible';
+		public const TOPOLOGY_UNSUPPORTED = 'unsupported';
+		public const TOPOLOGY_UNVERIFIED  = 'unverified';
 
 		/** Native WordPress cache features implemented by this drop-in. */
 		public const NATIVE_FEATURES = array(
@@ -147,13 +155,24 @@ namespace Mincemeat\ObjectCache {
 				'php_version'           => PHP_VERSION,
 				'phpredis_version'      => $redis_version,
 				'phpredis_minimum'      => PhpRedisAdapter::MINIMUM_VERSION,
+				'topology_policy'       => self::TOPOLOGY_POLICY,
+				'persistent_requested'  => false,
+				'persistent_reuse'      => false,
+				'connection_reuse'      => 'disabled',
 			);
 
+			$server_info = null;
 			if ( $cache ) {
 				$config = $cache->config();
 				if ( $config ) {
 					$diagnostics = array_merge( $diagnostics, $config->redacted_diagnostics( $is_public ) );
+					$diagnostics['persistent_requested'] = $config->persistent();
 				}
+				$diagnostics['persistent_reuse'] = $cache->persistent_reuse();
+				if ( $diagnostics['persistent_requested'] ) {
+					$diagnostics['connection_reuse'] = $diagnostics['persistent_reuse'] ? 'active' : 'request-scoped-safety-fallback';
+				}
+
 				$server_info = $cache->server_info();
 				if ( $server_info ) {
 					if ( $is_public ) {
@@ -166,6 +185,7 @@ namespace Mincemeat\ObjectCache {
 					}
 				}
 			}
+			$diagnostics = array_merge( $diagnostics, self::topology_diagnostics( $server_info ) );
 
 			if ( function_exists( 'apply_filters' ) ) {
 				$diagnostics = apply_filters( 'mincemeat_object_cache_diagnostics', $diagnostics );
@@ -207,6 +227,45 @@ namespace Mincemeat\ObjectCache {
 		 */
 		private static function non_persistent_group_names( ObjectCache $cache ): array {
 			return array_keys( $cache->non_persistent_groups() );
+		}
+
+		/**
+		 * Classifies only bounded, server-reported topology fields.
+		 *
+		 * Managed proxies cannot be detected reliably and therefore remain outside
+		 * the support policy even when they report a compatible-looking identity.
+		 *
+		 * @param array<string,string>|null $server_info Sanitized server identity.
+		 * @return array{topology_status:string,topology_mode:string,topology_role:string}
+		 */
+		private static function topology_diagnostics( ?array $server_info ): array {
+			$mode = $server_info !== null ? strtolower( trim( (string) ( $server_info['mode'] ?? '' ) ) ) : '';
+			$role = $server_info !== null ? strtolower( trim( (string) ( $server_info['role'] ?? '' ) ) ) : '';
+
+			if ( ! in_array( $mode, array( 'standalone', 'cluster', 'sentinel' ), true ) ) {
+				$mode = 'unknown';
+			}
+
+			if ( in_array( $role, array( 'master', 'primary' ), true ) ) {
+				$role = 'primary';
+			} elseif ( in_array( $role, array( 'slave', 'replica' ), true ) ) {
+				$role = 'replica';
+			} elseif ( $role !== 'sentinel' ) {
+				$role = 'unknown';
+			}
+
+			$status = self::TOPOLOGY_UNVERIFIED;
+			if ( in_array( $mode, array( 'cluster', 'sentinel' ), true ) || in_array( $role, array( 'replica', 'sentinel' ), true ) ) {
+				$status = self::TOPOLOGY_UNSUPPORTED;
+			} elseif ( $mode === 'standalone' && $role === 'primary' ) {
+				$status = self::TOPOLOGY_COMPATIBLE;
+			}
+
+			return array(
+				'topology_status' => $status,
+				'topology_mode'   => $mode,
+				'topology_role'   => $role,
+			);
 		}
 	}
 
@@ -376,6 +435,13 @@ namespace Mincemeat\ObjectCache {
 		 */
 		public function is_persistent(): bool {
 			return $this->state === ObjectCache::STATE_PERSISTENT;
+		}
+
+		/**
+		 * Whether PhpRedis process-persistent connection reuse is effective.
+		 */
+		public function persistent_reuse(): bool {
+			return $this->adapter !== null && $this->adapter->persistent_reuse();
 		}
 
 		/**
@@ -3490,6 +3556,13 @@ namespace Mincemeat\ObjectCache {
 		}
 
 		/**
+		 * Whether PhpRedis process-persistent connection reuse is effective.
+		 */
+		public function persistent_reuse(): bool {
+			return $this->backend !== null && $this->backend->persistent_reuse();
+		}
+
+		/**
 		 * Returns the configured maximum TTL in seconds.
 		 *
 		 * @return int
@@ -4117,6 +4190,13 @@ namespace Mincemeat\ObjectCache {
 		 */
 		private $script_shas = array();
 
+		/**
+		 * Whether the active connection uses PhpRedis process-persistent reuse.
+		 *
+		 * @var bool
+		 */
+		private $persistent_reuse = false;
+
 		public function __construct() {
 		}
 
@@ -4137,7 +4217,8 @@ namespace Mincemeat\ObjectCache {
 			}
 
 			$this->redis = $this->create_redis_instance();
-			$this->script_shas = array();
+			$this->script_shas      = array();
+			$this->persistent_reuse = false;
 
 			$connected     = false;
 			$persistent_id = $config->persistent() && $this->persistent_pool_honors_id()
@@ -4200,6 +4281,7 @@ namespace Mincemeat\ObjectCache {
 			if ( ! $connected) {
 				throw new BackendException( 'connect-failed', 'Connection attempt failed.' );
 			}
+			$this->persistent_reuse = $persistent_id !== '';
 
 			$this->configure_options( $config );
 			if ($this->redis === null) {
@@ -4567,10 +4649,21 @@ namespace Mincemeat\ObjectCache {
 				$product = 'unknown';
 			}
 
+			$mode = isset( $info['redis_mode'] ) ? strtolower( trim( (string) $info['redis_mode'] ) ) : 'standalone';
+			if ( ! in_array( $mode, array( 'standalone', 'cluster', 'sentinel' ), true ) ) {
+				$mode = 'unknown';
+			}
+
+			$role = isset( $info['role'] ) ? strtolower( trim( (string) $info['role'] ) ) : 'unknown';
+			if ( ! in_array( $role, array( 'master', 'primary', 'slave', 'replica', 'sentinel' ), true ) ) {
+				$role = 'unknown';
+			}
+
 			$identity = array();
 			$identity['product']          = $product;
 			$identity['version']          = preg_match( '/^[0-9][0-9A-Za-z.+_-]{0,63}$/', $version ) === 1 ? $version : '';
-			$identity['mode']             = isset( $info['redis_mode'] ) ? (string) $info['redis_mode'] : 'standalone';
+			$identity['mode']             = $mode;
+			$identity['role']             = $role;
 			$identity['os']               = isset( $info['os'] ) ? (string) $info['os'] : '';
 			$identity['maxmemory_policy'] = isset( $info['maxmemory_policy'] ) ? (string) $info['maxmemory_policy'] : '';
 
@@ -4598,8 +4691,16 @@ namespace Mincemeat\ObjectCache {
 				$this->redis->close();
 			}
 
-			$this->redis = null;
-			$this->script_shas = array();
+			$this->redis            = null;
+			$this->script_shas       = array();
+			$this->persistent_reuse = false;
+		}
+
+		/**
+		 * Whether the active connection is reused across PHP requests/process work.
+		 */
+		public function persistent_reuse(): bool {
+			return $this->persistent_reuse;
 		}
 
 		/**

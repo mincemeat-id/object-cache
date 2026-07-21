@@ -26,6 +26,9 @@
 - Hardened configuration and failure diagnostics around stable reason codes,
   flat scalar TLS options, endpoint classification, partial-client cleanup,
   adversarial secret/key/value inputs, and bounded opt-in error logging.
+- Defined the v1 standalone-primary and best-effort consistency boundary, with
+  Site Health/WP-CLI topology classification and requested-versus-effective
+  PhpRedis persistent connection reuse diagnostics.
 
 ## [0.1.0-rc1] - 2026-07-13
 

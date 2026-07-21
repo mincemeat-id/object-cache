@@ -51,6 +51,17 @@ best-effort. Debug logging is disabled by default; CLI emits once per process,
 and web requests emit once per stable category per five minutes only when APCu
 provides the required process-shared throttle.
 
+The v1 adapter is deliberately a direct `Redis` client for one standalone
+writable primary. Sanitized `INFO` mode/role fields drive Site Health topology
+classification; Cluster, Sentinel, replicas, and incomplete/proxy identities
+are reported as unsupported or unverified without adding cold-request `INFO`
+work. The adapter also records whether a requested persistent connection
+actually used `pconnect`; diagnostics distinguish `active`, `disabled`, and the
+`request-scoped-safety-fallback` used when PhpRedis pooling cannot isolate the
+connection identity. Mincemeat does not explicitly replay failed commands, but
+configured PhpRedis reconnect retries mean a failed mutating call can remain
+ambiguous and must never be treated as durable application storage.
+
 The WordPress 6.9+ compatibility surface includes public `cache_hits` and
 `cache_misses` counters, magic read access to `global_groups` and `blog_prefix`,
 core-shaped `isset()` behavior, and `stats()` output. The magic properties are

@@ -135,6 +135,42 @@ Supported keys:
 
 Sensitive fields must never be emitted raw in Site Health, test failures, package manifests, or logs.
 
+## V1 Topology and Consistency Policy
+
+The supported client topology is a direct connection to one standalone,
+writable Redis 8 or Valkey 9 primary. A primary may replicate server-side, but
+Mincemeat neither discovers nor addresses replicas. The following modes are not
+supported by v1:
+
+- Redis Cluster and multi-primary/sharded routing
+- Sentinel discovery, monitoring, or automatic failover
+- direct replica endpoints, replica reads, or client-side read splitting
+- managed proxies or Redis-compatible services whose routing, consistency, and
+  retry behavior is not part of the release matrix
+
+The ordinary `Redis` PhpRedis client is intentional; the adapter does not use
+`RedisCluster`, `RedisSentinel`, or read-replica failover modes. Generation-token
+`MGET` and pipelines also assume every key reaches the same writable primary.
+Site Health classifies normalized server-reported mode/role as `compatible`,
+`unsupported`, or `unverified`. Proxy detection is not reliable, so a proxy
+that presents a standalone-primary identity remains outside official support.
+
+Object-cache persistence is best effort and is not a data durability mechanism.
+Mincemeat dispatches each adapter operation once and does not replay an operation
+after the adapter throws. PhpRedis `OPT_MAX_RETRIES`, however, permits up to
+`max_retries` internal reconnect retries, so a mutating command can be ambiguous
+after a timeout or disconnect: it may have committed although the caller sees a
+runtime-memory fallback or failure. No `WAIT`/replica acknowledgement or durable
+write barrier is used, and cross-request read-after-write consistency is not
+promised. The request-local circuit prevents further backend commands after the
+first observed command failure.
+
+When `persistent` is false, connections are request-scoped. When true, the
+adapter uses a non-reversible connection identity covering transport, database,
+namespace, ACL, TLS, and retry settings. If the PhpRedis process pool cannot
+honor that identity, reuse is rejected and a request-scoped safety fallback is
+reported. Diagnostics expose requested and effective reuse separately.
+
 ## Cache Semantics
 
 The runtime must follow WordPress object-cache behavior:

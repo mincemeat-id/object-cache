@@ -39,6 +39,31 @@ define('MINCEMEAT_OBJECT_CACHE_CONFIG', [
 
 Supported keys include `namespace`, `scheme`, `host`, `port`, `path`, `database`, `username`, `password`, `connect_timeout`, `read_timeout`, `max_retries`, `backoff_algorithm`, `backoff_base`, `backoff_cap`, `tcp_keepalive`, `persistent`, `max_ttl`, `tls`, and `debug`. Use `scheme => 'tls'` for TLS connections and `scheme => 'unix'` plus `path` for Unix sockets.
 
+## Supported Topology and Consistency
+
+The v1 support boundary is one direct Redis 8 or Valkey 9 standalone writable
+primary. Server-side replicas are acceptable when Mincemeat still connects only
+to the primary; replica reads and direct replica endpoints are unsupported.
+Redis Cluster, Sentinel discovery/failover, multi-primary arrangements, and
+client-side read splitting are unsupported. Managed proxies are outside the
+validated matrix because their routing and retry semantics cannot be detected
+reliably; a proxy reporting a standalone primary identity does not imply
+support.
+
+Cache writes are best effort. Mincemeat issues each adapter operation once and
+opens its request-local circuit after an exception, but PhpRedis may internally
+retry up to `max_retries` times after connection trouble. A timeout or disconnect
+can therefore leave a write in an ambiguous state: it may have committed even
+when the current request falls back to memory or reports failure. Mincemeat does
+not provide replication acknowledgement, durable-write guarantees, or
+read-after-write consistency across requests.
+
+`persistent => true` requests PhpRedis connection reuse. It becomes effective
+only when the process pool honors Mincemeat's credential/database/TLS identity;
+otherwise the adapter deliberately uses a request-scoped connection. Site
+Health and `wp mincemeat-cache status` report the server-reported topology and
+requested-versus-effective reuse state.
+
 ## Operation
 
 Mincemeat Object Cache is an object cache only. It caches values stored through the WordPress object-cache API; it is not a page cache and does not serve cached HTML.

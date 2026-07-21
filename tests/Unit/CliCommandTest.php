@@ -55,6 +55,8 @@ namespace Mincemeat\ObjectCache\Tests\Unit {
 			$this->assertStringContainsString('Drop-in Status:', $output);
 			$this->assertStringContainsString('Cache Status:', $output);
 			$this->assertStringContainsString('Reason:', $output);
+			$this->assertStringContainsString('Topology:', $output);
+			$this->assertStringContainsString('Connection Reuse:', $output);
 		}
 
 		public function test_install_dropin_already_current()

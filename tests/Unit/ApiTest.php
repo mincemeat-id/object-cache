@@ -120,6 +120,10 @@ class ApiTest extends TestCase
         $this->assertSame(PHP_VERSION, $diag['php_version']);
         $this->assertArrayHasKey('phpredis_version', $diag);
         $this->assertSame('6.3.0', $diag['phpredis_minimum']);
+		$this->assertSame(Api::TOPOLOGY_UNVERIFIED, $diag['topology_status']);
+		$this->assertSame('unknown', $diag['topology_mode']);
+		$this->assertSame('unknown', $diag['topology_role']);
+		$this->assertSame('disabled', $diag['connection_reuse']);
         $this->assertArrayNotHasKey('scheme', $diag);
     }
 
@@ -131,6 +135,8 @@ class ApiTest extends TestCase
         $adapter->method('server_info')->willReturn(array(
             'product' => 'redis',
             'version' => '8.0',
+            'mode' => 'standalone',
+            'role' => 'master',
             'maxmemory_policy' => 'allkeys-lru'
         ));
 
@@ -153,6 +159,13 @@ class ApiTest extends TestCase
         $this->assertSame('configured', $diag['host']);
         $this->assertSame('***', $diag['port']);
         $this->assertSame('***', $diag['database']);
+		$this->assertSame(Api::TOPOLOGY_POLICY, $diag['topology_policy']);
+		$this->assertSame(Api::TOPOLOGY_COMPATIBLE, $diag['topology_status']);
+		$this->assertSame('standalone', $diag['topology_mode']);
+		$this->assertSame('primary', $diag['topology_role']);
+		$this->assertFalse($diag['persistent_requested']);
+		$this->assertFalse($diag['persistent_reuse']);
+		$this->assertSame('disabled', $diag['connection_reuse']);
         $this->assertNotSame('test-ns', $diag['namespace_digest']);
         // Sanitized to product and version only
         $this->assertSame(array('product' => 'redis', 'version' => '8.0'), $diag['server']);
@@ -165,6 +178,8 @@ class ApiTest extends TestCase
         $this->assertSame(array(
             'product' => 'redis',
             'version' => '8.0',
+            'mode' => 'standalone',
+            'role' => 'master',
             'maxmemory_policy' => 'allkeys-lru'
         ), $diag_debug['server']);
     }

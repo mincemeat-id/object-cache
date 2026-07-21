@@ -37,6 +37,16 @@ final class SiteHealth {
 			'test'  => array( self::class, 'test_connection' ),
 		);
 
+		$tests['direct']['mincemeat_object_cache_topology'] = array(
+			'label' => __( 'Mincemeat Object Cache topology support', 'mincemeat-object-cache' ),
+			'test'  => array( self::class, 'test_topology' ),
+		);
+
+		$tests['direct']['mincemeat_object_cache_connection_reuse'] = array(
+			'label' => __( 'Mincemeat Object Cache persistent connection reuse', 'mincemeat-object-cache' ),
+			'test'  => array( self::class, 'test_connection_reuse' ),
+		);
+
 		$tests['direct']['mincemeat_object_cache_tls'] = array(
 			'label' => __( 'Mincemeat Object Cache TLS verification', 'mincemeat-object-cache' ),
 			'test'  => array( self::class, 'test_tls_verification' ),
@@ -262,6 +272,113 @@ final class SiteHealth {
 	}
 
 	/**
+	 * Tests the server-reported topology against the v1 support policy.
+	 *
+	 * @return array<string,mixed> Test result details.
+	 */
+	public static function test_topology(): array {
+		$cache = self::cache();
+		if ( $cache === null || $cache->state() !== ObjectCache::STATE_PERSISTENT ) {
+			return array(
+				'label'       => __( 'Object cache topology check is not active', 'mincemeat-object-cache' ),
+				'status'      => 'good',
+				'badge'       => self::badge(),
+				'description' => sprintf(
+					'<p>%s</p>',
+					__( 'The object cache is not connected persistently, so backend topology cannot be checked.', 'mincemeat-object-cache' )
+				),
+			);
+		}
+
+		$diagnostics = Api::diagnostics();
+		$status      = $diagnostics['topology_status'];
+		$mode        = $diagnostics['topology_mode'];
+		$role        = $diagnostics['topology_role'];
+
+		if ( $status === Api::TOPOLOGY_UNSUPPORTED ) {
+			return array(
+				'label'       => __( 'Unsupported persistent cache topology detected', 'mincemeat-object-cache' ),
+				'status'      => 'critical',
+				'badge'       => self::badge(),
+				'description' => sprintf(
+					'<p>%s <code>%s/%s</code>.</p>',
+					__( 'Mincemeat v1 supports a direct standalone writable primary only. The server reports:', 'mincemeat-object-cache' ),
+					esc_html( $mode ),
+					esc_html( $role )
+				),
+			);
+		}
+
+		if ( $status === Api::TOPOLOGY_UNVERIFIED ) {
+			return array(
+				'label'       => __( 'Persistent cache topology could not be verified', 'mincemeat-object-cache' ),
+				'status'      => 'recommended',
+				'badge'       => self::badge(),
+				'description' => sprintf(
+					'<p>%s</p>',
+					__( 'The backend did not report a complete standalone-primary identity. Cluster, Sentinel, replica reads, and managed proxies are not covered by the v1 support matrix.', 'mincemeat-object-cache' )
+				),
+			);
+		}
+
+		return array(
+			'label'       => __( 'Persistent cache reports a compatible topology', 'mincemeat-object-cache' ),
+			'status'      => 'good',
+			'badge'       => self::badge(),
+			'description' => sprintf(
+				'<p>%s</p>',
+				__( 'The backend reports a standalone writable primary. Managed proxies cannot be detected reliably and are not implied to be supported by this result.', 'mincemeat-object-cache' )
+			),
+		);
+	}
+
+	/**
+	 * Reports requested versus effective PhpRedis persistent reuse.
+	 *
+	 * @return array<string,mixed> Test result details.
+	 */
+	public static function test_connection_reuse(): array {
+		$cache = self::cache();
+		if ( $cache === null || $cache->state() !== ObjectCache::STATE_PERSISTENT ) {
+			return array(
+				'label'       => __( 'Persistent connection reuse check is not active', 'mincemeat-object-cache' ),
+				'status'      => 'good',
+				'badge'       => self::badge(),
+				'description' => sprintf( '<p>%s</p>', __( 'The object cache is not connected persistently.', 'mincemeat-object-cache' ) ),
+			);
+		}
+
+		$diagnostics = Api::diagnostics();
+		if ( ! $diagnostics['persistent_requested'] ) {
+			return array(
+				'label'       => __( 'PhpRedis persistent connection reuse is disabled', 'mincemeat-object-cache' ),
+				'status'      => 'good',
+				'badge'       => self::badge(),
+				'description' => sprintf( '<p>%s</p>', __( 'Each PHP request uses a request-scoped backend connection by configuration.', 'mincemeat-object-cache' ) ),
+			);
+		}
+
+		if ( $diagnostics['persistent_reuse'] ) {
+			return array(
+				'label'       => __( 'PhpRedis persistent connection reuse is active', 'mincemeat-object-cache' ),
+				'status'      => 'good',
+				'badge'       => self::badge(),
+				'description' => sprintf( '<p>%s</p>', __( 'The active PhpRedis pool key honors Mincemeat connection identity isolation.', 'mincemeat-object-cache' ) ),
+			);
+		}
+
+		return array(
+			'label'       => __( 'Persistent reuse fell back to a request connection', 'mincemeat-object-cache' ),
+			'status'      => 'recommended',
+			'badge'       => self::badge(),
+			'description' => sprintf(
+				'<p>%s</p>',
+				__( 'Persistent reuse was requested, but the PhpRedis pool pattern does not honor the supplied identity. Mincemeat selected a request-scoped connection to prevent cross-configuration socket reuse.', 'mincemeat-object-cache' )
+			),
+		);
+	}
+
+	/**
 	 * Tests TLS peer verification state when TLS is configured.
 	 *
 	 * @return array<string,mixed> Test result details.
@@ -462,6 +579,26 @@ final class SiteHealth {
 			'cache_reason'     => array(
 				'label' => __( 'Cache Reason Code', 'mincemeat-object-cache' ),
 				'value' => $diagnostics['reason'],
+			),
+			'topology_policy'  => array(
+				'label' => __( 'Topology Policy', 'mincemeat-object-cache' ),
+				'value' => $diagnostics['topology_policy'],
+			),
+			'topology_status'  => array(
+				'label' => __( 'Topology Status', 'mincemeat-object-cache' ),
+				'value' => $diagnostics['topology_status'],
+			),
+			'topology_mode'    => array(
+				'label' => __( 'Server-Reported Mode', 'mincemeat-object-cache' ),
+				'value' => $diagnostics['topology_mode'],
+			),
+			'topology_role'    => array(
+				'label' => __( 'Server-Reported Role', 'mincemeat-object-cache' ),
+				'value' => $diagnostics['topology_role'],
+			),
+			'connection_reuse' => array(
+				'label' => __( 'Persistent Connection Reuse', 'mincemeat-object-cache' ),
+				'value' => $diagnostics['connection_reuse'],
 			),
 			'php_version'      => array(
 				'label' => __( 'PHP Version', 'mincemeat-object-cache' ),
