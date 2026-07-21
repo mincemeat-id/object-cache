@@ -189,6 +189,19 @@ namespace Mincemeat\ObjectCache\Tests\Lifecycle {
 			$this->assertFalse(Lifecycle::has_direct_access());
 		}
 
+		/**
+		 * @runInSeparateProcess
+		 * @preserveGlobalState disabled
+		 */
+		public function test_activate_reports_disallowed_file_modifications()
+		{
+			define('DISALLOW_FILE_MODS', true);
+
+			Lifecycle::activate();
+
+			$this->assertSame('disallowed', get_transient('mincemeat_object_cache_activation_notice'));
+		}
+
 		public function test_install_dropin_success()
 		{
 			$target = WP_CONTENT_DIR . '/object-cache.php';

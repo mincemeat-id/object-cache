@@ -541,6 +541,72 @@ class FailureTest extends TestCase
         $this->assertSame($expected, $backend->server_info());
     }
 
+    public function test_server_info_failure_is_redacted_and_memoized()
+    {
+        $adapter = $this->getMockBuilder(MockPhpRedisAdapter::class)
+            ->onlyMethods(array('server_info'))
+            ->getMock();
+        $adapter->expects($this->once())
+            ->method('server_info')
+            ->willThrowException(new \RedisException('server details contained a private endpoint'));
+        $backend = new Backend(new KeySpace(false, 1), $adapter);
+
+        $backend->initialize($this->get_config());
+        $this->assertNull($backend->server_info());
+        $this->assertNull($backend->server_info());
+        $this->assertSame(ObjectCache::STATE_PERSISTENT, $backend->state());
+    }
+
+    public function test_generation_token_batch_read_failure_opens_circuit()
+    {
+        $adapter = new MockPhpRedisAdapter();
+        $adapter->mget_callback = function () {
+            throw new \RedisException('generation read failed');
+        };
+        $backend = new Backend(new KeySpace(false, 1), $adapter);
+        $backend->initialize($this->get_config());
+
+        $tokens = $backend->generation_tokens('default');
+        $this->assertMatchesRegularExpression('/^[a-f0-9]{32}$/', $tokens[0]);
+        $this->assertMatchesRegularExpression('/^[a-f0-9]{32}$/', $tokens[1]);
+        $this->assertSame(ObjectCache::STATE_DEGRADED, $backend->state());
+    }
+
+    /** @dataProvider generationTokenInitializationFailureProvider */
+    public function test_generation_token_initialization_failure_opens_circuit(string $operation)
+    {
+        $adapter = new MockPhpRedisAdapter();
+        $mget_calls = 0;
+        $adapter->mget_callback = function () use (&$mget_calls, $operation) {
+            ++$mget_calls;
+            if ($operation === 'readback' && $mget_calls === 2) {
+                throw new \RedisException('generation readback failed');
+            }
+            return array(false, false);
+        };
+        $adapter->pipeline_callback = function () use ($operation) {
+            if ($operation === 'pipeline') {
+                throw new \RedisException('generation pipeline failed');
+            }
+            return array(false, false);
+        };
+        $backend = new Backend(new KeySpace(false, 1), $adapter);
+        $backend->initialize($this->get_config());
+
+        $tokens = $backend->generation_tokens('default');
+        $this->assertMatchesRegularExpression('/^[a-f0-9]{32}$/', $tokens[0]);
+        $this->assertMatchesRegularExpression('/^[a-f0-9]{32}$/', $tokens[1]);
+        $this->assertSame(ObjectCache::STATE_DEGRADED, $backend->state());
+    }
+
+    public function generationTokenInitializationFailureProvider(): array
+    {
+        return array(
+            'pipeline write' => array('pipeline'),
+            'race readback' => array('readback'),
+        );
+    }
+
     public function test_eval_and_eval_incr_failure_and_malformed_results()
     {
         $adapter = new MockPhpRedisAdapter();
