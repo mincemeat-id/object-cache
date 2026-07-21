@@ -23,7 +23,7 @@ use Mincemeat\ObjectCache\ObjectCache;
 use Mincemeat\ObjectCache\PhpRedisAdapter;
 
 const MINCEMEAT_BENCHMARK_SCHEMA_VERSION = 1;
-const MINCEMEAT_BENCHMARK_SUITE_VERSION  = 1;
+const MINCEMEAT_BENCHMARK_SUITE_VERSION  = 2;
 const MINCEMEAT_BENCHMARK_SAMPLES        = 5;
 const MINCEMEAT_BENCHMARK_WARMUPS        = 1;
 const MINCEMEAT_BENCHMARK_REGRESSION_PCT = 75.0;
@@ -36,43 +36,74 @@ final class MincemeatBenchmarkAdapter extends PhpRedisAdapter {
 
 	/** @var int */
 	private $round_trips = 0;
+	/** @var int */
+	private $commands = 0;
+	/** @var int */
+	private $connections = 0;
 
 	public function reset_round_trips(): void {
 		$this->round_trips = 0;
+		$this->commands    = 0;
 	}
 
 	public function round_trips(): int {
 		return $this->round_trips;
 	}
 
+	public function commands(): int {
+		return $this->commands;
+	}
+
+	public function connections(): int {
+		return $this->connections;
+	}
+
+	public function connect( Config $config ): void {
+		$this->connections++;
+		parent::connect( $config );
+	}
+
 	public function get( string $key ) {
 		$this->round_trips++;
+		$this->commands++;
 		return parent::get( $key );
 	}
 
 	public function mget( array $keys ): array {
 		$this->round_trips++;
+		$this->commands++;
 		return parent::mget( $keys );
 	}
 
 	public function set( string $key, string $value, ?int $ttl_ms = null, bool $nx = false, bool $xx = false ): bool {
 		$this->round_trips++;
+		$this->commands++;
 		return parent::set( $key, $value, $ttl_ms, $nx, $xx );
 	}
 
 	public function del( string $key ): int {
 		$this->round_trips++;
+		$this->commands++;
 		return parent::del( $key );
 	}
 
 	public function pipeline( array $commands ): array {
 		$this->round_trips++;
+		$this->commands += count( $commands );
 		return parent::pipeline( $commands );
 	}
 
 	public function eval( string $script, array $keys = array(), array $args = array() ) {
 		$this->round_trips++;
+		$this->commands++;
 		return parent::eval( $script, $keys, $args );
+	}
+
+	public function server_info(): ?array {
+		// PhpRedis obtains product, version, and INFO fields separately.
+		$this->round_trips += 3;
+		$this->commands    += 3;
+		return parent::server_info();
 	}
 }
 
@@ -169,10 +200,82 @@ function mincemeat_benchmark_definitions(): array {
 	}
 
 	return array(
+		'cold_bootstrap_get_miss' => array(
+			'label'       => 'Cold connect/bootstrap + first GET miss',
+			'iterations'  => 1,
+			'round_trips' => 3,
+			'commands'    => 4,
+			'connections' => 1,
+			'cold'        => true,
+			'run'         => function () {
+				wp_cache_get( 'cold-missing', 'default', true );
+			},
+		),
+		'cold_existing_get_hit' => array(
+			'label'       => 'Cold connect + first GET hit',
+			'iterations'  => 1,
+			'round_trips' => 2,
+			'commands'    => 2,
+			'connections' => 1,
+			'cold'        => true,
+			'prepare'     => function (array $context) {
+				$GLOBALS['wp_object_cache'] = $context['cache'];
+				wp_cache_set( 'cold-hit', 'value', 'default' );
+			},
+			'run'         => function () {
+				wp_cache_get( 'cold-hit', 'default', true );
+			},
+		),
+		'cold_existing_get_miss' => array(
+			'label'       => 'Cold connect + first GET miss (existing controls)',
+			'iterations'  => 1,
+			'round_trips' => 2,
+			'commands'    => 2,
+			'connections' => 1,
+			'cold'        => true,
+			'prepare'     => function (array $context) {
+				$GLOBALS['wp_object_cache'] = $context['cache'];
+				wp_cache_set( 'control-seed', 'value', 'default' );
+			},
+			'run'         => function () {
+				wp_cache_get( 'cold-existing-missing', 'default', true );
+			},
+		),
+		'cold_existing_set' => array(
+			'label'       => 'Cold connect + first SET (existing controls)',
+			'iterations'  => 1,
+			'round_trips' => 2,
+			'commands'    => 2,
+			'connections' => 1,
+			'cold'        => true,
+			'prepare'     => function (array $context) {
+				$GLOBALS['wp_object_cache'] = $context['cache'];
+				wp_cache_set( 'control-seed', 'value', 'default' );
+			},
+			'run'         => function () {
+				wp_cache_set( 'cold-set', 'value', 'default' );
+			},
+		),
+		'cold_first_group' => array(
+			'label'       => 'Cold connect + first SET in a new group',
+			'iterations'  => 1,
+			'round_trips' => 3,
+			'commands'    => 3,
+			'connections' => 1,
+			'cold'        => true,
+			'prepare'     => function (array $context) {
+				$GLOBALS['wp_object_cache'] = $context['cache'];
+				wp_cache_set( 'control-seed', 'value', 'default' );
+			},
+			'run'         => function () {
+				wp_cache_set( 'cold-first-group', 'value', 'first-group' );
+			},
+		),
 		'request_memory_hit' => array(
 			'label'       => 'Request-memory hit',
 			'iterations'  => 1000,
 			'round_trips' => 0,
+			'commands'    => 0,
 			'setup'       => function (array $context) {
 				$GLOBALS['wp_object_cache'] = $context['cache'];
 				wp_cache_set( 'memory-hit', 'value', 'default' );
@@ -187,6 +290,7 @@ function mincemeat_benchmark_definitions(): array {
 			'label'       => 'Backend hit (forced)',
 			'iterations'  => 100,
 			'round_trips' => 100,
+			'commands'    => 100,
 			'setup'       => function (array $context) {
 				$GLOBALS['wp_object_cache'] = $context['cache'];
 				wp_cache_set( 'backend-hit', 'value', 'default' );
@@ -201,6 +305,7 @@ function mincemeat_benchmark_definitions(): array {
 			'label'       => 'Backend miss (forced)',
 			'iterations'  => 100,
 			'round_trips' => 100,
+			'commands'    => 100,
 			'setup'       => function (array $context) {
 				$context['backend']->namespace_token();
 				$context['backend']->group_token( 'default' );
@@ -215,6 +320,7 @@ function mincemeat_benchmark_definitions(): array {
 			'label'       => 'get_multiple (100 keys)',
 			'iterations'  => 50,
 			'round_trips' => 50,
+			'commands'    => 50,
 			'setup'       => function (array $context) use ($batch) {
 				$GLOBALS['wp_object_cache'] = $context['cache'];
 				wp_cache_set_multiple( $batch, 'default' );
@@ -229,6 +335,7 @@ function mincemeat_benchmark_definitions(): array {
 			'label'       => 'set_multiple (100 keys)',
 			'iterations'  => 25,
 			'round_trips' => 25,
+			'commands'    => 2500,
 			'setup'       => function (array $context) {
 				$context['backend']->namespace_token();
 				$context['backend']->group_token( 'default' );
@@ -243,6 +350,7 @@ function mincemeat_benchmark_definitions(): array {
 			'label'       => 'delete_multiple (100 keys)',
 			'iterations'  => 25,
 			'round_trips' => 25,
+			'commands'    => 2500,
 			'setup'       => function (array $context) use ($delete_batch) {
 				$GLOBALS['wp_object_cache'] = $context['cache'];
 				wp_cache_set_multiple( $delete_batch, 'default' );
@@ -261,6 +369,7 @@ function mincemeat_benchmark_definitions(): array {
 			'label'       => 'Cold group token resolution',
 			'iterations'  => 100,
 			'round_trips' => 100,
+			'commands'    => 100,
 			'run'         => function (array $context) {
 				for ($i = 0; $i < 100; $i++) {
 					$context['backend']->group_token( 'group-' . $i );
@@ -271,6 +380,7 @@ function mincemeat_benchmark_definitions(): array {
 			'label'       => 'Namespace flush',
 			'iterations'  => 100,
 			'round_trips' => 100,
+			'commands'    => 100,
 			'run'         => function () {
 				for ($i = 0; $i < 100; $i++) {
 					wp_cache_flush();
@@ -281,6 +391,7 @@ function mincemeat_benchmark_definitions(): array {
 			'label'       => 'Group flush',
 			'iterations'  => 100,
 			'round_trips' => 100,
+			'commands'    => 100,
 			'run'         => function () {
 				for ($i = 0; $i < 100; $i++) {
 					wp_cache_flush_group( 'default' );
@@ -291,6 +402,7 @@ function mincemeat_benchmark_definitions(): array {
 			'label'       => 'Failed connection / circuit-open path',
 			'iterations'  => 1000,
 			'round_trips' => 0,
+			'commands'    => 0,
 			'context'     => 'failed',
 			'run'         => function () {
 				for ($i = 0; $i < 1000; $i++) {
@@ -302,6 +414,7 @@ function mincemeat_benchmark_definitions(): array {
 			'label'       => 'Numeric Lua EVAL (missing key)',
 			'iterations'  => 100,
 			'round_trips' => null,
+			'commands'    => null,
 			'context'     => 'raw-eval',
 			'run'         => function (array $context) {
 				for ($i = 0; $i < 100; $i++) {
@@ -313,6 +426,7 @@ function mincemeat_benchmark_definitions(): array {
 			'label'       => 'Numeric Lua preloaded EVALSHA (missing key)',
 			'iterations'  => 100,
 			'round_trips' => null,
+			'commands'    => null,
 			'context'     => 'raw-evalsha',
 			'run'         => function (array $context) {
 				for ($i = 0; $i < 100; $i++) {
@@ -324,6 +438,7 @@ function mincemeat_benchmark_definitions(): array {
 			'label'       => 'Mixed set/get/group-flush soak',
 			'iterations'  => 1000,
 			'round_trips' => 1003,
+			'commands'    => 1003,
 			'setup'       => function (array $context) {
 				$context['backend']->namespace_token();
 				$context['backend']->group_token( 'default' );
@@ -452,22 +567,42 @@ function mincemeat_benchmark_run( array $definitions, string $host, int $port, b
 	foreach ($definitions as $key => $definition) {
 		$samples       = array();
 		$round_trips   = array();
+		$commands      = array();
+		$connections   = array();
 		$total_samples = MINCEMEAT_BENCHMARK_WARMUPS + MINCEMEAT_BENCHMARK_SAMPLES;
 
 		for ($sample = 0; $sample < $total_samples; $sample++) {
 			$type      = isset( $definition['context'] ) ? (string) $definition['context'] : 'cache';
 			$namespace = 'bench-' . $run_id . '-' . $key . '-' . $sample;
-			$context   = mincemeat_benchmark_create_context( $type, $host, $port, $namespace );
+			$cold      = ! empty( $definition['cold'] );
+
+			if (isset( $definition['prepare'] )) {
+				$preparation = mincemeat_benchmark_create_context( $type, $host, $port, $namespace );
+				$definition['prepare']( $preparation );
+				if (isset( $preparation['backend'] )) {
+					$preparation['backend']->close();
+				}
+			}
+
+			if ($cold) {
+				gc_collect_cycles();
+				$start   = hrtime( true );
+				$context = mincemeat_benchmark_create_context( $type, $host, $port, $namespace );
+			} else {
+				$context = mincemeat_benchmark_create_context( $type, $host, $port, $namespace );
+			}
 
 			if (isset( $definition['setup'] )) {
 				$definition['setup']( $context );
 			}
-			if (isset( $context['adapter'] )) {
+			if (isset( $context['adapter'] ) && ! $cold) {
 				$context['adapter']->reset_round_trips();
 			}
 
-			gc_collect_cycles();
-			$start = hrtime( true );
+			if ( ! $cold) {
+				gc_collect_cycles();
+				$start = hrtime( true );
+			}
 			$definition['run']( $context );
 			$elapsed_ms = ( hrtime( true ) - $start ) / 1000000;
 
@@ -475,6 +610,8 @@ function mincemeat_benchmark_run( array $definitions, string $host, int $port, b
 				$samples[] = round( $elapsed_ms, 3 );
 				if (isset( $context['adapter'] )) {
 					$round_trips[] = $context['adapter']->round_trips();
+					$commands[]    = $context['adapter']->commands();
+					$connections[] = $cold ? $context['adapter']->connections() : 0;
 				}
 			}
 
@@ -483,6 +620,10 @@ function mincemeat_benchmark_run( array $definitions, string $host, int $port, b
 
 		$actual_round_trips   = count( $round_trips ) > 0 ? $round_trips[0] : null;
 		$expected_round_trips = $definition['round_trips'];
+		$actual_commands      = count( $commands ) > 0 ? $commands[0] : null;
+		$expected_commands    = $definition['commands'] ?? null;
+		$actual_connections   = count( $connections ) > 0 ? $connections[0] : null;
+		$expected_connections = $definition['connections'] ?? null;
 		$unexpected_round_trips = $expected_round_trips !== null
 			? array_values( array_unique( array_filter( $round_trips, function ($count) use ($expected_round_trips) {
 				return $count !== $expected_round_trips;
@@ -496,6 +637,32 @@ function mincemeat_benchmark_run( array $definitions, string $host, int $port, b
 				$expected_round_trips
 			);
 		}
+		$unexpected_commands = $expected_commands !== null
+			? array_values( array_unique( array_filter( $commands, function ($count) use ($expected_commands) {
+				return $count !== $expected_commands;
+			} ) ) )
+			: array();
+		if (count( $unexpected_commands ) > 0) {
+			$guardrail_failures[] = sprintf(
+				'%s used unexpected backend command counts (%s); expected %d in every sample.',
+				$definition['label'],
+				implode( ', ', $unexpected_commands ),
+				$expected_commands
+			);
+		}
+		$unexpected_connections = $expected_connections !== null
+			? array_values( array_unique( array_filter( $connections, function ($count) use ($expected_connections) {
+				return $count !== $expected_connections;
+			} ) ) )
+			: array();
+		if (count( $unexpected_connections ) > 0) {
+			$guardrail_failures[] = sprintf(
+				'%s used unexpected connection counts (%s); expected %d in every sample.',
+				$definition['label'],
+				implode( ', ', $unexpected_connections ),
+				$expected_connections
+			);
+		}
 
 		$median = round( mincemeat_benchmark_median( $samples ), 3 );
 		$results[ $key ] = array(
@@ -506,11 +673,18 @@ function mincemeat_benchmark_run( array $definitions, string $host, int $port, b
 			'backend_round_trips'          => $actual_round_trips,
 			'backend_round_trip_samples'   => count( $round_trips ) > 0 ? $round_trips : null,
 			'expected_backend_round_trips' => $expected_round_trips,
+			'backend_commands'             => $actual_commands,
+			'backend_command_samples'      => count( $commands ) > 0 ? $commands : null,
+			'expected_backend_commands'    => $expected_commands,
+			'connections'                  => $actual_connections,
+			'connection_samples'           => count( $connections ) > 0 ? $connections : null,
+			'expected_connections'         => $expected_connections,
 		);
 
 		if ( ! $quiet) {
-			$commands = $actual_round_trips === null ? 'n/a' : (string) $actual_round_trips;
-			echo sprintf( "%-48s %10.3f ms  round trips: %s\n", $definition['label'], $median, $commands );
+			$trip_display    = $actual_round_trips === null ? 'n/a' : (string) $actual_round_trips;
+			$command_display = $actual_commands === null ? 'n/a' : (string) $actual_commands;
+			echo sprintf( "%-52s %10.3f ms  commands/trips: %s/%s\n", $definition['label'], $median, $command_display, $trip_display );
 		}
 	}
 
@@ -559,6 +733,8 @@ function mincemeat_benchmark_compare( array $report, string $baseline_file, bool
 			( $base['label'] ?? null ) !== $current['label']
 			|| ( $base['iterations'] ?? null ) !== $current['iterations']
 			|| ( $base['expected_backend_round_trips'] ?? null ) !== $current['expected_backend_round_trips']
+			|| ( $base['expected_backend_commands'] ?? null ) !== $current['expected_backend_commands']
+			|| ( $base['expected_connections'] ?? null ) !== $current['expected_connections']
 		) {
 			throw new RuntimeException( 'Baseline workload metadata differs for ' . $current['label'] . '.' );
 		}

@@ -219,6 +219,9 @@ The PhpRedis adapter owns all direct Redis/Valkey calls.
 PhpRedis 6.3.0 is the minimum supported client version. The adapter uses its
 server identity methods, bounded retry/backoff options, and per-connection Lua
 script cache while preserving the same cache semantics for Redis and Valkey.
+Server identity is collected only when diagnostics request it. Numeric scripts
+start with `EVAL`, which populates the server cache, and use `EVALSHA` on later
+calls; normal non-numeric requests do not run `INFO` or `SCRIPT LOAD`.
 
 Required behavior:
 
@@ -257,9 +260,11 @@ When Redis/Valkey is unavailable:
 
 Hot-path performance is measured by `tools/benchmark-soak.php` with fixed
 workloads, isolated namespaces, repeated samples, and median latency. Adapter
-round trips are asserted exactly where the harness can observe them, so batch
-operations cannot silently regress into additional network exchanges even when
-wall-clock timings are noisy.
+commands, round trips, and cold connections are asserted exactly where the
+harness can observe them, so batch operations cannot silently regress into
+additional network exchanges even when wall-clock timings are noisy. The cold
+workloads include a new namespace, first hit, first miss, first set, and first
+group before the steady-state workloads.
 
 Benchmark baselines are machine-local by default. A comparison is valid only
 when PHP, PhpRedis, backend product/version, and the controlled runner match;

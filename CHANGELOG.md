@@ -16,6 +16,9 @@
 - Added a packaged RC1-to-current lifecycle gate covering atomic upgrade,
   failed-update recovery, deliberate rollback, deactivation, and foreign
   drop-in preservation.
+- Reduced cold persistent-cache work by lazily loading diagnostics and numeric
+  scripts and coalescing namespace/group generation-token resolution, with
+  deterministic command and round-trip guardrails for cold requests.
 
 ## [0.1.0-rc1] - 2026-07-13
 

@@ -107,14 +107,10 @@ class PhpRedisAdapterTest extends TestCase
         ));
 
         $mockRedis = $this->getMockBuilder(\Redis::class)
-            ->onlyMethods(array('connect', 'setOption', 'getOption', 'script', 'clearLastError'))
+            ->onlyMethods(array('connect', 'setOption', 'getOption'))
             ->getMock();
 
         $this->allowOptionConfiguration($mockRedis);
-        $mockRedis->expects($this->once())
-            ->method('script')
-            ->with('load', LuaScripts::INCR_DECR)
-            ->willReturn(sha1(LuaScripts::INCR_DECR));
 
         $mockRedis->expects($this->once())
             ->method('connect')
@@ -482,6 +478,29 @@ class PhpRedisAdapterTest extends TestCase
         $property->setValue($adapter, array($sha => $sha));
 
         $this->assertSame(array('OK'), $adapter->eval($script, array('key'), array('arg')));
+    }
+
+    public function test_eval_loads_script_lazily_without_script_load()
+    {
+        $script = 'return ARGV[1]';
+        $sha = sha1($script);
+        $redis = $this->getMockBuilder(\Redis::class)
+            ->onlyMethods(array('eval', 'evalSha', 'script'))
+            ->getMock();
+        $redis->expects($this->never())->method('script');
+        $redis->expects($this->once())
+            ->method('eval')
+            ->with($script, array('key', 'first'), 1)
+            ->willReturn(array('first'));
+        $redis->expects($this->once())
+            ->method('evalSha')
+            ->with($sha, array('key', 'second'), 1)
+            ->willReturn(array('second'));
+
+        $adapter = $this->adapterWithRedis($redis);
+
+        $this->assertSame(array('first'), $adapter->eval($script, array('key'), array('first')));
+        $this->assertSame(array('second'), $adapter->eval($script, array('key'), array('second')));
     }
 
     public function test_eval_does_not_fallback_for_non_noscript_error()

@@ -170,10 +170,6 @@ class PhpRedisAdapter {
 
 		// Unlink is supported on all supported backends (Redis >= 4.0).
 		$this->unlink_supported = true;
-
-		// Preload the numeric script. Failure is non-fatal because EVAL remains
-		// a correct fallback for servers or ACLs that do not permit SCRIPT LOAD.
-		$this->load_script( LuaScripts::INCR_DECR );
 	}
 
 	/**
@@ -362,7 +358,12 @@ class PhpRedisAdapter {
 		$loaded_sha = $this->script_shas[ $source_sha ] ?? null;
 
 		if ($loaded_sha === null) {
-			return $this->redis->eval( $script, $arguments, count( $keys ) );
+			$result = $this->redis->eval( $script, $arguments, count( $keys ) );
+			if ($result !== false) {
+				// EVAL also populates the server-side script cache.
+				$this->script_shas[ $source_sha ] = $source_sha;
+			}
+			return $result;
 		}
 
 		$result = $this->redis->evalSha( $loaded_sha, $arguments, count( $keys ) );
@@ -379,7 +380,11 @@ class PhpRedisAdapter {
 
 		// EVAL executes and repopulates the server's script cache, allowing the
 		// next call on this connection to return to EVALSHA.
-		return $this->redis->eval( $script, $arguments, count( $keys ) );
+		$result = $this->redis->eval( $script, $arguments, count( $keys ) );
+		if ($result !== false) {
+			$this->script_shas[ $source_sha ] = $source_sha;
+		}
+		return $result;
 	}
 
 	/**
@@ -701,26 +706,5 @@ class PhpRedisAdapter {
 		}
 
 		return (string) $actual === (string) $expected;
-	}
-
-	/**
-	 * Best-effort SCRIPT LOAD for this adapter connection.
-	 */
-	private function load_script( string $script ): void {
-		if ($this->redis === null) {
-			return;
-		}
-
-		$source_sha = sha1( $script );
-		try {
-			$loaded_sha = $this->redis->script( 'load', $script );
-			if (is_string( $loaded_sha ) && hash_equals( $source_sha, strtolower( $loaded_sha ) )) {
-				$this->script_shas[ $source_sha ] = $loaded_sha;
-			}
-			$this->redis->clearLastError();
-		} catch (\Throwable $e) {
-			// EVAL remains available as the correctness fallback.
-			return;
-		}
 	}
 }

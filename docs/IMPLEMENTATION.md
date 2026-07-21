@@ -19,8 +19,10 @@ the tracked patch; unexpected upstream drift fails setup.
 
 PhpRedis 6.3.0 is the minimum required extension version and is installed
 explicitly in CI. Connection setup verifies serializer, compression, prefix,
-reply, timeout, retry/backoff, and keepalive options. Numeric Lua operations use
-per-connection `SCRIPT LOAD`/`EVALSHA` with `EVAL` fallback after `NOSCRIPT`.
+reply, timeout, retry/backoff, and keepalive options. Server identity and `INFO`
+are lazy diagnostics. Numeric Lua operations use first-call `EVAL`, then
+per-connection `EVALSHA` with `EVAL` fallback after `NOSCRIPT`; ordinary cache
+requests do not preload scripts.
 The request-local and Lua numeric paths share a differential contract matrix:
 booleans and non-numeric values start at zero, decimal values truncate toward
 zero, results stay within `0..PHP_INT_MAX`, and persistent TTL is preserved.
@@ -146,8 +148,12 @@ composer benchmark -- 127.0.0.1 6383 --compare
 ```
 
 The benchmark uses fixed workloads, one warmup, five measured samples, and
-median latency. It also asserts exact adapter round-trip counts for cache hot
-paths. Local snapshots live at `tests/benchmarks-baseline.json` and remain
+median latency. It asserts exact adapter command, round-trip, and connection
+counts for cold and hot cache paths. Existing namespace/group controls resolve
+in one `MGET`; missing controls are created in a single pipeline. The resulting
+first persistent hit, miss, or set uses two backend round trips once controls
+exist, while a brand-new namespace uses three. Local snapshots live at
+`tests/benchmarks-baseline.json` and remain
 ignored because timings are meaningful only on the same controlled runner,
 PHP/PhpRedis versions, and backend product/version. Use `--json` for the
 versioned machine-readable report; connection targets are intentionally omitted.

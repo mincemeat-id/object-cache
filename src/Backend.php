@@ -85,6 +85,13 @@ final class Backend {
 	private $server_info;
 
 	/**
+	 * Whether server identity has been requested this request.
+	 *
+	 * @var bool
+	 */
+	private $server_info_loaded = false;
+
+	/**
 	 * Whether an error has been logged already this request.
 	 *
 	 * @var bool
@@ -142,9 +149,6 @@ final class Backend {
 
 		$this->state  = ObjectCache::STATE_PERSISTENT;
 		$this->reason = '';
-
-		// Capture server identity for diagnostics (no behavior forks).
-		$this->server_info = $this->adapter->server_info();
 	}
 
 	/**
@@ -214,6 +218,15 @@ final class Backend {
 	 * @return array<string,string>|null
 	 */
 	public function server_info(): ?array {
+		if ( ! $this->server_info_loaded && $this->is_persistent()) {
+			$this->server_info_loaded = true;
+			try {
+				$this->server_info = $this->adapter()->server_info();
+			} catch (\Throwable $e) {
+				$this->server_info = null;
+			}
+		}
+
 		return $this->server_info;
 	}
 
@@ -291,6 +304,64 @@ final class Backend {
 		$this->tokens[ $cache_key ] = $token;
 
 		return $token;
+	}
+
+	/**
+	 * Resolves namespace and group generation tokens together.
+	 *
+	 * Existing controls use one MGET. Missing controls are created in one
+	 * pipeline, with a coalesced readback if another request wins a SET NX
+	 * race. Tokens remain memoized for the request so flushes cannot change the
+	 * key generation midway through an operation sequence.
+	 *
+	 * @param string $group Normalized group name.
+	 * @return array{0:string,1:string} Namespace and group tokens.
+	 */
+	public function generation_tokens( string $group ): array {
+		if ( ! $this->is_persistent()) {
+			return array( '', '' );
+		}
+
+		$group_cache_key = 'grp:' . $group;
+		$controls       = array();
+		if ( ! $this->namespace_token_loaded) {
+			$controls['ns'] = $this->key_space->namespace_control_key();
+		}
+		if ( ! isset( $this->tokens[ $group_cache_key ] )) {
+			$controls[ $group_cache_key ] = $this->key_space->group_control_key( $group );
+		}
+
+		if (count( $controls ) > 0) {
+			$labels = array_keys( $controls );
+			try {
+				$values = $this->adapter()->mget( array_values( $controls ) );
+			} catch (\Throwable $e) {
+				$this->degrade( self::REASON_COMMAND_FAILED, $e );
+				return array( KeySpace::generate_token(), KeySpace::generate_token() );
+			}
+
+			$missing = array();
+			foreach ($labels as $index => $label) {
+				$value = $values[ $index ] ?? false;
+				$token = is_string( $value ) ? trim( $value ) : '';
+				if ($token !== '') {
+					$this->tokens[ $label ] = $token;
+				} else {
+					$missing[ $label ] = $controls[ $label ];
+				}
+			}
+
+			if (count( $missing ) > 0) {
+				$this->initialize_missing_tokens( $missing );
+			}
+		}
+
+		$this->namespace_token_loaded = true;
+
+		return array(
+			$this->tokens['ns'] ?? KeySpace::generate_token(),
+			$this->tokens[ $group_cache_key ] ?? KeySpace::generate_token(),
+		);
 	}
 
 	/**
@@ -381,7 +452,8 @@ final class Backend {
 		}
 
 		if ($ok) {
-			$this->tokens['ns'] = $token;
+			$this->tokens['ns']           = $token;
+			$this->namespace_token_loaded = true;
 		}
 
 		return $ok;
@@ -783,6 +855,57 @@ final class Backend {
 		}
 
 		return KeySpace::generate_token();
+	}
+
+	/**
+	 * Creates control tokens that were absent in a coalesced read.
+	 *
+	 * @param array<string,string> $missing Token cache label => control key.
+	 */
+	private function initialize_missing_tokens( array $missing ): void {
+		$candidates = array();
+		$commands   = array();
+		foreach ($missing as $label => $key) {
+			$candidates[ $label ] = KeySpace::generate_token();
+			$commands[]            = array( 'set', array( $key, $candidates[ $label ], array( 'NX' ) ) );
+		}
+
+		try {
+			$results = $this->adapter()->pipeline( $commands );
+		} catch (\Throwable $e) {
+			$this->degrade( self::REASON_COMMAND_FAILED, $e );
+			return;
+		}
+
+		$losers = array();
+		$i      = 0;
+		foreach ($missing as $label => $key) {
+			if (( $results[ $i ] ?? false ) === true) {
+				$this->tokens[ $label ] = $candidates[ $label ];
+			} else {
+				$losers[ $label ] = $key;
+			}
+			++$i;
+		}
+
+		if (count( $losers ) === 0) {
+			return;
+		}
+
+		try {
+			$values = $this->adapter()->mget( array_values( $losers ) );
+		} catch (\Throwable $e) {
+			$this->degrade( self::REASON_COMMAND_FAILED, $e );
+			return;
+		}
+
+		$i = 0;
+		foreach ($losers as $label => $key) {
+			$value = $values[ $i ] ?? false;
+			$token = is_string( $value ) ? trim( $value ) : '';
+			$this->tokens[ $label ] = $token !== '' ? $token : $this->init_token( $key );
+			++$i;
+		}
 	}
 
 	/**

@@ -7,7 +7,7 @@
  * Version: 0.1.0-rc1
  * Drop-in Version: 0.1.0-rc1
  * Schema Version: 1
- * Build Hash: 3e5ce1d80114405e773cceb7e68c0f7ab28b5ffe75512e880edf965f4c3a1375
+ * Build Hash: 463577015040a3e828cd5693519f5fddc774b52563af57bca4f0e13b47f74375
  *
  * @package Mincemeat\ObjectCache
  */
@@ -278,6 +278,13 @@ namespace Mincemeat\ObjectCache {
 		private $server_info;
 
 		/**
+		 * Whether server identity has been requested this request.
+		 *
+		 * @var bool
+		 */
+		private $server_info_loaded = false;
+
+		/**
 		 * Whether an error has been logged already this request.
 		 *
 		 * @var bool
@@ -335,9 +342,6 @@ namespace Mincemeat\ObjectCache {
 
 			$this->state  = ObjectCache::STATE_PERSISTENT;
 			$this->reason = '';
-
-			// Capture server identity for diagnostics (no behavior forks).
-			$this->server_info = $this->adapter->server_info();
 		}
 
 		/**
@@ -407,6 +411,15 @@ namespace Mincemeat\ObjectCache {
 		 * @return array<string,string>|null
 		 */
 		public function server_info(): ?array {
+			if ( ! $this->server_info_loaded && $this->is_persistent()) {
+				$this->server_info_loaded = true;
+				try {
+					$this->server_info = $this->adapter()->server_info();
+				} catch (\Throwable $e) {
+					$this->server_info = null;
+				}
+			}
+
 			return $this->server_info;
 		}
 
@@ -484,6 +497,64 @@ namespace Mincemeat\ObjectCache {
 			$this->tokens[ $cache_key ] = $token;
 
 			return $token;
+		}
+
+		/**
+		 * Resolves namespace and group generation tokens together.
+		 *
+		 * Existing controls use one MGET. Missing controls are created in one
+		 * pipeline, with a coalesced readback if another request wins a SET NX
+		 * race. Tokens remain memoized for the request so flushes cannot change the
+		 * key generation midway through an operation sequence.
+		 *
+		 * @param string $group Normalized group name.
+		 * @return array{0:string,1:string} Namespace and group tokens.
+		 */
+		public function generation_tokens( string $group ): array {
+			if ( ! $this->is_persistent()) {
+				return array( '', '' );
+			}
+
+			$group_cache_key = 'grp:' . $group;
+			$controls       = array();
+			if ( ! $this->namespace_token_loaded) {
+				$controls['ns'] = $this->key_space->namespace_control_key();
+			}
+			if ( ! isset( $this->tokens[ $group_cache_key ] )) {
+				$controls[ $group_cache_key ] = $this->key_space->group_control_key( $group );
+			}
+
+			if (count( $controls ) > 0) {
+				$labels = array_keys( $controls );
+				try {
+					$values = $this->adapter()->mget( array_values( $controls ) );
+				} catch (\Throwable $e) {
+					$this->degrade( self::REASON_COMMAND_FAILED, $e );
+					return array( KeySpace::generate_token(), KeySpace::generate_token() );
+				}
+
+				$missing = array();
+				foreach ($labels as $index => $label) {
+					$value = $values[ $index ] ?? false;
+					$token = is_string( $value ) ? trim( $value ) : '';
+					if ($token !== '') {
+						$this->tokens[ $label ] = $token;
+					} else {
+						$missing[ $label ] = $controls[ $label ];
+					}
+				}
+
+				if (count( $missing ) > 0) {
+					$this->initialize_missing_tokens( $missing );
+				}
+			}
+
+			$this->namespace_token_loaded = true;
+
+			return array(
+				$this->tokens['ns'] ?? KeySpace::generate_token(),
+				$this->tokens[ $group_cache_key ] ?? KeySpace::generate_token(),
+			);
 		}
 
 		/**
@@ -574,7 +645,8 @@ namespace Mincemeat\ObjectCache {
 			}
 
 			if ($ok) {
-				$this->tokens['ns'] = $token;
+				$this->tokens['ns']           = $token;
+				$this->namespace_token_loaded = true;
 			}
 
 			return $ok;
@@ -976,6 +1048,57 @@ namespace Mincemeat\ObjectCache {
 			}
 
 			return KeySpace::generate_token();
+		}
+
+		/**
+		 * Creates control tokens that were absent in a coalesced read.
+		 *
+		 * @param array<string,string> $missing Token cache label => control key.
+		 */
+		private function initialize_missing_tokens( array $missing ): void {
+			$candidates = array();
+			$commands   = array();
+			foreach ($missing as $label => $key) {
+				$candidates[ $label ] = KeySpace::generate_token();
+				$commands[]            = array( 'set', array( $key, $candidates[ $label ], array( 'NX' ) ) );
+			}
+
+			try {
+				$results = $this->adapter()->pipeline( $commands );
+			} catch (\Throwable $e) {
+				$this->degrade( self::REASON_COMMAND_FAILED, $e );
+				return;
+			}
+
+			$losers = array();
+			$i      = 0;
+			foreach ($missing as $label => $key) {
+				if (( $results[ $i ] ?? false ) === true) {
+					$this->tokens[ $label ] = $candidates[ $label ];
+				} else {
+					$losers[ $label ] = $key;
+				}
+				++$i;
+			}
+
+			if (count( $losers ) === 0) {
+				return;
+			}
+
+			try {
+				$values = $this->adapter()->mget( array_values( $losers ) );
+			} catch (\Throwable $e) {
+				$this->degrade( self::REASON_COMMAND_FAILED, $e );
+				return;
+			}
+
+			$i = 0;
+			foreach ($losers as $label => $key) {
+				$value = $values[ $i ] ?? false;
+				$token = is_string( $value ) ? trim( $value ) : '';
+				$this->tokens[ $label ] = $token !== '' ? $token : $this->init_token( $key );
+				++$i;
+			}
 		}
 
 		/**
@@ -2806,8 +2929,7 @@ namespace Mincemeat\ObjectCache {
 			$entries = array();
 			$out = array();
 
-			$ns_tok  = $this->backend()->namespace_token();
-			$grp_tok = $this->backend()->group_token( $group );
+			list($ns_tok, $grp_tok) = $this->backend()->generation_tokens( $group );
 			$ttl_ms  = $this->resolve_ttl_ms( $expire );
 
 			foreach ($data as $key => $value) {
@@ -2978,8 +3100,7 @@ namespace Mincemeat\ObjectCache {
 			$entries = array();
 			$out = array();
 
-			$ns_tok  = $this->backend()->namespace_token();
-			$grp_tok = $this->backend()->group_token( $group );
+			list($ns_tok, $grp_tok) = $this->backend()->generation_tokens( $group );
 			$ttl_ms  = $this->resolve_ttl_ms( $expire );
 
 			foreach ($data as $key => $value) {
@@ -3150,8 +3271,7 @@ namespace Mincemeat\ObjectCache {
 			$backend_keys = array();
 			$out = array();
 
-			$ns_tok  = $this->backend()->namespace_token();
-			$grp_tok = $this->backend()->group_token( $group );
+			list($ns_tok, $grp_tok) = $this->backend()->generation_tokens( $group );
 
 			foreach ($keys as $key) {
 				if ( ! $this->key_space->is_valid_key( $key )) {
@@ -3599,8 +3719,7 @@ namespace Mincemeat\ObjectCache {
 		 * @return mixed|false
 		 */
 		private function persistent_get( $key, string $group, bool $force, &$found, string $storage_id ) {
-			$ns_tok   = $this->backend()->namespace_token();
-			$grp_tok  = $this->backend()->group_token( $group );
+			list($ns_tok, $grp_tok) = $this->backend()->generation_tokens( $group );
 			$item_key = $this->key_space->item_key( $ns_tok, $grp_tok, $group, $key );
 
 			$this->backend_calls += 1;
@@ -3672,8 +3791,7 @@ namespace Mincemeat\ObjectCache {
 				return $values;
 			}
 
-			$ns_tok  = $this->backend()->namespace_token();
-			$grp_tok = $this->backend()->group_token( $group );
+			list($ns_tok, $grp_tok) = $this->backend()->generation_tokens( $group );
 
 			$backend_keys = array();
 			foreach ($missing as $key) {
@@ -3743,8 +3861,7 @@ namespace Mincemeat\ObjectCache {
 				return false;
 			}
 
-			$ns_tok   = $this->backend()->namespace_token();
-			$grp_tok  = $this->backend()->group_token( $group );
+			list($ns_tok, $grp_tok) = $this->backend()->generation_tokens( $group );
 			$item_key = $this->key_space->item_key( $ns_tok, $grp_tok, $group, $key );
 			$ttl_ms   = $this->resolve_ttl_ms( $expire );
 
@@ -3781,8 +3898,7 @@ namespace Mincemeat\ObjectCache {
 				return false;
 			}
 
-			$ns_tok   = $this->backend()->namespace_token();
-			$grp_tok  = $this->backend()->group_token( $group );
+			list($ns_tok, $grp_tok) = $this->backend()->generation_tokens( $group );
 			$item_key = $this->key_space->item_key( $ns_tok, $grp_tok, $group, $key );
 			$ttl_ms   = $this->resolve_ttl_ms( $expire );
 
@@ -3828,8 +3944,7 @@ namespace Mincemeat\ObjectCache {
 				return false;
 			}
 
-			$ns_tok   = $this->backend()->namespace_token();
-			$grp_tok  = $this->backend()->group_token( $group );
+			list($ns_tok, $grp_tok) = $this->backend()->generation_tokens( $group );
 			$item_key = $this->key_space->item_key( $ns_tok, $grp_tok, $group, $key );
 			$ttl_ms   = $this->resolve_ttl_ms( $expire );
 
@@ -3862,8 +3977,7 @@ namespace Mincemeat\ObjectCache {
 		 * @return bool
 		 */
 		private function persistent_delete( $key, string $group, string $storage_id ): bool {
-			$ns_tok   = $this->backend()->namespace_token();
-			$grp_tok  = $this->backend()->group_token( $group );
+			list($ns_tok, $grp_tok) = $this->backend()->generation_tokens( $group );
 			$item_key = $this->key_space->item_key( $ns_tok, $grp_tok, $group, $key );
 
 			$this->backend_calls += 1;
@@ -3958,8 +4072,7 @@ namespace Mincemeat\ObjectCache {
 		 * @return int|false
 		 */
 		private function persistent_delta( $key, int $offset, string $group, string $storage_id ) {
-			$ns_tok   = $this->backend()->namespace_token();
-			$grp_tok  = $this->backend()->group_token( $group );
+			list($ns_tok, $grp_tok) = $this->backend()->generation_tokens( $group );
 			$item_key = $this->key_space->item_key( $ns_tok, $grp_tok, $group, $key );
 
 			$this->backend_calls   += 1;
@@ -4206,10 +4319,6 @@ namespace Mincemeat\ObjectCache {
 
 			// Unlink is supported on all supported backends (Redis >= 4.0).
 			$this->unlink_supported = true;
-
-			// Preload the numeric script. Failure is non-fatal because EVAL remains
-			// a correct fallback for servers or ACLs that do not permit SCRIPT LOAD.
-			$this->load_script( LuaScripts::INCR_DECR );
 		}
 
 		/**
@@ -4398,7 +4507,12 @@ namespace Mincemeat\ObjectCache {
 			$loaded_sha = $this->script_shas[ $source_sha ] ?? null;
 
 			if ($loaded_sha === null) {
-				return $this->redis->eval( $script, $arguments, count( $keys ) );
+				$result = $this->redis->eval( $script, $arguments, count( $keys ) );
+				if ($result !== false) {
+					// EVAL also populates the server-side script cache.
+					$this->script_shas[ $source_sha ] = $source_sha;
+				}
+				return $result;
 			}
 
 			$result = $this->redis->evalSha( $loaded_sha, $arguments, count( $keys ) );
@@ -4415,7 +4529,11 @@ namespace Mincemeat\ObjectCache {
 
 			// EVAL executes and repopulates the server's script cache, allowing the
 			// next call on this connection to return to EVALSHA.
-			return $this->redis->eval( $script, $arguments, count( $keys ) );
+			$result = $this->redis->eval( $script, $arguments, count( $keys ) );
+			if ($result !== false) {
+				$this->script_shas[ $source_sha ] = $source_sha;
+			}
+			return $result;
 		}
 
 		/**
@@ -4737,27 +4855,6 @@ namespace Mincemeat\ObjectCache {
 			}
 
 			return (string) $actual === (string) $expected;
-		}
-
-		/**
-		 * Best-effort SCRIPT LOAD for this adapter connection.
-		 */
-		private function load_script( string $script ): void {
-			if ($this->redis === null) {
-				return;
-			}
-
-			$source_sha = sha1( $script );
-			try {
-				$loaded_sha = $this->redis->script( 'load', $script );
-				if (is_string( $loaded_sha ) && hash_equals( $source_sha, strtolower( $loaded_sha ) )) {
-					$this->script_shas[ $source_sha ] = $loaded_sha;
-				}
-				$this->redis->clearLastError();
-			} catch (\Throwable $e) {
-				// EVAL remains available as the correctness fallback.
-				return;
-			}
 		}
 	}
 

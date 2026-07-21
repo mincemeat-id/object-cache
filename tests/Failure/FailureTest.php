@@ -425,6 +425,66 @@ class FailureTest extends TestCase
         $this->assertSame(ObjectCache::STATE_DEGRADED, $backend2->state());
     }
 
+    public function test_generation_tokens_coalesce_existing_controls()
+    {
+        $adapter = new MockPhpRedisAdapter();
+        $mget_calls = 0;
+        $adapter->mget_callback = function (array $keys) use (&$mget_calls) {
+            ++$mget_calls;
+            $this->assertCount(2, $keys);
+            return array('namespace-token', 'group-token');
+        };
+        $adapter->pipeline_callback = function () {
+            $this->fail('Existing generation controls must not be rewritten.');
+        };
+        $backend = new Backend(new KeySpace(false, 1), $adapter);
+        $backend->initialize($this->get_config());
+
+        $this->assertSame(array('namespace-token', 'group-token'), $backend->generation_tokens('default'));
+        $this->assertSame(array('namespace-token', 'group-token'), $backend->generation_tokens('default'));
+        $this->assertSame(1, $mget_calls);
+    }
+
+    public function test_generation_tokens_pipeline_missing_controls_and_read_race_winners()
+    {
+        $adapter = new MockPhpRedisAdapter();
+        $mget_calls = 0;
+        $adapter->mget_callback = function () use (&$mget_calls) {
+            ++$mget_calls;
+            return $mget_calls === 1
+                ? array(false, false)
+                : array('namespace-winner', 'group-winner');
+        };
+        $adapter->pipeline_callback = function (array $commands) {
+            $this->assertCount(2, $commands);
+            $this->assertSame(array('NX'), $commands[0][1][2]);
+            $this->assertSame(array('NX'), $commands[1][1][2]);
+            return array(false, false);
+        };
+        $backend = new Backend(new KeySpace(false, 1), $adapter);
+        $backend->initialize($this->get_config());
+
+        $this->assertSame(array('namespace-winner', 'group-winner'), $backend->generation_tokens('default'));
+        $this->assertSame(2, $mget_calls);
+    }
+
+    public function test_server_info_is_lazy_and_memoized()
+    {
+        $adapter = $this->getMockBuilder(MockPhpRedisAdapter::class)
+            ->onlyMethods(array('server_info'))
+            ->getMock();
+        $adapter->expects($this->once())
+            ->method('server_info')
+            ->willReturn(array('product' => 'redis', 'version' => '8.0.0'));
+        $backend = new Backend(new KeySpace(false, 1), $adapter);
+
+        $backend->initialize($this->get_config());
+        $this->assertSame(ObjectCache::STATE_PERSISTENT, $backend->state());
+        $expected = array('product' => 'redis', 'version' => '8.0.0');
+        $this->assertSame($expected, $backend->server_info());
+        $this->assertSame($expected, $backend->server_info());
+    }
+
     public function test_eval_and_eval_incr_failure_and_malformed_results()
     {
         $adapter = new MockPhpRedisAdapter();

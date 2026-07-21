@@ -231,8 +231,7 @@ final class ObjectCache {
 		$entries = array();
 		$out = array();
 
-		$ns_tok  = $this->backend()->namespace_token();
-		$grp_tok = $this->backend()->group_token( $group );
+		list($ns_tok, $grp_tok) = $this->backend()->generation_tokens( $group );
 		$ttl_ms  = $this->resolve_ttl_ms( $expire );
 
 		foreach ($data as $key => $value) {
@@ -403,8 +402,7 @@ final class ObjectCache {
 		$entries = array();
 		$out = array();
 
-		$ns_tok  = $this->backend()->namespace_token();
-		$grp_tok = $this->backend()->group_token( $group );
+		list($ns_tok, $grp_tok) = $this->backend()->generation_tokens( $group );
 		$ttl_ms  = $this->resolve_ttl_ms( $expire );
 
 		foreach ($data as $key => $value) {
@@ -575,8 +573,7 @@ final class ObjectCache {
 		$backend_keys = array();
 		$out = array();
 
-		$ns_tok  = $this->backend()->namespace_token();
-		$grp_tok = $this->backend()->group_token( $group );
+		list($ns_tok, $grp_tok) = $this->backend()->generation_tokens( $group );
 
 		foreach ($keys as $key) {
 			if ( ! $this->key_space->is_valid_key( $key )) {
@@ -1024,8 +1021,7 @@ final class ObjectCache {
 	 * @return mixed|false
 	 */
 	private function persistent_get( $key, string $group, bool $force, &$found, string $storage_id ) {
-		$ns_tok   = $this->backend()->namespace_token();
-		$grp_tok  = $this->backend()->group_token( $group );
+		list($ns_tok, $grp_tok) = $this->backend()->generation_tokens( $group );
 		$item_key = $this->key_space->item_key( $ns_tok, $grp_tok, $group, $key );
 
 		$this->backend_calls += 1;
@@ -1097,8 +1093,7 @@ final class ObjectCache {
 			return $values;
 		}
 
-		$ns_tok  = $this->backend()->namespace_token();
-		$grp_tok = $this->backend()->group_token( $group );
+		list($ns_tok, $grp_tok) = $this->backend()->generation_tokens( $group );
 
 		$backend_keys = array();
 		foreach ($missing as $key) {
@@ -1168,8 +1163,7 @@ final class ObjectCache {
 			return false;
 		}
 
-		$ns_tok   = $this->backend()->namespace_token();
-		$grp_tok  = $this->backend()->group_token( $group );
+		list($ns_tok, $grp_tok) = $this->backend()->generation_tokens( $group );
 		$item_key = $this->key_space->item_key( $ns_tok, $grp_tok, $group, $key );
 		$ttl_ms   = $this->resolve_ttl_ms( $expire );
 
@@ -1206,8 +1200,7 @@ final class ObjectCache {
 			return false;
 		}
 
-		$ns_tok   = $this->backend()->namespace_token();
-		$grp_tok  = $this->backend()->group_token( $group );
+		list($ns_tok, $grp_tok) = $this->backend()->generation_tokens( $group );
 		$item_key = $this->key_space->item_key( $ns_tok, $grp_tok, $group, $key );
 		$ttl_ms   = $this->resolve_ttl_ms( $expire );
 
@@ -1253,8 +1246,7 @@ final class ObjectCache {
 			return false;
 		}
 
-		$ns_tok   = $this->backend()->namespace_token();
-		$grp_tok  = $this->backend()->group_token( $group );
+		list($ns_tok, $grp_tok) = $this->backend()->generation_tokens( $group );
 		$item_key = $this->key_space->item_key( $ns_tok, $grp_tok, $group, $key );
 		$ttl_ms   = $this->resolve_ttl_ms( $expire );
 
@@ -1287,8 +1279,7 @@ final class ObjectCache {
 	 * @return bool
 	 */
 	private function persistent_delete( $key, string $group, string $storage_id ): bool {
-		$ns_tok   = $this->backend()->namespace_token();
-		$grp_tok  = $this->backend()->group_token( $group );
+		list($ns_tok, $grp_tok) = $this->backend()->generation_tokens( $group );
 		$item_key = $this->key_space->item_key( $ns_tok, $grp_tok, $group, $key );
 
 		$this->backend_calls += 1;
@@ -1383,8 +1374,7 @@ final class ObjectCache {
 	 * @return int|false
 	 */
 	private function persistent_delta( $key, int $offset, string $group, string $storage_id ) {
-		$ns_tok   = $this->backend()->namespace_token();
-		$grp_tok  = $this->backend()->group_token( $group );
+		list($ns_tok, $grp_tok) = $this->backend()->generation_tokens( $group );
 		$item_key = $this->key_space->item_key( $ns_tok, $grp_tok, $group, $key );
 
 		$this->backend_calls   += 1;
