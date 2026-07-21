@@ -234,7 +234,7 @@ $core_source_fixture_allowlist = array(
 	),
 	array(
 		'severity'       => E_WARNING,
-		'message_pattern' => '/^foreach\(\) argument must be of type array\|object, (?:bool|false) given$/',
+		'message_pattern' => '/^(?:foreach\(\) argument must be of type array\|object, (?:bool|false) given|Invalid argument supplied for foreach\(\))$/',
 		'file_pattern'    => '/wp-includes\/(?:script-loader|script-modules)\.php$/',
 	),
 );
