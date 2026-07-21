@@ -16,6 +16,7 @@ namespace Mincemeat\ObjectCache\Tests\Unit;
 use Mincemeat\ObjectCache\Api;
 use Mincemeat\ObjectCache\KeySpace;
 use Mincemeat\ObjectCache\ObjectCache;
+use Mincemeat\ObjectCache\Tests\Numeric\NumericContractCases;
 use PHPUnit\Framework\TestCase;
 
 /**
@@ -244,6 +245,27 @@ class ObjectCacheTest extends TestCase
         $this->assertSame(0, $this->cache->incr('negative', 1, 'numbers'));
         $this->cache->set('not-numeric', 'word', 'numbers');
         $this->assertSame(2, $this->cache->incr('not-numeric', 2, 'numbers'));
+    }
+
+    public function test_runtime_numeric_contract_matrix()
+    {
+        $this->cache->add_non_persistent_groups('numeric-contract');
+
+        foreach (NumericContractCases::increments() as $label => $case) {
+            list($value, $offset, $expected) = $case;
+            $key = 'incr-' . md5($label);
+            $this->cache->set($key, $value, 'numeric-contract');
+            $this->assertSame($expected, $this->cache->incr($key, $offset, 'numeric-contract'), $label);
+            $this->assertSame($expected, $this->cache->get($key, 'numeric-contract'), $label);
+        }
+
+        foreach (NumericContractCases::decrements() as $label => $case) {
+            list($value, $offset, $expected) = $case;
+            $key = 'decr-' . md5($label);
+            $this->cache->set($key, $value, 'numeric-contract');
+            $this->assertSame($expected, $this->cache->decr($key, $offset, 'numeric-contract'), $label);
+            $this->assertSame($expected, $this->cache->get($key, 'numeric-contract'), $label);
+        }
     }
 
     public function test_switch_to_blog_back_restores_scope()

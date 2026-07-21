@@ -1423,7 +1423,7 @@ final class ObjectCache {
 	 * @param mixed $value
 	 */
 	private function apply_integer_delta( $value, int $offset ): int {
-		$current = is_numeric( $value ) ? (int) $value : 0;
+		$current = $this->coerce_numeric_value( $value );
 
 		if ($offset === 0) {
 			return max( 0, $current );
@@ -1442,5 +1442,33 @@ final class ObjectCache {
 		}
 
 		return $current + $offset;
+	}
+
+	/**
+	 * Coerces a cached value according to the cross-tier numeric contract.
+	 *
+	 * Integers, floats, and decimal numeric strings are truncated toward zero.
+	 * Other values, including booleans and null, normalize to zero as they do in
+	 * WordPress core before arithmetic. The explicit decimal grammar prevents
+	 * Redis Lua's tonumber() extensions (for example hexadecimal strings) from
+	 * diverging from the request-local tier.
+	 *
+	 * @param mixed $value
+	 */
+	private function coerce_numeric_value( $value ): int {
+		if (is_int( $value ) || is_float( $value )) {
+			return (int) $value;
+		}
+
+		if ( ! is_string( $value )) {
+			return 0;
+		}
+
+		$candidate = trim( $value );
+		if ($candidate === '' || preg_match( '/^[+-]?(?:(?:\d+\.?\d*)|(?:\.\d+))(?:[eE][+-]?\d+)?$/D', $candidate ) !== 1) {
+			return 0;
+		}
+
+		return (int) $candidate;
 	}
 }

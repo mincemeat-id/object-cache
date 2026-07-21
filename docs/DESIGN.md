@@ -148,6 +148,28 @@ The runtime must follow WordPress object-cache behavior:
 - Numeric operations preserve WordPress behavior for missing and non-numeric values.
 - Flush operations are scoped to the operation being requested.
 
+Numeric increments and decrements use the following contract in request memory,
+Redis, and Valkey:
+
+| Input or condition | Behavior |
+| --- | --- |
+| Missing key | Return `false`; do not create an item |
+| Integer | Use the exact integer value |
+| Float or decimal/exponent string | Truncate toward zero before arithmetic |
+| Boolean, `null`, array, object, or non-decimal string | Normalize to zero before arithmetic |
+| Offset | Cast to an integer before arithmetic |
+| `PHP_INT_MIN` offset | Saturate safely without attempting an unrepresentable negation |
+| Negative result | Clamp to zero |
+| Result above `PHP_INT_MAX` | Saturate at `PHP_INT_MAX` |
+| Existing persistent TTL | Preserve it atomically |
+| Corrupt persistent envelope | Return `false` without arithmetic |
+
+This matches WordPress core for misses, integer arithmetic, non-numeric
+normalization, offset coercion, and the zero floor. WordPress core can return a
+float after starting from a fractional value or overflowing an integer despite
+its documented `int|false` return. Mincemeat deliberately truncates fractions
+and saturates overflow so every tier returns the documented integer type.
+
 For compatibility with plugins that inspect the global cache object, the
 runtime also exposes core-shaped `cache_hits`, `cache_misses`, `global_groups`,
 and `blog_prefix` properties plus `stats()` output. Group and blog properties

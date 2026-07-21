@@ -5,8 +5,8 @@
  * The incr/decr script decodes the plugin's versioned value envelope, applies
  * an integer offset, clamps at zero for decrements, re-encodes, and writes
  * back while preserving the existing PTTL (including no-expiry). It returns
- * distinct result codes so missing keys, invalid/non-integer values, and
- * successful updates are never conflated.
+ * distinct result codes so missing keys, corrupt envelopes, and successful
+ * updates are never conflated.
  *
  * @package Mincemeat\ObjectCache
  */
@@ -28,9 +28,6 @@ final class LuaScripts {
 	/** The key does not exist in the backend. */
 	public const RESULT_MISSING = 'MISSING';
 
-	/** The key exists but the value is not a supported numeric envelope. */
-	public const RESULT_INVALID = 'INVALID';
-
 	/** The envelope is corrupt or has an unknown version/tag. */
 	public const RESULT_CORRUPT = 'CORRUPT';
 
@@ -43,7 +40,6 @@ final class LuaScripts {
 	 * Returns:
 	 *   {RESULT_OK,    <new_value>}  on success.
 	 *   {RESULT_MISSING}             when the key is absent.
-	 *   {RESULT_INVALID}             when the value is not an integer envelope.
 	 *   {RESULT_CORRUPT}             when the envelope is malformed.
 	 *
 	 * The script uses only Redis/Valkey-compatible Lua and string/TTL
@@ -182,6 +178,18 @@ local function sub_str(a, b)
     return s
 end
 
+local function normalize_unsigned(value)
+    value = value:gsub("^0+", "")
+    if value == "" then
+        return "0"
+    end
+    return value
+end
+
+local function trim(value)
+    return value:match("^%s*(.-)%s*$")
+end
+
 local key = KEYS[1]
 local offset_str = ARGV[1]
 local is_negative = false
@@ -221,7 +229,33 @@ if string.len(payload) ~= length then
     return {'CORRUPT'}
 end
 
-local is_int_payload = (tag == 1) or (tag == 4) or (tag == 5) or (tag == 3 and string.match(payload, "^%-?%d+$") ~= nil)
+if tag < 1 or tag > 6 then
+    return {'CORRUPT'}
+end
+
+if tag == 1 and string.match(payload, "^%-?%d+$") == nil then
+    return {'CORRUPT'}
+end
+
+if tag == 2 and string.len(payload) ~= 8 then
+    return {'CORRUPT'}
+end
+
+if tag == 4 and (string.len(payload) ~= 1 or (payload ~= string.char(0) and payload ~= string.char(1))) then
+    return {'CORRUPT'}
+end
+
+if tag == 5 and string.len(payload) ~= 0 then
+    return {'CORRUPT'}
+end
+
+local string_value = tag == 3 and trim(payload) or ""
+local string_is_integer = string.match(string_value, "^[%+%-]?%d+$") ~= nil
+local string_is_decimal = string_value ~= ""
+    and string.match(string_value, "^[%+%-%.%deE]+$") ~= nil
+    and tonumber(string_value) ~= nil
+
+local is_int_payload = (tag == 1) or (tag == 4) or (tag == 5) or (tag == 3 and string_is_integer)
 
 local new_tag = 1
 local new_payload = ''
@@ -232,15 +266,18 @@ if is_int_payload then
     local is_current_negative = false
 
     if tag == 1 or tag == 3 then
-        local raw_payload = payload
+        local raw_payload = tag == 3 and string_value or payload
         if string.sub(raw_payload, 1, 1) == '-' then
             is_current_negative = true
-            current_str = string.sub(raw_payload, 2)
+            current_str = normalize_unsigned(string.sub(raw_payload, 2))
         else
-            current_str = raw_payload
+            if string.sub(raw_payload, 1, 1) == '+' then
+                raw_payload = string.sub(raw_payload, 2)
+            end
+            current_str = normalize_unsigned(raw_payload)
         end
     elseif tag == 4 then
-        current_str = (payload == string.char(1)) and "1" or "0"
+        current_str = "0"
     end
 
     local new_val_str = ""
@@ -276,12 +313,13 @@ if is_int_payload then
 else
     local current = 0
     if tag == 2 then
-        if string.len(payload) ~= 8 then
-            return {'CORRUPT'}
-        end
         current = decode_double(payload)
-    else
-        current = tonumber(payload) or 0
+    elseif tag == 3 and string_is_decimal then
+        current = tonumber(string_value) or 0
+    end
+
+    if current ~= current or current == math.huge or current == -math.huge then
+        current = 0
     end
 
     if current < 0 then

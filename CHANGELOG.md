@@ -10,6 +10,9 @@
 - Expanded release validation to WordPress 6.9.5 and 7.0.2 across core/query
   contract and packaged browser/WP-CLI E2E coverage, with a scheduled trunk
   compatibility signal.
+- Unified numeric coercion and saturation across request memory, Redis, and
+  Valkey; boolean `true` now follows WordPress normalization instead of being
+  counted as one before incrementing.
 
 ## [0.1.0-rc1] - 2026-07-13
 

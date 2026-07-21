@@ -16,6 +16,7 @@ declare(strict_types=1);
 namespace Mincemeat\ObjectCache\Tests\Integration;
 
 use Mincemeat\ObjectCache\LuaScripts;
+use Mincemeat\ObjectCache\Tests\Numeric\NumericContractCases;
 use Mincemeat\ObjectCache\ValueCodec;
 
 /**
@@ -23,6 +24,25 @@ use Mincemeat\ObjectCache\ValueCodec;
  */
 class AtomicNumericTest extends IntegrationTestCase
 {
+    public function test_persistent_numeric_contract_matrix()
+    {
+        foreach (NumericContractCases::increments() as $label => $case) {
+            list($value, $offset, $expected) = $case;
+            $key = 'incr-' . md5($label);
+            $this->cache->set($key, $value, 'options');
+            $this->assertSame($expected, $this->cache->incr($key, $offset, 'options'), $label);
+            $this->assertSame($expected, $this->new_request()->get($key, 'options'), $label);
+        }
+
+        foreach (NumericContractCases::decrements() as $label => $case) {
+            list($value, $offset, $expected) = $case;
+            $key = 'decr-' . md5($label);
+            $this->cache->set($key, $value, 'options');
+            $this->assertSame($expected, $this->cache->decr($key, $offset, 'options'), $label);
+            $this->assertSame($expected, $this->new_request()->get($key, 'options'), $label);
+        }
+    }
+
     public function test_incr_missing_returns_false()
     {
         $this->assertFalse($this->cache->incr('missing-key', 1, 'options'));
@@ -278,5 +298,25 @@ class AtomicNumericTest extends IntegrationTestCase
 
         $this->assertSame(LuaScripts::RESULT_OK, $code);
         $this->assertSame(1, $value);
+    }
+
+    public function test_lua_rejects_malformed_numeric_envelopes()
+    {
+        $ns_tok = $this->backend->namespace_token();
+        $grp_tok = $this->backend->group_token('options');
+
+        $cases = array(
+            'boolean' => ValueCodec::header_inline(ValueCodec::TAG_BOOL, "\x02"),
+            'integer' => ValueCodec::header_inline(ValueCodec::TAG_INT, '12x'),
+            'null'    => ValueCodec::header_inline(ValueCodec::TAG_NULL, "\x00"),
+        );
+
+        foreach ($cases as $key => $encoded) {
+            $item_key = $this->cache->key_space()->item_key($ns_tok, $grp_tok, 'options', $key);
+            $this->assertTrue($this->backend->set_unconditional($item_key, $encoded, null));
+            list($code, $value) = $this->backend->eval_incr($item_key, 1);
+            $this->assertSame(LuaScripts::RESULT_CORRUPT, $code, $key);
+            $this->assertNull($value, $key);
+        }
     }
 }

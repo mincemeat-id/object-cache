@@ -21,6 +21,11 @@ PhpRedis 6.3.0 is the minimum required extension version and is installed
 explicitly in CI. Connection setup verifies serializer, compression, prefix,
 reply, timeout, retry/backoff, and keepalive options. Numeric Lua operations use
 per-connection `SCRIPT LOAD`/`EVALSHA` with `EVAL` fallback after `NOSCRIPT`.
+The request-local and Lua numeric paths share a differential contract matrix:
+booleans and non-numeric values start at zero, decimal values truncate toward
+zero, results stay within `0..PHP_INT_MAX`, and persistent TTL is preserved.
+Intentional differences from WordPress core's incidental float/overflow return
+types are recorded in the design document.
 Persistent pool identifiers isolate database, namespace, ACL, TLS, transport,
 and retry identities using non-reversible digests. Stock PhpRedis pooling does
 not honor the identifier unless `redis.pconnect.pool_pattern` contains `i`, so
