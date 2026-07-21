@@ -212,8 +212,10 @@ environment for debugging.
 The lifecycle suite builds packages from the immutable `0.1.0-rc1` tag and the
 current checkout, then exercises stale detection, atomic upgrade, failed-update
 preservation and recovery, foreign-file refusal, deliberate rollback, and
-companion-plugin deactivation. A full Git history containing the RC1 tag is
-required.
+companion-plugin deactivation. The candidate companion must also consume the
+older drop-in's diagnostics without warnings during the mixed-version upgrade
+window; any PHP diagnostic fails the lifecycle gate. A full Git history
+containing the RC1 tag is required.
 
 Drop-in parity:
 

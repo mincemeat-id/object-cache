@@ -29,12 +29,15 @@ final class CliCommand {
 	public function status( array $args, array $assoc_args ): void {
 		$state       = Lifecycle::get_dropin_state();
 		$diagnostics = Api::diagnostics();
+		$topology_status = $diagnostics['topology_status'] ?? 'unverified';
+		$topology_mode   = $diagnostics['topology_mode'] ?? 'unknown';
+		$topology_role   = $diagnostics['topology_role'] ?? 'unknown';
 
 		WP_CLI::line( 'Drop-in Status: ' . $state );
-		WP_CLI::line( 'Cache Status:   ' . $diagnostics['state'] );
-		WP_CLI::line( 'Reason:         ' . $diagnostics['reason'] );
-		WP_CLI::line( 'Topology:       ' . $diagnostics['topology_status'] . ' (' . $diagnostics['topology_mode'] . '/' . $diagnostics['topology_role'] . ')' );
-		WP_CLI::line( 'Connection Reuse: ' . $diagnostics['connection_reuse'] );
+		WP_CLI::line( 'Cache Status:   ' . ( $diagnostics['state'] ?? ObjectCache::STATE_RUNTIME_ONLY ) );
+		WP_CLI::line( 'Reason:         ' . ( $diagnostics['reason'] ?? 'not-initialized' ) );
+		WP_CLI::line( 'Topology:       ' . $topology_status . ' (' . $topology_mode . '/' . $topology_role . ')' );
+		WP_CLI::line( 'Connection Reuse: ' . ( $diagnostics['connection_reuse'] ?? 'unknown' ) );
 
 		if ( isset( $diagnostics['scheme'] ) ) {
 			WP_CLI::line( 'Scheme:         ' . $diagnostics['scheme'] );

@@ -52,7 +52,9 @@ current stable WordPress patch in single-site and multisite modes. A scheduled
 trunk job is an allowed-failure early warning and does not replace those gates.
 The packaged lifecycle gate requires the immutable previous release tag and
 must pass upgrade, recovery, rollback, deactivation, and foreign-drop-in
-preservation before publishing a candidate.
+preservation before publishing a candidate. Its mixed-version phase must remain
+free of PHP diagnostics while the new companion plugin manages the older
+drop-in.
 
 The controlled performance job must upload the immutable-RC1 report, two clean
 candidate reports, a passing repeatability comparison, and a passing RC1-to-RC2

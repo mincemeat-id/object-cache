@@ -30,6 +30,12 @@ fail() {
 	exit 1
 }
 
+assert_no_php_diagnostics() {
+	if grep -Eqi 'PHP (warning|notice|deprecated|fatal error)|^(warning|notice|deprecated|fatal error):'; then
+		fail 'Lifecycle output contained an unexpected PHP diagnostic.'
+	fi
+}
+
 cleanup() {
 	if [[ "$KEEP_ENV" != "1" ]]; then
 		compose down --volumes --remove-orphans >/dev/null 2>&1 || true
@@ -103,7 +109,9 @@ printf 'Replacing companion files with the candidate package...\n'
 install_package_files "$CANDIDATE_PACKAGE"
 CANDIDATE_HASH=$(tr -d '[:space:]' < "$ACTIVE_PLUGIN_DIR/stubs/object-cache.php.sha256")
 test "$CANDIDATE_HASH" != "$RC1_HASH" || fail 'Candidate and RC1 drop-ins are identical.'
-wp mincemeat-cache status | grep -F 'Drop-in Status: owned-stale' >/dev/null
+MIXED_VERSION_STATUS=$(wp mincemeat-cache status 2>&1)
+assert_no_php_diagnostics <<<"$MIXED_VERSION_STATUS"
+grep -F 'Drop-in Status: owned-stale' <<<"$MIXED_VERSION_STATUS" >/dev/null
 wp mincemeat-cache update-dropin | grep -F 'updated successfully' >/dev/null
 test "$(dropin_hash)" = "$CANDIDATE_HASH" || fail 'Candidate update did not install exact bytes.'
 wp mincemeat-cache status | grep -F 'Drop-in Status: owned-current' >/dev/null
@@ -150,5 +158,7 @@ compose exec -T wordpress test ! -e /var/www/html/wp-content/object-cache.php \
 	|| fail 'Deactivation left an owned drop-in installed.'
 wp plugin activate mincemeat-object-cache >/dev/null
 test "$(dropin_hash)" = "$RC1_HASH" || fail 'Reactivation did not restore RC1 bytes.'
+
+compose logs --no-color wordpress 2>&1 | assert_no_php_diagnostics
 
 printf 'Packaged RC1-to-candidate lifecycle E2E suite passed.\n'

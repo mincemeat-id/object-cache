@@ -291,11 +291,11 @@ final class SiteHealth {
 		}
 
 		$diagnostics = Api::diagnostics();
-		$status      = $diagnostics['topology_status'];
-		$mode        = $diagnostics['topology_mode'];
-		$role        = $diagnostics['topology_role'];
+		$status      = $diagnostics['topology_status'] ?? 'unverified';
+		$mode        = $diagnostics['topology_mode'] ?? 'unknown';
+		$role        = $diagnostics['topology_role'] ?? 'unknown';
 
-		if ( $status === Api::TOPOLOGY_UNSUPPORTED ) {
+		if ( $status === 'unsupported' ) {
 			return array(
 				'label'       => __( 'Unsupported persistent cache topology detected', 'mincemeat-object-cache' ),
 				'status'      => 'critical',
@@ -309,7 +309,7 @@ final class SiteHealth {
 			);
 		}
 
-		if ( $status === Api::TOPOLOGY_UNVERIFIED ) {
+		if ( $status === 'unverified' ) {
 			return array(
 				'label'       => __( 'Persistent cache topology could not be verified', 'mincemeat-object-cache' ),
 				'status'      => 'recommended',
@@ -349,6 +349,15 @@ final class SiteHealth {
 		}
 
 		$diagnostics = Api::diagnostics();
+		if ( ! array_key_exists( 'persistent_requested', $diagnostics ) || ! array_key_exists( 'persistent_reuse', $diagnostics ) ) {
+			return array(
+				'label'       => __( 'Persistent connection reuse could not be verified', 'mincemeat-object-cache' ),
+				'status'      => 'recommended',
+				'badge'       => self::badge(),
+				'description' => sprintf( '<p>%s</p>', __( 'The installed drop-in does not report requested and effective connection reuse. Update the drop-in before evaluating this setting.', 'mincemeat-object-cache' ) ),
+			);
+		}
+
 		if ( ! $diagnostics['persistent_requested'] ) {
 			return array(
 				'label'       => __( 'PhpRedis persistent connection reuse is disabled', 'mincemeat-object-cache' ),
@@ -574,43 +583,43 @@ final class SiteHealth {
 			),
 			'cache_state'      => array(
 				'label' => __( 'Cache State', 'mincemeat-object-cache' ),
-				'value' => $diagnostics['state'],
+				'value' => $diagnostics['state'] ?? ObjectCache::STATE_RUNTIME_ONLY,
 			),
 			'cache_reason'     => array(
 				'label' => __( 'Cache Reason Code', 'mincemeat-object-cache' ),
-				'value' => $diagnostics['reason'],
+				'value' => $diagnostics['reason'] ?? 'not-initialized',
 			),
 			'topology_policy'  => array(
 				'label' => __( 'Topology Policy', 'mincemeat-object-cache' ),
-				'value' => $diagnostics['topology_policy'],
+				'value' => $diagnostics['topology_policy'] ?? 'not-reported-by-installed-drop-in',
 			),
 			'topology_status'  => array(
 				'label' => __( 'Topology Status', 'mincemeat-object-cache' ),
-				'value' => $diagnostics['topology_status'],
+				'value' => $diagnostics['topology_status'] ?? 'unverified',
 			),
 			'topology_mode'    => array(
 				'label' => __( 'Server-Reported Mode', 'mincemeat-object-cache' ),
-				'value' => $diagnostics['topology_mode'],
+				'value' => $diagnostics['topology_mode'] ?? 'unknown',
 			),
 			'topology_role'    => array(
 				'label' => __( 'Server-Reported Role', 'mincemeat-object-cache' ),
-				'value' => $diagnostics['topology_role'],
+				'value' => $diagnostics['topology_role'] ?? 'unknown',
 			),
 			'connection_reuse' => array(
 				'label' => __( 'Persistent Connection Reuse', 'mincemeat-object-cache' ),
-				'value' => $diagnostics['connection_reuse'],
+				'value' => $diagnostics['connection_reuse'] ?? 'unknown',
 			),
 			'php_version'      => array(
 				'label' => __( 'PHP Version', 'mincemeat-object-cache' ),
-				'value' => $diagnostics['php_version'],
+				'value' => $diagnostics['php_version'] ?? PHP_VERSION,
 			),
 			'phpredis_version' => array(
 				'label' => __( 'PhpRedis Version', 'mincemeat-object-cache' ),
-				'value' => $diagnostics['phpredis_version'],
+				'value' => $diagnostics['phpredis_version'] ?? 'unknown',
 			),
 			'phpredis_minimum' => array(
 				'label' => __( 'Minimum PhpRedis Version', 'mincemeat-object-cache' ),
-				'value' => $diagnostics['phpredis_minimum'],
+				'value' => $diagnostics['phpredis_minimum'] ?? 'unknown',
 			),
 		);
 
@@ -669,7 +678,7 @@ final class SiteHealth {
 
 		$fields['multisite'] = array(
 			'label' => __( 'Multisite', 'mincemeat-object-cache' ),
-			'value' => $diagnostics['multisite'] ? __( 'Yes', 'mincemeat-object-cache' ) : __( 'No', 'mincemeat-object-cache' ),
+			'value' => ! empty( $diagnostics['multisite'] ) ? __( 'Yes', 'mincemeat-object-cache' ) : __( 'No', 'mincemeat-object-cache' ),
 		);
 
 		$fields['capabilities'] = array(
@@ -677,14 +686,14 @@ final class SiteHealth {
 			'value' => implode( ', ', Api::NATIVE_FEATURES ),
 		);
 
-		$metrics           = $diagnostics['metrics'];
+		$metrics           = $diagnostics['metrics'] ?? array();
 		$metrics_str       = sprintf(
 			'Hits: %d | Misses: %d | Backend Calls: %d | Backend Time: %.4fs | Errors: %d',
-			$metrics['hits'],
-			$metrics['misses'],
-			$metrics['backend_calls'],
-			$metrics['backend_time'] / 1000000.0,
-			$metrics['errors']
+			$metrics['hits'] ?? 0,
+			$metrics['misses'] ?? 0,
+			$metrics['backend_calls'] ?? 0,
+			( $metrics['backend_time'] ?? 0 ) / 1000000.0,
+			$metrics['errors'] ?? 0
 		);
 		$fields['metrics'] = array(
 			'label' => __( 'Request Metrics', 'mincemeat-object-cache' ),
@@ -693,7 +702,7 @@ final class SiteHealth {
 
 		$fields['last_error'] = array(
 			'label' => __( 'Last Error Message', 'mincemeat-object-cache' ),
-			'value' => $diagnostics['last_error'] ? $diagnostics['last_error'] : __( 'none', 'mincemeat-object-cache' ),
+			'value' => ! empty( $diagnostics['last_error'] ) ? $diagnostics['last_error'] : __( 'none', 'mincemeat-object-cache' ),
 		);
 
 		$info['mincemeat-object-cache'] = array(

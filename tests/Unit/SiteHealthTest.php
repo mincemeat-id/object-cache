@@ -30,6 +30,7 @@ class SiteHealthTest extends TestCase
 		parent::setUp();
 		unset( $GLOBALS['wp_object_cache'] );
 		$GLOBALS['__transients'] = array();
+		$GLOBALS['__mincemeat_filters'] = array();
 		$GLOBALS['__mincemeat_current_user_can'] = true;
 
 		if (!defined('WP_CONTENT_DIR')) {
@@ -44,6 +45,7 @@ class SiteHealthTest extends TestCase
 	{
 		unset( $GLOBALS['wp_object_cache'] );
 		$GLOBALS['__transients'] = array();
+		$GLOBALS['__mincemeat_filters'] = array();
 
 		$target = WP_CONTENT_DIR . '/object-cache.php';
 		if (file_exists($target)) {
@@ -345,6 +347,36 @@ class SiteHealthTest extends TestCase
 			'active' => array( true, true, 'good', 'active' ),
 			'safety fallback' => array( true, false, 'recommended', 'request-scoped-safety-fallback' ),
 		);
+	}
+
+	public function test_diagnostics_tolerate_older_dropin_schema()
+	{
+		$key_space = new KeySpace( false, 1 );
+		$adapter   = $this->createMock( PhpRedisAdapter::class );
+		$backend   = new Backend( $key_space, $adapter );
+		$backend->initialize( new Config( array( 'namespace' => 'old-diagnostics-test' ) ) );
+		$GLOBALS['wp_object_cache'] = new ObjectCache( $key_space, $backend );
+
+		add_filter( 'mincemeat_object_cache_diagnostics', function ( array $diagnostics ): array {
+			foreach (array(
+				'topology_policy',
+				'topology_status',
+				'topology_mode',
+				'topology_role',
+				'persistent_requested',
+				'persistent_reuse',
+				'connection_reuse',
+			) as $key) {
+				unset( $diagnostics[ $key ] );
+			}
+			return $diagnostics;
+		} );
+
+		$this->assertSame( 'recommended', SiteHealth::test_topology()['status'] );
+		$this->assertSame( 'recommended', SiteHealth::test_connection_reuse()['status'] );
+		$fields = SiteHealth::debug_information( array() )['mincemeat-object-cache']['fields'];
+		$this->assertSame( 'unverified', $fields['topology_status']['value'] );
+		$this->assertSame( 'unknown', $fields['connection_reuse']['value'] );
 	}
 
 	public function test_debug_information()
