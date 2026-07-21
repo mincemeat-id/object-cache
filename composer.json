@@ -42,6 +42,7 @@
         "build": "php tools/build-dropin.php",
         "test": "phpunit",
         "test:setup": "bash tools/install-wp-tests.sh",
+        "test:provenance": "bash tools/verify-wp-test-provenance.sh",
         "test:unit": "phpunit --group unit",
         "test:contract": "phpunit --group contract",
         "test:integration": "phpunit --group integration",

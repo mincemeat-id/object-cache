@@ -104,6 +104,9 @@ jobs:
       - name: Install WordPress Test Infrastructure
         run: bash tools/install-wp-tests.sh
 
+      - name: Verify WordPress test provenance
+        run: bash tools/verify-wp-test-provenance.sh
+
       - name: Setup connection scenario test services
         run: bash tools/setup-test-services.sh
 

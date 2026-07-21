@@ -11,6 +11,12 @@ directly in this guide, the design document, release guide, and changelog.
 
 The maintained validation surface includes Composer metadata, PHPCS, PHPStan level 8, PHPUnit, PCOV coverage thresholds, generated artifact parity, deterministic package builds, browser/WP-CLI E2E tests, benchmark guardrails, and a Redis/Valkey CI matrix.
 
+WordPress test setup verifies the exact upstream cache-test checksum before
+applying the reviewed `tests/patches/wordpress/cache-flush-group-support.patch`
+adaptation. `composer test:provenance` reverses and reapplies that patch to
+prove the installed test is derived only from the recorded upstream source and
+the tracked patch; unexpected upstream drift fails setup.
+
 PhpRedis 6.3.0 is the minimum required extension version and is installed
 explicitly in CI. Connection setup verifies serializer, compression, prefix,
 reply, timeout, retry/backoff, and keepalive options. Numeric Lua operations use

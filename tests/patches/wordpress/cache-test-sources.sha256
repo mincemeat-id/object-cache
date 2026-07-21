@@ -1,0 +1,5 @@
+# Exact upstream tests/phpunit/tests/cache.php hashes accepted by the
+# cache-flush-group-support.patch adaptation. WordPress 6.9.5 and 7.0.2 ship
+# identical source for this file.
+6.9.5 17b2c081db40a2f3191d2fb5cf68e0de71dc2d7985b71bdc7cd2f34125851689
+7.0.2 17b2c081db40a2f3191d2fb5cf68e0de71dc2d7985b71bdc7cd2f34125851689
