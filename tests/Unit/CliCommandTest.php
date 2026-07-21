@@ -136,16 +136,16 @@ namespace Mincemeat\ObjectCache\Tests\Unit {
 			$cmd->update_dropin(array(), array());
 		}
 
-		public function test_update_dropin_success()
+		public function test_update_dropin_marker_spoof_refused()
 		{
-			// Seed a stale drop-in.
+			// Header markers alone never establish ownership.
 			file_put_contents(WP_CONTENT_DIR . '/object-cache.php', "<?php\n/**\n * Owner: mincemeat-object-cache\n * Version: 0.1.0\n * Build Hash: oldhash\n */\n");
 
 			$cmd = new CliCommand();
-			$cmd->update_dropin(array(), array());
 
-			$this->assertCount(1, WP_CLI::$successes);
-			$this->assertStringContainsString('updated successfully', WP_CLI::$successes[0]);
+			$this->expectException(\RuntimeException::class);
+			$this->expectExceptionMessage('WP_CLI_ERROR: A foreign object-cache.php drop-in is present');
+			$cmd->update_dropin(array(), array());
 		}
 
 		public function test_remove_dropin_absent()

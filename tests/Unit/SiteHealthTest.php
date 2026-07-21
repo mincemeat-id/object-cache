@@ -81,13 +81,13 @@ class SiteHealthTest extends TestCase
 		$this->assertStringContainsString( 'Conflicting', $res['label'] );
 	}
 
-	public function test_test_dropin_stale()
+	public function test_test_dropin_marker_spoof_is_foreign()
 	{
 		file_put_contents( WP_CONTENT_DIR . '/object-cache.php', "<?php\n/**\n * Owner: mincemeat-object-cache\n * Version: 0.1.0\n * Build Hash: wronghash\n */\n" );
 
 		$res = SiteHealth::test_dropin();
-		$this->assertSame( 'recommended', $res['status'] );
-		$this->assertStringContainsString( 'outdated', $res['label'] );
+		$this->assertSame( 'critical', $res['status'] );
+		$this->assertStringContainsString( 'Conflicting', $res['label'] );
 	}
 
 	public function test_test_dropin_current()
