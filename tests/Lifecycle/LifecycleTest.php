@@ -114,7 +114,7 @@ namespace Mincemeat\ObjectCache\Tests\Lifecycle {
 			$this->assertSame(Lifecycle::STATE_OWNED_CURRENT, Lifecycle::get_dropin_state());
 		}
 
-		public function test_release_registry_contains_the_tagged_rc1_dropin_hash()
+		public function test_release_registry_contains_tagged_release_dropin_hashes()
 		{
 			$reflection = new \ReflectionClass(Lifecycle::class);
 			$hashes = $reflection->getConstant('RELEASE_DROPIN_HASHES');
@@ -123,6 +123,41 @@ namespace Mincemeat\ObjectCache\Tests\Lifecycle {
 				'31b7cdb96010219ecb336b77028088cf95f6422ff84f5a6edc4efb6eb00b3207',
 				$hashes['0.1.0-rc1']
 			);
+			$this->assertSame(
+				'8f4951a1be6bd0642bfc273a7dc8b7e4d6a19af7fe30a7125d8ca6fbf4b5cdd8',
+				$hashes['0.1.0-rc2']
+			);
+		}
+
+		public function test_get_dropin_state_recognizes_stale_release_hashes()
+		{
+			$target = WP_CONTENT_DIR . '/object-cache.php';
+
+			$rc1_content = shell_exec('git show 0.1.0-rc1:stubs/object-cache.php');
+			if ($rc1_content) {
+				file_put_contents($target, $rc1_content);
+				$source = dirname(__FILE__, 3) . '/stubs/object-cache.php';
+				$source_hash = @hash_file('sha256', $source);
+				$rc1_hash = '31b7cdb96010219ecb336b77028088cf95f6422ff84f5a6edc4efb6eb00b3207';
+				if ($source_hash !== $rc1_hash) {
+					$this->assertSame(Lifecycle::STATE_OWNED_STALE, Lifecycle::get_dropin_state());
+				} else {
+					$this->assertSame(Lifecycle::STATE_OWNED_CURRENT, Lifecycle::get_dropin_state());
+				}
+			}
+
+			$rc2_content = shell_exec('git show 0.1.0-rc2:stubs/object-cache.php');
+			if ($rc2_content) {
+				file_put_contents($target, $rc2_content);
+				$source = dirname(__FILE__, 3) . '/stubs/object-cache.php';
+				$source_hash = @hash_file('sha256', $source);
+				$rc2_hash = '8f4951a1be6bd0642bfc273a7dc8b7e4d6a19af7fe30a7125d8ca6fbf4b5cdd8';
+				if ($source_hash !== $rc2_hash) {
+					$this->assertSame(Lifecycle::STATE_OWNED_STALE, Lifecycle::get_dropin_state());
+				} else {
+					$this->assertSame(Lifecycle::STATE_OWNED_CURRENT, Lifecycle::get_dropin_state());
+				}
+			}
 		}
 
 		public function test_owner_markers_without_a_release_hash_are_foreign()

@@ -22,6 +22,7 @@ final class Lifecycle {
 	 */
 	private const RELEASE_DROPIN_HASHES = array(
 		'0.1.0-rc1' => '31b7cdb96010219ecb336b77028088cf95f6422ff84f5a6edc4efb6eb00b3207',
+		'0.1.0-rc2' => '8f4951a1be6bd0642bfc273a7dc8b7e4d6a19af7fe30a7125d8ca6fbf4b5cdd8',
 	);
 
 	/** Drop-in state constants. */
