@@ -562,4 +562,19 @@ class PhpRedisAdapterTest extends TestCase
         $this->assertNull($adapter->server_info());
         $this->assertNull($adapter->cached_server_info());
     }
+
+    public function test_close_releases_connection_object_and_nulls_reference()
+    {
+        $redis = $this->getMockBuilder(\Redis::class)->onlyMethods(array('close', 'isConnected'))->getMock();
+        $redis->method('isConnected')->willReturn(true);
+        $redis->expects($this->once())->method('close');
+        $adapter = $this->adapterWithRedis($redis);
+
+        $adapter->close();
+
+        $property = new \ReflectionProperty(PhpRedisAdapter::class, 'redis');
+        $property->setAccessible(true);
+        $this->assertNull($property->getValue($adapter));
+    }
 }
+

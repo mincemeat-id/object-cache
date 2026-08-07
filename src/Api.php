@@ -131,11 +131,9 @@ final class Api {
 		if ( class_exists( 'Redis' ) ) {
 			if ( defined( 'Redis::VERSION' ) ) {
 				$redis_version = Redis::VERSION;
-			} elseif ( method_exists( 'Redis', 'getVersion' ) ) {
-				$get_version   = new \ReflectionMethod( Redis::class, 'getVersion' );
-				$redis_version = (string) $get_version->invoke( new Redis() );
 			} else {
-				$redis_version = phpversion( 'redis' ) ? phpversion( 'redis' ) : 'unknown';
+				$pv = phpversion( 'redis' );
+				$redis_version = is_string( $pv ) && $pv !== '' ? $pv : 'unknown';
 			}
 		}
 

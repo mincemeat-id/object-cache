@@ -1049,7 +1049,7 @@ final class ObjectCache {
 				$this->cache_hits += 1;
 				$this->set_in_memory( $storage_id, $group, $value );
 
-				return is_object( $value ) ? clone $value : $value;
+				return $value;
 			}
 
 			if ($err !== null) {
@@ -1137,7 +1137,7 @@ final class ObjectCache {
 				if ($ok) {
 					$this->cache_hits += 1;
 					$this->set_in_memory( $miss_ids[ $key ], $group, $val );
-					$values[ $key ] = is_object( $val ) ? clone $val : $val;
+					$values[ $key ] = $val;
 					continue;
 				}
 
