@@ -143,18 +143,23 @@ $plugins_dir = $wp_tests_dir . '/src/wp-content/plugins';
 $plugins     = array(
 	'woocommerce' => array(
 		'file'             => $plugins_dir . '/woocommerce/woocommerce.php',
-		'expected_version' => '10.9.4',
+		'expected_version' => '11.0.0',
 		'version_constant' => 'WC_VERSION',
 	),
 	'wordpress-seo' => array(
 		'file'             => $plugins_dir . '/wordpress-seo/wp-seo.php',
-		'expected_version' => '28.0',
+		'expected_version' => '28.2',
 		'version_constant' => 'WPSEO_VERSION',
 	),
 	'easy-digital-downloads' => array(
 		'file'             => $plugins_dir . '/easy-digital-downloads/easy-digital-downloads.php',
 		'expected_version' => '3.6.9',
 		'version_constant' => 'EDD_VERSION',
+	),
+	'query-monitor' => array(
+		'file'             => $plugins_dir . '/query-monitor/query-monitor.php',
+		'expected_version' => '4.0.7',
+		'version_constant' => 'QM_VERSION',
 	),
 );
 
@@ -277,6 +282,10 @@ tests_add_filter(
 		if (isset( $wpdb ) && is_object( $wpdb )) {
 			// Keep output bounded; EZSQL_ERROR remains the failure source of truth.
 			$wpdb->suppress_errors( true );
+		}
+
+		if ( ! defined( 'QM_TESTS' ) ) {
+			define( 'QM_TESTS', true );
 		}
 
 		foreach ($plugins as $plugin) {
@@ -405,6 +414,9 @@ if ( ! function_exists( 'YoastSEO' ) || ! is_object( YoastSEO() )) {
 }
 if ( ! function_exists( 'EDD' ) || ! is_object( EDD() )) {
 	$report['failures'][] = 'edd-api-unavailable';
+}
+if ( ! class_exists( 'QM' ) && ! class_exists( 'QueryMonitor' ) ) {
+	$report['failures'][] = 'query-monitor-api-unavailable';
 }
 
 if (isset( $wpdb ) && is_object( $wpdb )) {

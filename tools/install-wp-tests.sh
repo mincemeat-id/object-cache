@@ -145,10 +145,10 @@ echo "Applied reviewed cache-test patch to exact upstream source $EXPECTED_CACHE
 
 
 # 5. Create plugin directories for smoke testing
-echo "Creating plugins directory for WooCommerce, Yoast, and EDD..."
+echo "Creating plugins directory for WooCommerce, Yoast, EDD, and Query Monitor..."
 mkdir -p "$TARGET_DIR/src/wp-content/plugins"
 
-# Download pinned or recent stable versions of WooCommerce, Yoast SEO, and EDD for compatibility smoke testing
+# Download pinned or recent stable versions of WooCommerce, Yoast SEO, EDD, and Query Monitor for compatibility smoke testing
 PLUGINS_DIR="$TARGET_DIR/src/wp-content/plugins"
 
 # Helper to download and unzip a plugin with exact version pinning
@@ -179,8 +179,9 @@ download_plugin() {
 }
 
 # We use pinned stable versions for smoke testing
-download_plugin "woocommerce" "10.9.4" "woocommerce.php"
-download_plugin "wordpress-seo" "28.0" "wp-seo.php"
+download_plugin "woocommerce" "11.0.0" "woocommerce.php"
+download_plugin "wordpress-seo" "28.2" "wp-seo.php"
 download_plugin "easy-digital-downloads" "3.6.9" "easy-digital-downloads.php"
+download_plugin "query-monitor" "4.0.7" "query-monitor.php"
 
 echo "WordPress $WP_VERSION test infrastructure set up successfully!"

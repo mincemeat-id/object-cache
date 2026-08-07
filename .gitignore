@@ -19,3 +19,4 @@ Thumbs.db
 /tests/benchmarks-baseline.json
 /tests/e2e/node_modules/
 /tests/e2e/test-results/
+/docs/RC*_ANALYSIS_AND_IMPLEMENTATION_PLAN.md
