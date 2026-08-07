@@ -134,7 +134,21 @@ namespace Mincemeat\ObjectCache\Tests\Lifecycle {
 			$target = WP_CONTENT_DIR . '/object-cache.php';
 
 			$rc1_content = shell_exec('git show 0.1.0-rc1:stubs/object-cache.php');
-			if ($rc1_content) {
+			$rc2_content = shell_exec('git show 0.1.0-rc2:stubs/object-cache.php');
+
+			if ( ! is_string( $rc1_content ) || trim( $rc1_content ) === '' ) {
+				$rc1_content = null;
+			}
+			if ( ! is_string( $rc2_content ) || trim( $rc2_content ) === '' ) {
+				$rc2_content = null;
+			}
+
+			if ( $rc1_content === null && $rc2_content === null ) {
+				$this->markTestSkipped('Release tag stubs not accessible via git.');
+				return;
+			}
+
+			if ($rc1_content !== null) {
 				file_put_contents($target, $rc1_content);
 				$source = dirname(__FILE__, 3) . '/stubs/object-cache.php';
 				$source_hash = @hash_file('sha256', $source);
@@ -146,8 +160,7 @@ namespace Mincemeat\ObjectCache\Tests\Lifecycle {
 				}
 			}
 
-			$rc2_content = shell_exec('git show 0.1.0-rc2:stubs/object-cache.php');
-			if ($rc2_content) {
+			if ($rc2_content !== null) {
 				file_put_contents($target, $rc2_content);
 				$source = dirname(__FILE__, 3) . '/stubs/object-cache.php';
 				$source_hash = @hash_file('sha256', $source);
