@@ -587,4 +587,93 @@ class ObjectCacheContractTest extends TestCase
 
         $this->assertTrue(wp_cache_close());
     }
+
+    public function test_get_and_get_multiple_accepts_non_bool_force_without_error()
+    {
+        $this->cache->set('k1', 'v1', 'g1');
+
+        $found = null;
+        $val1 = wp_cache_get('k1', 'g1', 1, $found);
+        $this->assertSame('v1', $val1);
+        $this->assertTrue($found);
+
+        $found = null;
+        $val2 = wp_cache_get('k1', 'g1', '1', $found);
+        $this->assertSame('v1', $val2);
+        $this->assertTrue($found);
+
+        $multi = wp_cache_get_multiple(array('k1'), 'g1', 1);
+        $this->assertSame(array('k1' => 'v1'), $multi);
+    }
+
+    public function test_found_parameter_disambiguates_cached_false_from_miss()
+    {
+        wp_cache_set('false-key', false, 'g1');
+
+        $found = null;
+        $val = wp_cache_get('false-key', 'g1', false, $found);
+        $this->assertFalse($val);
+        $this->assertTrue($found);
+
+        $found = null;
+        $val_miss = wp_cache_get('miss-key', 'g1', false, $found);
+        $this->assertFalse($val_miss);
+        $this->assertFalse($found);
+    }
+
+    public function test_advertised_wp_cache_supports_features_end_to_end()
+    {
+        $features = array('add_multiple', 'set_multiple', 'get_multiple', 'delete_multiple', 'flush_runtime', 'flush_group');
+        foreach ($features as $feature) {
+            $this->assertTrue(wp_cache_supports($feature), "Feature {$feature} must be supported");
+        }
+
+        // Test add_multiple & get_multiple & delete_multiple
+        $this->assertSame(array('k1' => true, 'k2' => true), wp_cache_add_multiple(array('k1' => 'v1', 'k2' => 'v2'), 'g_e2e'));
+        $this->assertSame(array('k1' => 'v1', 'k2' => 'v2'), wp_cache_get_multiple(array('k1', 'k2'), 'g_e2e'));
+        $this->assertSame(array('k1' => true, 'k2' => true), wp_cache_delete_multiple(array('k1', 'k2'), 'g_e2e'));
+
+        // Test set_multiple & flush_group
+        $this->assertSame(array('k1' => true, 'k2' => true), wp_cache_set_multiple(array('k1' => 'v1', 'k2' => 'v2'), 'g_e2e'));
+        $this->assertTrue(wp_cache_flush_group('g_e2e'));
+        $this->assertSame(array('k1' => false, 'k2' => false), wp_cache_get_multiple(array('k1', 'k2'), 'g_e2e'));
+
+        // Test flush_runtime
+        wp_cache_set('k_rt', 'v_rt', 'g_rt');
+        $this->assertTrue(wp_cache_flush_runtime());
+        $this->assertFalse(wp_cache_get('k_rt', 'g_rt'));
+    }
+
+    public function test_wp_object_cache_class_alias_and_bootstrap()
+    {
+        $this->assertTrue(class_exists('WP_Object_Cache'));
+        $this->assertInstanceOf('WP_Object_Cache', $this->cache);
+    }
+
+    public function test_multisite_switch_to_blog_scoping()
+    {
+        $ks = new \Mincemeat\ObjectCache\KeySpace(true, 1);
+        $cache = new ObjectCache($ks);
+        $cache->add_global_groups(array('global-grp'));
+
+        // Blog 1
+        $cache->set('blog_item', 'blog1_val', 'local-grp');
+        $cache->set('global_item', 'global_val', 'global-grp');
+
+        $this->assertSame('blog1_val', $cache->get('blog_item', 'local-grp'));
+        $this->assertSame('global_val', $cache->get('global_item', 'global-grp'));
+
+        // Switch to Blog 2
+        $cache->switch_to_blog(2);
+        $this->assertFalse($cache->get('blog_item', 'local-grp'));
+        $this->assertSame('global_val', $cache->get('global_item', 'global-grp'));
+
+        $cache->set('blog_item', 'blog2_val', 'local-grp');
+        $this->assertSame('blog2_val', $cache->get('blog_item', 'local-grp'));
+
+        // Switch back to Blog 1
+        $cache->switch_to_blog(1);
+        $this->assertSame('blog1_val', $cache->get('blog_item', 'local-grp'));
+    }
 }
+

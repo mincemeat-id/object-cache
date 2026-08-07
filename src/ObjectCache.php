@@ -464,8 +464,9 @@ final class ObjectCache {
 	 * @param bool|null   $found Optional. Whether the key was found (reference).
 	 * @return mixed|false The cached value on hit, false on miss or invalid key.
 	 */
-	public function get( $key, $group = '', bool $force = false, &$found = null ) {
+	public function get( $key, $group = '', $force = false, &$found = null ) {
 		$group = (string) $group;
+		$force = (bool) $force;
 		if ( ! $this->key_space->is_valid_key( $key )) {
 			return false;
 		}
@@ -501,8 +502,9 @@ final class ObjectCache {
 	 * @param bool                  $force Optional. Force reads past the runtime tier.
 	 * @return array<string|int,mixed> Per-key values; misses are false.
 	 */
-	public function get_multiple( array $keys, $group = '', bool $force = false ): array {
+	public function get_multiple( array $keys, $group = '', $force = false ): array {
 		$group = (string) $group;
+		$force = (bool) $force;
 		$group = $this->key_space->normalize_group( $group );
 
 		if ($this->is_persistent_group( $group )) {
