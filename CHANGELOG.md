@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.1.0-rc3] - 2026-08-07
+
 - Updated WordPress release matrix to WordPress 6.9.5 and 7.0.3 (security patch for CVE-2026-60137 and CVE-2026-63030), and added scheduled monitoring for WordPress 7.1 RC.
 - Updated third-party compatibility smoke fixtures to WooCommerce 11.0.0, Yoast SEO 28.2, Easy Digital Downloads 3.6.9, and added Query Monitor 4.0.7 interoperability verification.
 - Updated controlled benchmark backend image to Redis 8.10.0-alpine and validated backend compatibility on Valkey 9.
@@ -11,6 +13,7 @@
 - Unified server topology classification into a single `Topology` helper shared across `Api` and Site Health diagnostics, and centralized `SCHEMA_MARKER` in `KeySpace`.
 - Pruned dead test-only helper methods (`del_multiple`, `pttl`, `cached_server_info`, `supports_unlink`, `group_tokens`), collapsed pipeline SET execution, and eliminated reflection-based `new Redis()` calls in diagnostics.
 - Updated release documentation, controlled performance evidence job names and artifact labels, and release tooling for 0.1.0-rc3.
+
 
 ## [0.1.0-rc2] - 2026-07-22
 
