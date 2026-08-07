@@ -233,32 +233,6 @@ final class Api {
 	 * @return array{topology_status:string,topology_mode:string,topology_role:string}
 	 */
 	private static function topology_diagnostics( ?array $server_info ): array {
-		$mode = $server_info !== null ? strtolower( trim( (string) ( $server_info['mode'] ?? '' ) ) ) : '';
-		$role = $server_info !== null ? strtolower( trim( (string) ( $server_info['role'] ?? '' ) ) ) : '';
-
-		if ( ! in_array( $mode, array( 'standalone', 'cluster', 'sentinel' ), true ) ) {
-			$mode = 'unknown';
-		}
-
-		if ( in_array( $role, array( 'master', 'primary' ), true ) ) {
-			$role = 'primary';
-		} elseif ( in_array( $role, array( 'slave', 'replica' ), true ) ) {
-			$role = 'replica';
-		} elseif ( $role !== 'sentinel' ) {
-			$role = 'unknown';
-		}
-
-		$status = self::TOPOLOGY_UNVERIFIED;
-		if ( in_array( $mode, array( 'cluster', 'sentinel' ), true ) || in_array( $role, array( 'replica', 'sentinel' ), true ) ) {
-			$status = self::TOPOLOGY_UNSUPPORTED;
-		} elseif ( $mode === 'standalone' && $role === 'primary' ) {
-			$status = self::TOPOLOGY_COMPATIBLE;
-		}
-
-		return array(
-			'topology_status' => $status,
-			'topology_mode'   => $mode,
-			'topology_role'   => $role,
-		);
+		return Topology::classify( $server_info );
 	}
 }

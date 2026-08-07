@@ -459,27 +459,7 @@ class FailureTest extends TestCase
         $this->assertSame(Backend::REASON_COMMAND_FAILED, $backend->reason());
     }
 
-    public function test_group_tokens_batch_resolves_cached_missing_and_mget_failure()
-    {
-        $adapter = new MockPhpRedisAdapter();
-        $adapter->get_callback = function () { return 'cached'; };
-        $adapter->mget_callback = function () { return array('batch-token', false); };
-        $adapter->set_callback = function () { return false; };
-        $backend = new Backend(new KeySpace(false, 1), $adapter);
-        $backend->initialize($this->get_config());
-        $this->assertSame('cached', $backend->group_token('cached-group'));
-        $tokens = $backend->group_tokens(array('cached-group', 'batch', 'new'));
-        $this->assertSame('cached', $tokens['cached-group']);
-        $this->assertSame('batch-token', $tokens['batch']);
-        $this->assertSame('cached', $tokens['new']);
 
-        $adapter2 = new MockPhpRedisAdapter();
-        $adapter2->mget_callback = function () { throw new \RedisException('mget failed'); };
-        $backend2 = new Backend(new KeySpace(false, 1), $adapter2);
-        $backend2->initialize($this->get_config());
-        $this->assertSame(array(), $backend2->group_tokens(array('group')));
-        $this->assertSame(ObjectCache::STATE_DEGRADED, $backend2->state());
-    }
 
     public function test_generation_tokens_coalesce_existing_controls()
     {

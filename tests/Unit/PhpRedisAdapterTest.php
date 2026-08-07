@@ -127,7 +127,6 @@ class PhpRedisAdapterTest extends TestCase
 
         $adapter = new TestablePhpRedisAdapter($mockRedis);
         $adapter->connect($config);
-        $this->assertTrue($adapter->supports_unlink());
 		$this->assertFalse($adapter->persistent_reuse());
     }
 
@@ -422,19 +421,16 @@ class PhpRedisAdapterTest extends TestCase
         $this->assertSame(array(false, false), $adapter->mget(array('one', 'two')));
         $this->assertFalse($adapter->set('key', 'value'));
         $this->assertSame(0, $adapter->del('key'));
-        $this->assertSame(0, $adapter->del_multiple(array('key')));
-        $this->assertSame(-2, $adapter->pttl('key'));
         $this->assertFalse($adapter->eval('script'));
         $this->assertSame(array(), $adapter->pipeline(array(array('set', array('key', 'value')))));
         $this->assertNull($adapter->server_info());
         $adapter->close();
-        $this->assertFalse($adapter->supports_unlink());
     }
 
     public function test_connected_command_results_and_fallbacks()
     {
         $redis = $this->getMockBuilder(\Redis::class)
-            ->onlyMethods(array('isConnected', 'ping', 'mget', 'set', 'del', 'pttl', 'eval', 'close'))
+            ->onlyMethods(array('isConnected', 'ping', 'mget', 'set', 'del', 'eval', 'close'))
             ->getMock();
         $redis->method('isConnected')->willReturn(true);
         $redis->method('ping')->willThrowException(new \RedisException('failed'));
@@ -443,8 +439,7 @@ class PhpRedisAdapterTest extends TestCase
             array('plain', 'value'),
             array('conditional', 'value', array('NX', 'XX', 'PX' => 50))
         )->willReturnOnConsecutiveCalls(true, false);
-        $redis->expects($this->exactly(2))->method('del')->withConsecutive(array('one'), array('one', 'two'))->willReturnOnConsecutiveCalls(1, 2);
-        $redis->method('pttl')->willReturnOnConsecutiveCalls(false, 1500);
+        $redis->expects($this->once())->method('del')->with('one')->willReturn(1);
         $redis->method('eval')->willReturn('result');
         $redis->expects($this->once())->method('close')->willReturn(true);
         $adapter = $this->adapterWithRedis($redis);
@@ -455,9 +450,6 @@ class PhpRedisAdapterTest extends TestCase
         $this->assertTrue($adapter->set('plain', 'value'));
         $this->assertFalse($adapter->set('conditional', 'value', 50, true, true));
         $this->assertSame(1, $adapter->del('one'));
-        $this->assertSame(2, $adapter->del_multiple(array('one', 'two')));
-        $this->assertSame(-2, $adapter->pttl('one'));
-        $this->assertSame(1500, $adapter->pttl('one'));
         $this->assertSame('result', $adapter->eval('script', array('key'), array('arg')));
         $adapter->close();
         $this->assertFalse($adapter->is_connected());
@@ -541,14 +533,13 @@ class PhpRedisAdapterTest extends TestCase
     public function test_delete_uses_unlink_when_supported()
     {
         $redis = $this->getMockBuilder(\Redis::class)->onlyMethods(array('unlink'))->getMock();
-        $redis->expects($this->exactly(2))->method('unlink')->withConsecutive(array('key'), array('one', 'two'))->willReturnOnConsecutiveCalls(1, 2);
+        $redis->expects($this->once())->method('unlink')->with('key')->willReturn(1);
         $adapter = $this->adapterWithRedis($redis);
         $property = new \ReflectionProperty(PhpRedisAdapter::class, 'unlink_supported');
         $property->setAccessible(true);
         $property->setValue($adapter, true);
 
         $this->assertSame(1, $adapter->del('key'));
-        $this->assertSame(2, $adapter->del_multiple(array('one', 'two')));
     }
 
     public function test_server_info_rejects_non_array_result()
@@ -560,7 +551,6 @@ class PhpRedisAdapterTest extends TestCase
         $adapter = $this->adapterWithRedis($redis);
 
         $this->assertNull($adapter->server_info());
-        $this->assertNull($adapter->cached_server_info());
     }
 
     public function test_close_releases_connection_object_and_nulls_reference()

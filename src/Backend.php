@@ -378,72 +378,7 @@ final class Backend {
 		);
 	}
 
-	/**
-	 * Resolves group tokens for a batch of groups, coalescing into a single
-	 * MGET after initializing any missing ones.
-	 *
-	 * @param array<int,string> $groups Normalized group names.
-	 * @return array<string,string> Map of group name => token.
-	 */
-	public function group_tokens( array $groups ): array {
-		if ( ! $this->is_persistent()) {
-			return array();
-		}
 
-		$missing  = array();
-		$resolved = array();
-
-		foreach ($groups as $group) {
-			$cache_key = 'grp:' . $group;
-			if (isset( $this->tokens[ $cache_key ] )) {
-				$resolved[ $group ] = $this->tokens[ $cache_key ];
-			} else {
-				$missing[] = $group;
-			}
-		}
-
-		if (count( $missing ) === 0) {
-			return $resolved;
-		}
-
-		$keys = array();
-		foreach ($missing as $group) {
-			$keys[] = $this->key_space->group_control_key( $group );
-		}
-
-		try {
-			$values = $this->adapter()->mget( $keys );
-		} catch (\Throwable $e) {
-			$this->degrade( self::REASON_COMMAND_FAILED, $e );
-			return array();
-		}
-
-		$still_missing = array();
-		foreach ($missing as $i => $group) {
-			$raw = $values[ $i ] ?? false;
-			$tok = is_string( $raw ) ? trim( $raw ) : '';
-			if ($tok !== '') {
-				$this->tokens[ 'grp:' . $group ] = $tok;
-				$resolved[ $group ]              = $tok;
-			} else {
-				$still_missing[] = $group;
-			}
-		}
-
-		if (count( $still_missing ) > 0) {
-			foreach ($still_missing as $group) {
-				$key   = $this->key_space->group_control_key( $group );
-				$token = $this->init_token( $key );
-				if ($token === '') {
-					$token = KeySpace::generate_token();
-				}
-				$this->tokens[ 'grp:' . $group ] = $token;
-				$resolved[ $group ]              = $token;
-			}
-		}
-
-		return $resolved;
-	}
 
 	/**
 	 * Replaces the namespace generation token (used by flush).
@@ -652,35 +587,12 @@ final class Backend {
 	 * @return array<int,bool>
 	 */
 	public function set_pipeline( array $entries ): array {
-		if ( ! $this->is_persistent() || count( $entries ) === 0) {
-			return array_fill( 0, count( $entries ), false );
-		}
-
-		$commands = array();
+		$conditional_entries = array();
 		foreach ($entries as $entry) {
-			$commands[] = $this->build_set_command( $entry[0], $entry[1], $entry[2], false, false );
+			$conditional_entries[] = array( $entry[0], $entry[1], $entry[2], false, false );
 		}
 
-		try {
-			$results = $this->adapter()->pipeline( $commands );
-		} catch (\Throwable $e) {
-			$this->degrade( self::REASON_COMMAND_FAILED, $e );
-
-			return array_fill( 0, count( $entries ), false );
-		}
-
-		if (in_array( false, $results, true )) {
-			$this->degrade( self::REASON_COMMAND_FAILED );
-
-			return array_fill( 0, count( $entries ), false );
-		}
-
-		$out = array();
-		foreach ($results as $r) {
-			$out[] = $r === true;
-		}
-
-		return $out;
+		return $this->execute_set_pipeline( $conditional_entries, true );
 	}
 
 	/**
@@ -690,19 +602,36 @@ final class Backend {
 	 * @return array<int,bool>
 	 */
 	public function set_conditional_pipeline( array $entries ): array {
+		return $this->execute_set_pipeline( $entries, false );
+	}
+
+	/**
+	 * Internal set pipeline execution.
+	 *
+	 * @param array<int,array{0:string,1:string,2:?int,3:bool,4:bool}> $entries
+	 * @param bool $fail_on_any_false If true, a false result degrades the backend and fails all items.
+	 * @return array<int,bool>
+	 */
+	private function execute_set_pipeline( array $entries, bool $fail_on_any_false ): array {
 		if ( ! $this->is_persistent() || count( $entries ) === 0) {
 			return array_fill( 0, count( $entries ), false );
 		}
 
 		$commands = array();
 		foreach ($entries as $entry) {
-			$commands[] = $this->build_set_command( $entry[0], $entry[1], $entry[2], $entry[3], $entry[4] );
+			$commands[] = $this->build_set_command( $entry[0], $entry[1], $entry[2], $entry[3] ?? false, $entry[4] ?? false );
 		}
 
 		try {
 			$results = $this->adapter()->pipeline( $commands );
 		} catch (\Throwable $e) {
 			$this->degrade( self::REASON_COMMAND_FAILED, $e );
+
+			return array_fill( 0, count( $entries ), false );
+		}
+
+		if ($fail_on_any_false && in_array( false, $results, true )) {
+			$this->degrade( self::REASON_COMMAND_FAILED );
 
 			return array_fill( 0, count( $entries ), false );
 		}

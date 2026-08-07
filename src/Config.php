@@ -20,7 +20,7 @@ namespace Mincemeat\ObjectCache;
 final class Config {
 
 	/** Schema/version marker used in derived key layout. */
-	public const SCHEMA_MARKER = 'mcoc1';
+	public const SCHEMA_MARKER = KeySpace::SCHEMA_MARKER;
 
 	/** Reason codes. */
 	public const REASON_MISSING         = 'config-missing';
