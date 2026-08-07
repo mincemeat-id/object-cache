@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Produce repeatability and immutable-RC1 comparison artifacts on one runner.
+# Produce repeatability and immutable-RC2 comparison artifacts on one runner.
 
 set -euo pipefail
 
@@ -7,7 +7,7 @@ ROOT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 HOST=${1:-127.0.0.1}
 PORT=${2:-6383}
 OUTPUT_DIR=${3:-"$ROOT_DIR/build/benchmarks"}
-REFERENCE_TAG=0.1.0-rc1
+REFERENCE_TAG=0.1.0-rc2
 
 mkdir -p "$OUTPUT_DIR"
 
@@ -55,15 +55,15 @@ run_report() {
         --json --label="$label" --runtime-root="$runtime_root" --output="$output" "$@" >/dev/null
 }
 
-run_report rc1-reference "$REFERENCE_COMMIT" "$REFERENCE_ROOT" "$OUTPUT_DIR/rc1-reference.json" --skip-guardrails
-run_report rc2-run-1 "$CURRENT_COMMIT" "$ROOT_DIR" "$OUTPUT_DIR/rc2-run-1.json"
-run_report rc2-run-2 "$CURRENT_COMMIT" "$ROOT_DIR" "$OUTPUT_DIR/rc2-run-2.json"
+run_report rc2-reference "$REFERENCE_COMMIT" "$REFERENCE_ROOT" "$OUTPUT_DIR/rc2-reference.json" --skip-guardrails
+run_report rc3-run-1 "$CURRENT_COMMIT" "$ROOT_DIR" "$OUTPUT_DIR/rc3-run-1.json"
+run_report rc3-run-2 "$CURRENT_COMMIT" "$ROOT_DIR" "$OUTPUT_DIR/rc3-run-2.json"
 
 php "$ROOT_DIR/tools/compare-benchmark-reports.php" \
-    "$OUTPUT_DIR/rc2-run-1.json" "$OUTPUT_DIR/rc2-run-2.json" \
+    "$OUTPUT_DIR/rc3-run-1.json" "$OUTPUT_DIR/rc3-run-2.json" \
     --mode=repeatability --output="$OUTPUT_DIR/repeatability-comparison.json"
 php "$ROOT_DIR/tools/compare-benchmark-reports.php" \
-    "$OUTPUT_DIR/rc1-reference.json" "$OUTPUT_DIR/rc2-run-1.json" \
-    --mode=release --output="$OUTPUT_DIR/rc1-to-rc2-comparison.json"
+    "$OUTPUT_DIR/rc2-reference.json" "$OUTPUT_DIR/rc3-run-1.json" \
+    --mode=release --output="$OUTPUT_DIR/rc2-to-rc3-comparison.json"
 
 echo "Controlled benchmark artifacts written to $OUTPUT_DIR"

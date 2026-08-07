@@ -109,11 +109,11 @@ jobs:
         run: vendor/bin/phpcs --standard=PHPCompatibility -p src stubs tools mincemeat-object-cache.php --runtime-set testVersion 7.4
 
   controlled-performance:
-    name: Controlled RC1 to RC2 Performance Evidence
+    name: Controlled RC2 to RC3 Performance Evidence
     runs-on: ubuntu-24.04
     services:
       redis:
-        image: redis:8.8.0-alpine
+        image: redis:8.10.0-alpine
         ports:
           - 6379:6379
         options: >-
@@ -123,7 +123,7 @@ jobs:
           --health-retries 10
 
     steps:
-      - name: Checkout with immutable RC1 tag
+      - name: Checkout with immutable RC2 tag
         uses: actions/checkout@v7
         with:
           fetch-depth: 0
@@ -140,7 +140,7 @@ jobs:
         env:
           MINCEMEAT_BENCHMARK_RUNNER: github-hosted-ubuntu-24.04-x64
         run: |
-          BENCHMARK_IMAGE_DIGEST=$(docker image inspect redis:8.8.0-alpine --format '{{.Id}}')
+          BENCHMARK_IMAGE_DIGEST=$(docker image inspect redis:8.10.0-alpine --format '{{.Id}}')
           echo "MINCEMEAT_BENCHMARK_BACKEND_IMAGE_DIGEST=$BENCHMARK_IMAGE_DIGEST" >> "$GITHUB_ENV"
           export MINCEMEAT_BENCHMARK_BACKEND_IMAGE_DIGEST="$BENCHMARK_IMAGE_DIGEST"
           bash tools/run-controlled-benchmarks.sh 127.0.0.1 6379 build/benchmarks
@@ -149,7 +149,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: rc2-controlled-performance-evidence
+          name: rc3-controlled-performance-evidence
           path: build/benchmarks/
           if-no-files-found: error
 
