@@ -7,7 +7,7 @@
  * Version: 0.1.0-rc3
  * Drop-in Version: 0.1.0-rc3
  * Schema Version: 1
- * Build Hash: a5ba0c146283ecb4530dbee2df3575aafab68fbaae2551e5c11af5330a9f5c80
+ * Build Hash: a12539a5d0a97504f45547b3eb0e171acee4ac20f91562539cba2935827ccd77
  *
  * @package Mincemeat\ObjectCache
  */
@@ -135,11 +135,9 @@ namespace Mincemeat\ObjectCache {
 			if ( class_exists( 'Redis' ) ) {
 				if ( defined( 'Redis::VERSION' ) ) {
 					$redis_version = Redis::VERSION;
-				} elseif ( method_exists( 'Redis', 'getVersion' ) ) {
-					$get_version   = new \ReflectionMethod( Redis::class, 'getVersion' );
-					$redis_version = (string) $get_version->invoke( new Redis() );
 				} else {
-					$redis_version = phpversion( 'redis' ) ? phpversion( 'redis' ) : 'unknown';
+					$pv = phpversion( 'redis' );
+					$redis_version = is_string( $pv ) && $pv !== '' ? $pv : 'unknown';
 				}
 			}
 
@@ -239,33 +237,7 @@ namespace Mincemeat\ObjectCache {
 		 * @return array{topology_status:string,topology_mode:string,topology_role:string}
 		 */
 		private static function topology_diagnostics( ?array $server_info ): array {
-			$mode = $server_info !== null ? strtolower( trim( (string) ( $server_info['mode'] ?? '' ) ) ) : '';
-			$role = $server_info !== null ? strtolower( trim( (string) ( $server_info['role'] ?? '' ) ) ) : '';
-
-			if ( ! in_array( $mode, array( 'standalone', 'cluster', 'sentinel' ), true ) ) {
-				$mode = 'unknown';
-			}
-
-			if ( in_array( $role, array( 'master', 'primary' ), true ) ) {
-				$role = 'primary';
-			} elseif ( in_array( $role, array( 'slave', 'replica' ), true ) ) {
-				$role = 'replica';
-			} elseif ( $role !== 'sentinel' ) {
-				$role = 'unknown';
-			}
-
-			$status = self::TOPOLOGY_UNVERIFIED;
-			if ( in_array( $mode, array( 'cluster', 'sentinel' ), true ) || in_array( $role, array( 'replica', 'sentinel' ), true ) ) {
-				$status = self::TOPOLOGY_UNSUPPORTED;
-			} elseif ( $mode === 'standalone' && $role === 'primary' ) {
-				$status = self::TOPOLOGY_COMPATIBLE;
-			}
-
-			return array(
-				'topology_status' => $status,
-				'topology_mode'   => $mode,
-				'topology_role'   => $role,
-			);
+			return Topology::classify( $server_info );
 		}
 	}
 
@@ -630,72 +602,7 @@ namespace Mincemeat\ObjectCache {
 			);
 		}
 
-		/**
-		 * Resolves group tokens for a batch of groups, coalescing into a single
-		 * MGET after initializing any missing ones.
-		 *
-		 * @param array<int,string> $groups Normalized group names.
-		 * @return array<string,string> Map of group name => token.
-		 */
-		public function group_tokens( array $groups ): array {
-			if ( ! $this->is_persistent()) {
-				return array();
-			}
 
-			$missing  = array();
-			$resolved = array();
-
-			foreach ($groups as $group) {
-				$cache_key = 'grp:' . $group;
-				if (isset( $this->tokens[ $cache_key ] )) {
-					$resolved[ $group ] = $this->tokens[ $cache_key ];
-				} else {
-					$missing[] = $group;
-				}
-			}
-
-			if (count( $missing ) === 0) {
-				return $resolved;
-			}
-
-			$keys = array();
-			foreach ($missing as $group) {
-				$keys[] = $this->key_space->group_control_key( $group );
-			}
-
-			try {
-				$values = $this->adapter()->mget( $keys );
-			} catch (\Throwable $e) {
-				$this->degrade( self::REASON_COMMAND_FAILED, $e );
-				return array();
-			}
-
-			$still_missing = array();
-			foreach ($missing as $i => $group) {
-				$raw = $values[ $i ] ?? false;
-				$tok = is_string( $raw ) ? trim( $raw ) : '';
-				if ($tok !== '') {
-					$this->tokens[ 'grp:' . $group ] = $tok;
-					$resolved[ $group ]              = $tok;
-				} else {
-					$still_missing[] = $group;
-				}
-			}
-
-			if (count( $still_missing ) > 0) {
-				foreach ($still_missing as $group) {
-					$key   = $this->key_space->group_control_key( $group );
-					$token = $this->init_token( $key );
-					if ($token === '') {
-						$token = KeySpace::generate_token();
-					}
-					$this->tokens[ 'grp:' . $group ] = $token;
-					$resolved[ $group ]              = $token;
-				}
-			}
-
-			return $resolved;
-		}
 
 		/**
 		 * Replaces the namespace generation token (used by flush).
@@ -904,35 +811,12 @@ namespace Mincemeat\ObjectCache {
 		 * @return array<int,bool>
 		 */
 		public function set_pipeline( array $entries ): array {
-			if ( ! $this->is_persistent() || count( $entries ) === 0) {
-				return array_fill( 0, count( $entries ), false );
-			}
-
-			$commands = array();
+			$conditional_entries = array();
 			foreach ($entries as $entry) {
-				$commands[] = $this->build_set_command( $entry[0], $entry[1], $entry[2], false, false );
+				$conditional_entries[] = array( $entry[0], $entry[1], $entry[2], false, false );
 			}
 
-			try {
-				$results = $this->adapter()->pipeline( $commands );
-			} catch (\Throwable $e) {
-				$this->degrade( self::REASON_COMMAND_FAILED, $e );
-
-				return array_fill( 0, count( $entries ), false );
-			}
-
-			if (in_array( false, $results, true )) {
-				$this->degrade( self::REASON_COMMAND_FAILED );
-
-				return array_fill( 0, count( $entries ), false );
-			}
-
-			$out = array();
-			foreach ($results as $r) {
-				$out[] = $r === true;
-			}
-
-			return $out;
+			return $this->execute_set_pipeline( $conditional_entries, true );
 		}
 
 		/**
@@ -942,19 +826,36 @@ namespace Mincemeat\ObjectCache {
 		 * @return array<int,bool>
 		 */
 		public function set_conditional_pipeline( array $entries ): array {
+			return $this->execute_set_pipeline( $entries, false );
+		}
+
+		/**
+		 * Internal set pipeline execution.
+		 *
+		 * @param array<int,array{0:string,1:string,2:?int,3:bool,4:bool}> $entries
+		 * @param bool $fail_on_any_false If true, a false result degrades the backend and fails all items.
+		 * @return array<int,bool>
+		 */
+		private function execute_set_pipeline( array $entries, bool $fail_on_any_false ): array {
 			if ( ! $this->is_persistent() || count( $entries ) === 0) {
 				return array_fill( 0, count( $entries ), false );
 			}
 
 			$commands = array();
 			foreach ($entries as $entry) {
-				$commands[] = $this->build_set_command( $entry[0], $entry[1], $entry[2], $entry[3], $entry[4] );
+				$commands[] = $this->build_set_command( $entry[0], $entry[1], $entry[2], $entry[3] ?? false, $entry[4] ?? false );
 			}
 
 			try {
 				$results = $this->adapter()->pipeline( $commands );
 			} catch (\Throwable $e) {
 				$this->degrade( self::REASON_COMMAND_FAILED, $e );
+
+				return array_fill( 0, count( $entries ), false );
+			}
+
+			if ($fail_on_any_false && in_array( false, $results, true )) {
+				$this->degrade( self::REASON_COMMAND_FAILED );
 
 				return array_fill( 0, count( $entries ), false );
 			}
@@ -1317,7 +1218,7 @@ namespace Mincemeat\ObjectCache {
 	final class Config {
 
 		/** Schema/version marker used in derived key layout. */
-		public const SCHEMA_MARKER = 'mcoc1';
+		public const SCHEMA_MARKER = KeySpace::SCHEMA_MARKER;
 
 		/** Reason codes. */
 		public const REASON_MISSING         = 'config-missing';
@@ -3147,8 +3048,9 @@ namespace Mincemeat\ObjectCache {
 		 * @param bool|null   $found Optional. Whether the key was found (reference).
 		 * @return mixed|false The cached value on hit, false on miss or invalid key.
 		 */
-		public function get( $key, $group = '', bool $force = false, &$found = null ) {
+		public function get( $key, $group = '', $force = false, &$found = null ) {
 			$group = (string) $group;
+			$force = (bool) $force;
 			if ( ! $this->key_space->is_valid_key( $key )) {
 				return false;
 			}
@@ -3184,8 +3086,9 @@ namespace Mincemeat\ObjectCache {
 		 * @param bool                  $force Optional. Force reads past the runtime tier.
 		 * @return array<string|int,mixed> Per-key values; misses are false.
 		 */
-		public function get_multiple( array $keys, $group = '', bool $force = false ): array {
+		public function get_multiple( array $keys, $group = '', $force = false ): array {
 			$group = (string) $group;
+			$force = (bool) $force;
 			$group = $this->key_space->normalize_group( $group );
 
 			if ($this->is_persistent_group( $group )) {
@@ -3730,7 +3633,7 @@ namespace Mincemeat\ObjectCache {
 					$this->cache_hits += 1;
 					$this->set_in_memory( $storage_id, $group, $value );
 
-					return is_object( $value ) ? clone $value : $value;
+					return $value;
 				}
 
 				if ($err !== null) {
@@ -3818,7 +3721,7 @@ namespace Mincemeat\ObjectCache {
 					if ($ok) {
 						$this->cache_hits += 1;
 						$this->set_in_memory( $miss_ids[ $key ], $group, $val );
-						$values[ $key ] = is_object( $val ) ? clone $val : $val;
+						$values[ $key ] = $val;
 						continue;
 					}
 
@@ -4161,6 +4064,7 @@ namespace Mincemeat\ObjectCache {
 	 */
 	class PhpRedisAdapter {
 
+
 		/** Minimum supported PhpRedis extension version. */
 		public const MINIMUM_VERSION = '6.3.0';
 
@@ -4197,8 +4101,7 @@ namespace Mincemeat\ObjectCache {
 		 */
 		private $persistent_reuse = false;
 
-		public function __construct() {
-		}
+		public function __construct() {}
 
 		/**
 		 * Connects to the backend per the validated config.
@@ -4212,7 +4115,7 @@ namespace Mincemeat\ObjectCache {
 			}
 
 			$phpredis_version = $this->phpredis_version();
-			if ( ! $phpredis_version || version_compare( $phpredis_version, self::MINIMUM_VERSION, '<' ) ) {
+			if ( ! $phpredis_version || version_compare( $phpredis_version, self::MINIMUM_VERSION, '<' )) {
 				throw new BackendException( 'unsupported-extension', 'PhpRedis >= 6.3.0 is required.' );
 			}
 
@@ -4255,15 +4158,15 @@ namespace Mincemeat\ObjectCache {
 						);
 					}
 				} elseif ($context !== null) {
-						$connected = $this->redis->connect(
-							$params['host'],
-							$params['port'],
-							$config->connect_timeout(),
-							null,
-							0,
-							$config->read_timeout(),
-							$context
-						);
+					$connected = $this->redis->connect(
+						$params['host'],
+						$params['port'],
+						$config->connect_timeout(),
+						null,
+						0,
+						$config->read_timeout(),
+						$context
+					);
 				} else {
 					$connected = $this->redis->connect(
 						$params['host'],
@@ -4452,45 +4355,6 @@ namespace Mincemeat\ObjectCache {
 		}
 
 		/**
-		 * DEL multiple keys in a single call (uses UNLINK when available).
-		 *
-		 * @param array<int,string> $keys
-		 * @return int Number of keys deleted.
-		 */
-		public function del_multiple( array $keys ): int {
-			if ($this->redis === null || count( $keys ) === 0) {
-				return 0;
-			}
-
-			if ($this->unlink_supported) {
-				$result = call_user_func_array( array( $this->redis, 'unlink' ), $keys );
-			} else {
-				$result = call_user_func_array( array( $this->redis, 'del' ), $keys );
-			}
-
-			return (int) $result;
-		}
-
-		/**
-		 * PTTL of a key.
-		 *
-		 * @param string $key
-		 * @return int PTTL in ms, or -1 for no-expiry, -2 for missing.
-		 */
-		public function pttl( string $key ): int {
-			if ($this->redis === null) {
-				return Ttl::MISSING_MS;
-			}
-
-			$result = $this->redis->pttl( $key );
-			if ($result === false) {
-				return Ttl::MISSING_MS;
-			}
-
-			return (int) $result;
-		}
-
-		/**
 		 * Runs a Lua script via EVALSHA with an EVAL fallback on NOSCRIPT.
 		 *
 		 * @param string          $script
@@ -4607,6 +4471,10 @@ namespace Mincemeat\ObjectCache {
 				return null;
 			}
 
+			if ($this->server_info !== null) {
+				return $this->server_info;
+			}
+
 			$product = '';
 			$version = '';
 
@@ -4650,12 +4518,12 @@ namespace Mincemeat\ObjectCache {
 			}
 
 			$mode = isset( $info['redis_mode'] ) ? strtolower( trim( (string) $info['redis_mode'] ) ) : 'standalone';
-			if ( ! in_array( $mode, array( 'standalone', 'cluster', 'sentinel' ), true ) ) {
+			if ( ! in_array( $mode, array( 'standalone', 'cluster', 'sentinel' ), true )) {
 				$mode = 'unknown';
 			}
 
 			$role = isset( $info['role'] ) ? strtolower( trim( (string) $info['role'] ) ) : 'unknown';
-			if ( ! in_array( $role, array( 'master', 'primary', 'slave', 'replica', 'sentinel' ), true ) ) {
+			if ( ! in_array( $role, array( 'master', 'primary', 'slave', 'replica', 'sentinel' ), true )) {
 				$role = 'unknown';
 			}
 
@@ -4670,15 +4538,6 @@ namespace Mincemeat\ObjectCache {
 			$this->server_info = $identity;
 
 			return $identity;
-		}
-
-		/**
-		 * Returns cached server info (call server_info() first to populate).
-		 *
-		 * @return array<string,string>|null
-		 */
-		public function cached_server_info(): ?array {
-			return $this->server_info;
 		}
 
 		/**
@@ -4701,13 +4560,6 @@ namespace Mincemeat\ObjectCache {
 		 */
 		public function persistent_reuse(): bool {
 			return $this->persistent_reuse;
-		}
-
-		/**
-		 * @return bool
-		 */
-		public function supports_unlink(): bool {
-			return $this->unlink_supported;
 		}
 
 		/**
@@ -4875,6 +4727,53 @@ namespace Mincemeat\ObjectCache {
 			}
 
 			return (string) $actual === (string) $expected;
+		}
+	}
+
+	// --- Topology.php ---
+	/**
+	 * Classifies Redis / Valkey topology identity.
+	 */
+	final class Topology {
+
+		public const COMPATIBLE  = 'compatible';
+		public const UNSUPPORTED = 'unsupported';
+		public const UNVERIFIED  = 'unverified';
+
+		/**
+		 * Classifies mode and role from sanitized server identity.
+		 *
+		 * @param array<string,string>|null $server_info Sanitized server identity.
+		 * @return array{topology_status:string,topology_mode:string,topology_role:string}
+		 */
+		public static function classify( ?array $server_info ): array {
+			$mode = $server_info !== null ? strtolower( trim( (string) ( $server_info['mode'] ?? '' ) ) ) : '';
+			$role = $server_info !== null ? strtolower( trim( (string) ( $server_info['role'] ?? '' ) ) ) : '';
+
+			if ( ! in_array( $mode, array( 'standalone', 'cluster', 'sentinel' ), true ) ) {
+				$mode = 'unknown';
+			}
+
+			if ( in_array( $role, array( 'master', 'primary' ), true ) ) {
+				$role = 'primary';
+			} elseif ( in_array( $role, array( 'slave', 'replica' ), true ) ) {
+				$role = 'replica';
+			} elseif ( $role !== 'sentinel' ) {
+				$role = 'unknown';
+			}
+
+			$status = self::UNVERIFIED;
+			if ( in_array( $mode, array( 'cluster', 'sentinel' ), true ) || in_array( $role, array( 'replica', 'sentinel' ), true ) ) {
+				$status = self::UNSUPPORTED;
+			} elseif ( $mode === 'standalone' && $role === 'primary' ) {
+				$status = self::COMPATIBLE;
+			}
+
+			return array(
+				'topology_status' => $status,
+				'topology_mode'   => $mode,
+				'topology_role'   => $role,
+			);
 		}
 	}
 

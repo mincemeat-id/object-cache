@@ -6,6 +6,10 @@
 - Updated third-party compatibility smoke fixtures to WooCommerce 11.0.0, Yoast SEO 28.2, Easy Digital Downloads 3.6.9, and added Query Monitor 4.0.7 interoperability verification.
 - Updated controlled benchmark backend image to Redis 8.10.0-alpine and validated backend compatibility on Valkey 9.
 - Registered the immutable `0.1.0-rc2` drop-in checksum in the lifecycle ownership registry and updated packaged lifecycle upgrade/rollback E2E testing for RC2 → RC3.
+- Relaxed `$force` parameter type declaration on `get()` and `get_multiple()` to match WordPress core permissive contract, verified `$found` disambiguation for cached `false` vs miss, and added multisite blog-scoping tests.
+- Optimized persistent cache read allocations by returning freshly decoded value objects directly instead of performing a double object clone.
+- Unified server topology classification into a single `Topology` helper shared across `Api` and Site Health diagnostics, and centralized `SCHEMA_MARKER` in `KeySpace`.
+- Pruned dead test-only helper methods (`del_multiple`, `pttl`, `cached_server_info`, `supports_unlink`, `group_tokens`), collapsed pipeline SET execution, and eliminated reflection-based `new Redis()` calls in diagnostics.
 - Updated release documentation, controlled performance evidence job names and artifact labels, and release tooling for 0.1.0-rc3.
 
 ## [0.1.0-rc2] - 2026-07-22

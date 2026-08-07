@@ -43,12 +43,12 @@ Generated drop-in: stubs/object-cache.php
   v
 Mincemeat\ObjectCache\ObjectCache
   |
-  +-- Config
   +-- KeySpace
-  +-- RequestMemory
-  +-- Metrics
-  +-- CacheItem
-  +-- PhpRedisAdapter
+  +-- Backend
+  |     +-- PhpRedisAdapter
+  |     +-- ValueCodec
+  |     +-- LuaScripts
+  +-- Topology
           |
           v
        Redis or Valkey
