@@ -161,7 +161,7 @@ jobs:
       matrix:
         wordpress:
           - '6.9.5'
-          - '7.0.2'
+          - '7.0.3'
 
     steps:
       - name: Checkout
@@ -199,7 +199,7 @@ jobs:
 
       - name: Run packaged lifecycle E2E suite
         env:
-          MINCEMEAT_E2E_WORDPRESS_VERSION: '7.0.2'
+          MINCEMEAT_E2E_WORDPRESS_VERSION: '7.0.3'
         run: composer test:e2e:lifecycle
 
   integration:
@@ -228,11 +228,11 @@ jobs:
           - php: '8.4'
             backend: redis8
             multisite: false
-            wordpress: '7.0.2'
+            wordpress: '7.0.3'
           - php: '8.4'
             backend: redis8
             multisite: true
-            wordpress: '7.0.2'
+            wordpress: '7.0.3'
     services:
       redis:
         image: redis:8-alpine

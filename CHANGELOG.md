@@ -2,7 +2,8 @@
 
 ## [Unreleased]
 
-- No changes yet.
+- Updated WordPress release matrix to WordPress 6.9.5 and 7.0.3 (security patch for CVE-2026-60137 and CVE-2026-63030), and added scheduled monitoring for WordPress 7.1 RC.
+
 
 ## [0.1.0-rc2] - 2026-07-22
 
