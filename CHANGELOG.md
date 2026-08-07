@@ -3,7 +3,10 @@
 ## [Unreleased]
 
 - Updated WordPress release matrix to WordPress 6.9.5 and 7.0.3 (security patch for CVE-2026-60137 and CVE-2026-63030), and added scheduled monitoring for WordPress 7.1 RC.
-
+- Updated third-party compatibility smoke fixtures to WooCommerce 11.0.0, Yoast SEO 28.2, Easy Digital Downloads 3.6.9, and added Query Monitor 4.0.7 interoperability verification.
+- Updated controlled benchmark backend image to Redis 8.10.0-alpine and validated backend compatibility on Valkey 9.
+- Registered the immutable `0.1.0-rc2` drop-in checksum in the lifecycle ownership registry and updated packaged lifecycle upgrade/rollback E2E testing for RC2 → RC3.
+- Updated release documentation, controlled performance evidence job names and artifact labels, and release tooling for 0.1.0-rc3.
 
 ## [0.1.0-rc2] - 2026-07-22
 

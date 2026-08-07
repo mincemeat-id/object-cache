@@ -4,7 +4,7 @@ Audience: maintainers, release engineers, and AI coding agents.
 
 ## Versioning
 
-Mincemeat Object Cache uses ZeroVer while the public API and operational behavior settle. Public testing releases use WordPress-compatible version strings such as `0.1.0-rc2`.
+Mincemeat Object Cache uses ZeroVer while the public API and operational behavior settle. Public testing releases use WordPress-compatible version strings such as `0.1.0-rc3`.
 
 For a release candidate:
 
@@ -56,15 +56,15 @@ preservation before publishing a candidate. Its mixed-version phase must remain
 free of PHP diagnostics while the new companion plugin manages the older
 drop-in.
 
-The controlled performance job must upload the immutable-RC1 report, two clean
-candidate reports, a passing repeatability comparison, and a passing RC1-to-RC2
+The controlled performance job must upload the immutable-RC2 report, two clean
+candidate reports, a passing repeatability comparison, and a passing RC2-to-RC3
 comparison. Review the recorded commit, runner/CPU, PHP INI/extensions, backend
 image digest, warmup/sample policy, raw samples, and deterministic command counts
 before quoting a performance result or approving a candidate.
 
 Full release confidence comes from CI across supported PHP versions, Redis 8, Valkey 9, single site, multisite, TCP, TLS, ACL, Unix socket, backend outages, browser flows, and WP-CLI lifecycle checks.
 
-RC2 and v1 release notes must describe the supported topology as one direct
+RC3 and v1 release notes must describe the supported topology as one direct
 standalone writable primary. Do not imply support for Cluster, Sentinel,
 replica reads, direct replicas, multi-primary routing, or managed proxies until
 those modes have dedicated designs and release matrices. Release validation
@@ -88,13 +88,13 @@ The package build is deterministic. Rebuilding from the same source should produ
 After all checks pass and the release commit is pushed:
 
 ```bash
-git tag 0.1.0-rc2
-git push origin 0.1.0-rc2
-gh release create 0.1.0-rc2 \
+git tag 0.1.0-rc3
+git push origin 0.1.0-rc3
+gh release create 0.1.0-rc3 \
   mincemeat-object-cache.zip \
   mincemeat-object-cache.zip.sha256 \
   manifest.json \
-  --title "Mincemeat Object Cache 0.1.0-rc2" \
+  --title "Mincemeat Object Cache 0.1.0-rc3" \
   --notes-file release-notes.md \
   --prerelease
 ```

@@ -173,13 +173,13 @@ Generate fresh PCOV coverage and verify the configured thresholds:
 composer test:coverage
 ```
 
-Create controlled RC1/current performance evidence against Redis 8:
+Create controlled RC2/current performance evidence against Redis 8:
 
 ```bash
 composer benchmark:controlled -- 127.0.0.1 6383
 ```
 
-The current harness runs the immutable `0.1.0-rc1` runtime and two current
+The current harness runs the immutable `0.1.0-rc2` runtime and two current
 runtimes with fixed workloads, three discarded warmups, 21 measured samples,
 and median latency. It asserts exact adapter command, round-trip, and connection
 counts for current cold and hot paths. Existing namespace/group controls resolve
@@ -191,7 +191,7 @@ Artifacts under `build/benchmarks/` record raw samples, source commit, CPU and
 runner identity, operating system, loaded/scanned PHP INI, relevant INI values,
 loaded extension versions, backend product/version, and backend image digest.
 The two current runs must agree unless both the absolute change exceeds 5 ms and
-the relative change exceeds 25%; an RC2 regression against RC1 uses the same
+the relative change exceeds 25%; an RC3 regression against RC2 uses the same
 dual threshold, while command, round-trip, and connection increases fail
 deterministically. CI uploads all reports and comparisons. Connection targets
 are intentionally omitted. The raw Redis EVAL/EVALSHA controls remain visible

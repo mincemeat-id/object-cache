@@ -108,7 +108,7 @@ Performance guardrails:
 composer benchmark:controlled -- 127.0.0.1 6383
 ```
 
-The controlled run measures the immutable RC1 runtime and two clean current
+The controlled run measures the immutable RC2 runtime and two clean current
 runs with the same harness, runner, and Redis image. Versioned artifacts under
 `build/benchmarks/` include raw samples, command/round-trip/connection counts,
 commit, CPU and runner identity, PHP INI/extensions, backend image digest, and
