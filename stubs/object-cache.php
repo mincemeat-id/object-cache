@@ -4,10 +4,10 @@
  * Mincemeat Object Cache Drop-In
  *
  * Owner: mincemeat-object-cache
- * Version: 0.1.0-rc2
- * Drop-in Version: 0.1.0-rc2
+ * Version: 0.1.0-rc3
+ * Drop-in Version: 0.1.0-rc3
  * Schema Version: 1
- * Build Hash: 3f749599dcd619f14beae0bb27781af14a3d124da546472f18456cb63146a018
+ * Build Hash: a5ba0c146283ecb4530dbee2df3575aafab68fbaae2551e5c11af5330a9f5c80
  *
  * @package Mincemeat\ObjectCache
  */
@@ -26,7 +26,7 @@ namespace Mincemeat\ObjectCache {
 	final class Api {
 
 		/** Implementation version. */
-		public const IMPLEMENTATION_VERSION = '0.1.0-rc2';
+		public const IMPLEMENTATION_VERSION = '0.1.0-rc3';
 
 		/** Value envelope schema version. */
 		public const SCHEMA_VERSION = '1';
