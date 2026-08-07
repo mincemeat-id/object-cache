@@ -179,7 +179,9 @@ function mincemeat_benchmark_cleanup( array $context ): void {
 		$keys[] = $context['key_space']->group_control_key( 'group-' . $i );
 	}
 
-	$context['adapter']->del_multiple( $keys );
+	foreach ($keys as $key) {
+		$context['adapter']->del( $key );
+	}
 }
 
 /**
