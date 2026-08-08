@@ -73,6 +73,17 @@ final class KeySpace {
 	private $namespace_digest = '';
 
 	/**
+	 * Request-scoped memoized group digests, keyed by group name.
+	 *
+	 * The same normalized group name is hashed once per request instead of on
+	 * every `item_key()` / `group_control_key()` call. Output bytes are
+	 * identical to `hash('sha256', $group)`.
+	 *
+	 * @var array<string,string>
+	 */
+	private $group_digests = array();
+
+	/**
 	 * Constructor.
 	 *
 	 * @param bool   $multisite Whether multisite is active.
@@ -253,16 +264,26 @@ final class KeySpace {
 	}
 
 	/**
-	 * SHA-256 digest of a group name (hex, lowercase, 64 chars).
+	 * SHA-256 digest of a group name (hex, lowercase, 64 chars), memoized.
 	 *
 	 * Group identity is case-sensitive and never normalized by removing
-	 * characters; the digest is taken over the normalized group string.
+	 * characters; the digest is taken over the normalized group string. The
+	 * result is cached per request for the group name so repeated calls on the
+	 * hot path (item/group control key derivation) hash once instead of on
+	 * every invocation.
 	 *
 	 * @param string $group Normalized group name.
 	 * @return string
 	 */
 	public function group_digest( string $group ): string {
-		return hash( 'sha256', $group );
+		if (isset( $this->group_digests[ $group ] )) {
+			return $this->group_digests[ $group ];
+		}
+
+		$digest                                 = hash( 'sha256', $group );
+		$this->group_digests[ $group ]          = $digest;
+
+		return $digest;
 	}
 
 	/**
@@ -336,14 +357,19 @@ final class KeySpace {
 	 * @return string
 	 */
 	public function item_key( string $ns_token, string $group_token, string $group, $key ): string {
-		return self::SCHEMA_MARKER
-			. ':' . $this->namespace_digest
-			. ':' . self::ITEM_MARKER
-			. ':' . $ns_token
-			. ':' . $this->group_digest( $group )
-			. ':' . $group_token
-			. ':' . $this->scope_for( $group )
-			. ':' . $this->key_digest( $key );
+		return implode(
+			':',
+			array(
+				self::SCHEMA_MARKER,
+				$this->namespace_digest,
+				self::ITEM_MARKER,
+				$ns_token,
+				$this->group_digest( $group ),
+				$group_token,
+				$this->scope_for( $group ),
+				$this->key_digest( $key ),
+			)
+		);
 	}
 
 	/**

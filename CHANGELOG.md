@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+- Memoized `KeySpace::group_digest()` per request so repeated key derivation hashes each group once, and cleaned up `item_key()` string assembly (`implode`) without changing the wire format.
+- Replaced the double request-memory array probe (`exists()` + index) on the read path with a single falsey-safe `memory_read()` probe across `get()`, `get_multiple()`, and the persistent read paths, preserving hit/miss accounting and cached `false` / `0` / `''` / `null` semantics.
+- Added an opt-out `measure_performance` config key (default `true`) that skips `microtime( true )` capture around backend commands while still counting `backend_calls`.
+- Added request-memory-focused before/after benchmark evidence and re-ran the controlled RC3→RC4 comparison (no command-count regression; request-memory hit latency improved).
+
 ## [0.1.0-rc3] - 2026-08-07
 
 - Updated WordPress release matrix to WordPress 6.9.5 and 7.0.3 (security patch for CVE-2026-60137 and CVE-2026-63030), and added scheduled monitoring for WordPress 7.1 RC.

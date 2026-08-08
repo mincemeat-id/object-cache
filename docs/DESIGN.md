@@ -106,6 +106,7 @@ define('MINCEMEAT_OBJECT_CACHE_CONFIG', [
     'persistent'      => false,
     'max_ttl'         => 2592000,
     'debug'           => false,
+    'measure_performance' => true,
 ]);
 ```
 
@@ -132,6 +133,7 @@ Supported keys:
 | `max_ttl` | int | Maximum TTL applied to entries. |
 | `tls` | array | PhpRedis TLS context options. |
 | `debug` | bool | Enables extra diagnostics. |
+| `measure_performance` | bool | Default `true`. When `false`, skips the `microtime( true )` capture around backend commands while still counting `backend_calls`. |
 
 Sensitive fields must never be emitted raw in Site Health, test failures, package manifests, or logs.
 

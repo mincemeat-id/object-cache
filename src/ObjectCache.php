@@ -93,6 +93,17 @@ final class ObjectCache {
 	private $state = self::STATE_RUNTIME_ONLY;
 
 	/**
+	 * Whether request-scoped backend timing instrumentation is enabled.
+	 *
+	 * Resolved from the attached backend's Config; defaults to true when no
+	 * backend (or no config) is present. Skips `microtime( true )` capture
+	 * when false while still counting `backend_calls`.
+	 *
+	 * @var bool
+	 */
+	private $measure_performance = true;
+
+	/**
 	 * Stable reason code for the current state.
 	 *
 	 * @var string
@@ -115,10 +126,21 @@ final class ObjectCache {
 			$this->backend = $backend;
 			$this->state   = $backend->state();
 			$this->reason  = $backend->reason();
+			$this->resolve_measure_performance();
 			if ($this->state !== self::STATE_PERSISTENT && $this->reason !== Backend::REASON_NO_BACKEND) {
 				$this->errors = 1;
 			}
 		}
+	}
+
+	/**
+	 * Resolves the `measure_performance` flag from the attached backend config.
+	 *
+	 * @return void
+	 */
+	private function resolve_measure_performance(): void {
+		$config = $this->backend !== null ? $this->backend->config() : null;
+		$this->measure_performance = $config !== null ? $config->measure_performance() : true;
 	}
 
 	/**
@@ -161,6 +183,7 @@ final class ObjectCache {
 		$this->backend = $backend;
 		$this->state   = $backend->state();
 		$this->reason  = $backend->reason();
+		$this->resolve_measure_performance();
 		if ($this->state !== self::STATE_PERSISTENT && $this->reason !== Backend::REASON_NO_BACKEND) {
 			$this->errors = 1;
 		}
@@ -265,9 +288,9 @@ final class ObjectCache {
 		}
 
 		$this->backend_calls += 1;
-		$start = microtime( true );
+		$start = $this->measure_start();
 		$pipeline_results = $this->backend()->set_conditional_pipeline( $entries );
-		$this->backend_time += ( microtime( true ) - $start ) * 1000000;
+		$this->measure_end( $start );
 
 		if ( ! $this->sync_state()) {
 			foreach ($valid_keys as $key) {
@@ -298,9 +321,9 @@ final class ObjectCache {
 
 		if (count( $failed_backend_keys ) > 0) {
 			$this->backend_calls += 1;
-			$start = microtime( true );
+			$start = $this->measure_start();
 			$raw_values = $this->backend()->mget( $failed_backend_keys );
-			$this->backend_time += ( microtime( true ) - $start ) * 1000000;
+			$this->measure_end( $start );
 
 			if ($this->sync_state()) {
 				foreach ($failed_keys as $idx => $key) {
@@ -430,9 +453,9 @@ final class ObjectCache {
 		}
 
 		$this->backend_calls += 1;
-		$start = microtime( true );
+		$start = $this->measure_start();
 		$pipeline_results = $this->backend()->set_pipeline( $entries );
-		$this->backend_time += ( microtime( true ) - $start ) * 1000000;
+		$this->measure_end( $start );
 
 		if ( ! $this->sync_state()) {
 			foreach ($valid_keys as $key) {
@@ -476,10 +499,15 @@ final class ObjectCache {
 
 		$should_force = $force && $this->is_persistent_group( $group );
 
-		if ( ! $should_force && $this->exists( $storage_id, $group )) {
-			$found       = true;
+		if ( ! $should_force) {
+			list($found, $value) = $this->memory_read( $storage_id, $group );
+		} else {
+			$found = false;
+			$value = false;
+		}
+
+		if ($found) {
 			$this->cache_hits += 1;
-			$value       = $this->cache[ $group ][ $storage_id ];
 
 			return is_object( $value ) ? clone $value : $value;
 		}
@@ -514,7 +542,23 @@ final class ObjectCache {
 		$values = array();
 
 		foreach ($keys as $key) {
-			$values[ $key ] = $this->get( $key, $group, $force );
+			if ( ! $this->key_space->is_valid_key( $key )) {
+				$values[ $key ] = false;
+				continue;
+			}
+
+			$storage_id = $this->key_space->storage_id( $key, $group );
+			list($vfound, $value) = $this->memory_read( $storage_id, $group );
+
+			if ($vfound) {
+				$this->cache_hits += 1;
+				$values[ $key ] = is_object( $value ) ? clone $value : $value;
+
+				continue;
+			}
+
+			$this->cache_misses += 1;
+			$values[ $key ] = false;
 		}
 
 		return $values;
@@ -594,9 +638,9 @@ final class ObjectCache {
 		}
 
 		$this->backend_calls += 1;
-		$start = microtime( true );
+		$start = $this->measure_start();
 		$pipeline_results = $this->backend()->del_pipeline( $backend_keys );
-		$this->backend_time += ( microtime( true ) - $start ) * 1000000;
+		$this->measure_end( $start );
 
 		if ( ! $this->sync_state()) {
 			foreach ($valid_keys as $key) {
@@ -659,9 +703,9 @@ final class ObjectCache {
 	public function flush(): bool {
 		if ($this->backend !== null && $this->backend->is_persistent()) {
 			$this->backend_calls += 1;
-			$start                = microtime( true );
+			$start = $this->measure_start();
 			$ok                   = $this->backend->replace_namespace_token();
-			$this->backend_time  += ( microtime( true ) - $start ) * 1000000;
+			$this->measure_end( $start );
 
 			if ($this->sync_state()) {
 				$this->cache = array();
@@ -704,9 +748,9 @@ final class ObjectCache {
 
 		if ($this->backend !== null && $this->backend->is_persistent()) {
 			$this->backend_calls += 1;
-			$start                = microtime( true );
+			$start = $this->measure_start();
 			$ok                   = $this->backend->replace_group_token( $group );
-			$this->backend_time  += ( microtime( true ) - $start ) * 1000000;
+			$this->measure_end( $start );
 
 			if ($this->sync_state()) {
 				unset( $this->cache[ $group ] );
@@ -930,6 +974,30 @@ final class ObjectCache {
 	}
 
 	/**
+	 * Single falsey-safe request-memory read.
+	 *
+	 * Returns `array( $found, $value )` using the same `isset() ||
+	 * array_key_exists()` semantics as `exists()` but in a single probe, so a
+	 * cached falsey value (`false`, `0`, `''`, `null`) is a true hit and no
+	 * second array index is performed on the hot read path.
+	 *
+	 * @param string $storage_id
+	 * @param string $group
+	 * @return array{0:bool,1:mixed} array( $found, $value ).
+	 */
+	private function memory_read( string $storage_id, string $group ): array {
+		if (isset( $this->cache[ $group ][ $storage_id ] )) {
+			return array( true, $this->cache[ $group ][ $storage_id ] );
+		}
+
+		if (isset( $this->cache[ $group ] ) && array_key_exists( $storage_id, $this->cache[ $group ] )) {
+			return array( true, $this->cache[ $group ][ $storage_id ] );
+		}
+
+		return array( false, false );
+	}
+
+	/**
 	 * Whether cache addition is suspended.
 	 */
 	private function is_addition_suspended(): bool {
@@ -966,6 +1034,32 @@ final class ObjectCache {
 		}
 
 		return $this->backend;
+	}
+
+	/**
+	 * Captures the start of a backend operation when timing is enabled.
+	 *
+	 * @return float|null Microsecond epoch on the start, or null when disabled.
+	 */
+	private function measure_start(): ?float {
+		if ( ! $this->measure_performance) {
+			return null;
+		}
+
+		return microtime( true );
+	}
+
+	/**
+	 * Accumulates the elapsed microseconds of a backend operation.
+	 *
+	 * @param float|null $start The start from measure_start(), or null when disabled.
+	 */
+	private function measure_end( ?float $start ): void {
+		if ($start === null) {
+			return;
+		}
+
+		$this->backend_time += ( microtime( true ) - $start ) * 1000000;
 	}
 
 	/**
@@ -1034,9 +1128,9 @@ final class ObjectCache {
 		$item_key = $this->key_space->item_key( $ns_tok, $grp_tok, $group, $key );
 
 		$this->backend_calls += 1;
-		$start                = microtime( true );
+		$start = $this->measure_start();
 		$raw                  = $this->backend()->get( $item_key );
-		$this->backend_time  += ( microtime( true ) - $start ) * 1000000;
+		$this->measure_end( $start );
 
 		if ( ! $this->sync_state()) {
 			return $this->runtime_fallback_get( $storage_id, $group, $found );
@@ -1087,9 +1181,15 @@ final class ObjectCache {
 
 			$storage_id = $this->key_space->storage_id( $key, $group );
 
-			if ( ! $force && $this->exists( $storage_id, $group )) {
+			if ( ! $force) {
+				list($vfound, $val) = $this->memory_read( $storage_id, $group );
+			} else {
+				$vfound = false;
+				$val    = false;
+			}
+
+			if ($vfound) {
 				$this->cache_hits += 1;
-				$val            = $this->cache[ $group ][ $storage_id ];
 				$values[ $key ] = is_object( $val ) ? clone $val : $val;
 			} else {
 				$missing[]        = $key;
@@ -1110,15 +1210,15 @@ final class ObjectCache {
 		}
 
 		$this->backend_calls += 1;
-		$start                = microtime( true );
+		$start = $this->measure_start();
 		$raw_values           = $this->backend()->mget( $backend_keys );
-		$this->backend_time  += ( microtime( true ) - $start ) * 1000000;
+		$this->measure_end( $start );
 
 		if ( ! $this->sync_state()) {
 			foreach ($missing as $key) {
 				$storage_id_d = $this->key_space->storage_id( $key, $group );
-				if ($this->exists( $storage_id_d, $group )) {
-					$value          = $this->cache[ $group ][ $storage_id_d ];
+				list($vfound, $value) = $this->memory_read( $storage_id_d, $group );
+				if ($vfound) {
 					$values[ $key ] = is_object( $value ) ? clone $value : $value;
 					$this->cache_hits += 1;
 				} else {
@@ -1177,9 +1277,9 @@ final class ObjectCache {
 		$ttl_ms   = $this->resolve_ttl_ms( $expire );
 
 		$this->backend_calls += 1;
-		$start                = microtime( true );
+		$start = $this->measure_start();
 		$ok                   = $this->backend()->set_unconditional( $item_key, $encoded, $ttl_ms );
-		$this->backend_time  += ( microtime( true ) - $start ) * 1000000;
+		$this->measure_end( $start );
 
 		if ( ! $this->sync_state()) {
 			return $this->set_in_memory( $storage_id, $group, $data );
@@ -1214,9 +1314,9 @@ final class ObjectCache {
 		$ttl_ms   = $this->resolve_ttl_ms( $expire );
 
 		$this->backend_calls += 1;
-		$start                = microtime( true );
+		$start = $this->measure_start();
 		$ok                   = $this->backend()->set( $item_key, $encoded, $ttl_ms, true, false );
-		$this->backend_time  += ( microtime( true ) - $start ) * 1000000;
+		$this->measure_end( $start );
 
 		if ( ! $this->sync_state()) {
 			return $this->set_in_memory( $storage_id, $group, $data );
@@ -1260,9 +1360,9 @@ final class ObjectCache {
 		$ttl_ms   = $this->resolve_ttl_ms( $expire );
 
 		$this->backend_calls += 1;
-		$start                = microtime( true );
+		$start = $this->measure_start();
 		$ok                   = $this->backend()->set( $item_key, $encoded, $ttl_ms, false, true );
-		$this->backend_time  += ( microtime( true ) - $start ) * 1000000;
+		$this->measure_end( $start );
 
 		if ( ! $this->sync_state()) {
 			if ($this->exists( $storage_id, $group )) {
@@ -1292,9 +1392,9 @@ final class ObjectCache {
 		$item_key = $this->key_space->item_key( $ns_tok, $grp_tok, $group, $key );
 
 		$this->backend_calls += 1;
-		$start                = microtime( true );
+		$start = $this->measure_start();
 		$deleted              = $this->backend()->del( $item_key );
-		$this->backend_time  += ( microtime( true ) - $start ) * 1000000;
+		$this->measure_end( $start );
 
 		$was_in_memory = $this->exists( $storage_id, $group );
 
@@ -1323,10 +1423,11 @@ final class ObjectCache {
 	 * @return mixed|false
 	 */
 	private function runtime_fallback_get( string $storage_id, string $group, &$found ) {
-		if ($this->exists( $storage_id, $group )) {
+		list($vfound, $value) = $this->memory_read( $storage_id, $group );
+
+		if ($vfound) {
 			$found       = true;
 			$this->cache_hits += 1;
-			$value       = $this->cache[ $group ][ $storage_id ];
 
 			return is_object( $value ) ? clone $value : $value;
 		}
@@ -1387,9 +1488,9 @@ final class ObjectCache {
 		$item_key = $this->key_space->item_key( $ns_tok, $grp_tok, $group, $key );
 
 		$this->backend_calls   += 1;
-		$start                  = microtime( true );
+		$start = $this->measure_start();
 		list($code, $new_value) = $this->backend()->eval_incr( $item_key, $offset );
-		$this->backend_time    += ( microtime( true ) - $start ) * 1000000;
+		$this->measure_end( $start );
 
 		if ( ! $this->sync_state()) {
 			// Backend degraded: fall back to in-memory delta if the value

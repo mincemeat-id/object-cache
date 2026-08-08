@@ -43,6 +43,7 @@ final class Config {
 	public const REASON_MAX_TTL         = 'config-max-ttl';
 	public const REASON_TLS             = 'config-tls';
 	public const REASON_DEBUG           = 'config-debug';
+	public const REASON_MEASURE_PERF    = 'config-measure-performance';
 
 	/** Schemes. */
 	public const SCHEME_TCP  = 'tcp';
@@ -89,25 +90,26 @@ final class Config {
 	 * @var array<string,mixed>
 	 */
 	private const KNOWN_KEYS = array(
-		'namespace'         => null,
-		'scheme'            => self::SCHEME_TCP,
-		'host'              => '127.0.0.1',
-		'port'              => 6379,
-		'path'              => null,
-		'database'          => 0,
-		'username'          => null,
-		'password'          => null,
-		'connect_timeout'   => 0.25,
-		'read_timeout'      => 0.25,
-		'max_retries'       => self::DEFAULT_MAX_RETRIES,
-		'backoff_algorithm' => self::DEFAULT_BACKOFF_ALGORITHM,
-		'backoff_base'      => self::DEFAULT_BACKOFF_BASE,
-		'backoff_cap'       => self::DEFAULT_BACKOFF_CAP,
-		'tcp_keepalive'     => true,
-		'persistent'        => false,
-		'max_ttl'           => self::DEFAULT_MAX_TTL,
-		'tls'               => array(),
-		'debug'             => false,
+		'namespace'           => null,
+		'scheme'              => self::SCHEME_TCP,
+		'host'                => '127.0.0.1',
+		'port'                => 6379,
+		'path'                => null,
+		'database'            => 0,
+		'username'            => null,
+		'password'            => null,
+		'connect_timeout'     => 0.25,
+		'read_timeout'        => 0.25,
+		'max_retries'         => self::DEFAULT_MAX_RETRIES,
+		'backoff_algorithm'   => self::DEFAULT_BACKOFF_ALGORITHM,
+		'backoff_base'        => self::DEFAULT_BACKOFF_BASE,
+		'backoff_cap'         => self::DEFAULT_BACKOFF_CAP,
+		'tcp_keepalive'       => true,
+		'persistent'          => false,
+		'max_ttl'             => self::DEFAULT_MAX_TTL,
+		'tls'                 => array(),
+		'debug'               => false,
+		'measure_performance' => true,
 	);
 
 	/** @var string */
@@ -166,6 +168,9 @@ final class Config {
 
 	/** @var bool */
 	private $debug;
+
+	/** @var bool */
+	private $measure_performance;
 
 	/** @var string */
 	private $namespace_digest;
@@ -248,6 +253,10 @@ final class Config {
 		$debug = $input['debug'] ?? self::KNOWN_KEYS['debug'];
 		$this->validate_bool( $debug, self::REASON_DEBUG );
 		$this->debug = (bool) $debug;
+
+		$measure_performance = $input['measure_performance'] ?? self::KNOWN_KEYS['measure_performance'];
+		$this->validate_bool( $measure_performance, self::REASON_MEASURE_PERF );
+		$this->measure_performance = (bool) $measure_performance;
 
 		$this->namespace_digest = hash( 'sha256', $this->namespace );
 	}
@@ -368,6 +377,19 @@ final class Config {
 	}
 
 	/**
+	 * Whether request-scoped backend timing instrumentation is enabled.
+	 *
+	 * Defaults to true. When false, the runtime skips the `microtime( true )`
+	 * capture around backend commands while still accumulating the cheap
+	 * `backend_calls` counter.
+	 *
+	 * @return bool
+	 */
+	public function measure_performance(): bool {
+		return $this->measure_performance;
+	}
+
+	/**
 	 * Redacted diagnostics suitable for Site Health. Includes only safe
 	 * identifiers; never the source namespace, username, password, DSN, or
 	 * TLS key material paths.
@@ -390,23 +412,24 @@ final class Config {
 		}
 
 		return array(
-			'scheme'            => $this->scheme,
-			'host'              => $this->scheme === self::SCHEME_UNIX ? '' : 'configured',
-			'port'              => $this->scheme === self::SCHEME_UNIX ? null : '***',
-			'path'              => $this->scheme === self::SCHEME_UNIX ? 'configured' : null,
-			'database'          => '***',
-			'namespace_digest'  => substr( $this->namespace_digest, 0, 16 ),
-			'connect_timeout'   => $this->connect_timeout,
-			'read_timeout'      => $this->read_timeout,
-			'max_retries'       => $this->max_retries,
-			'backoff_algorithm' => $this->backoff_algorithm,
-			'backoff_base_ms'   => $this->backoff_base,
-			'backoff_cap_ms'    => $this->backoff_cap,
-			'tcp_keepalive'     => $this->tcp_keepalive,
-			'persistent'        => $this->persistent,
-			'max_ttl'           => $this->max_ttl,
-			'debug'             => $this->debug,
-			'tls'               => $tls_summary,
+			'scheme'              => $this->scheme,
+			'host'                => $this->scheme === self::SCHEME_UNIX ? '' : 'configured',
+			'port'                => $this->scheme === self::SCHEME_UNIX ? null : '***',
+			'path'                => $this->scheme === self::SCHEME_UNIX ? 'configured' : null,
+			'database'            => '***',
+			'namespace_digest'    => substr( $this->namespace_digest, 0, 16 ),
+			'connect_timeout'     => $this->connect_timeout,
+			'read_timeout'        => $this->read_timeout,
+			'max_retries'         => $this->max_retries,
+			'backoff_algorithm'   => $this->backoff_algorithm,
+			'backoff_base_ms'     => $this->backoff_base,
+			'backoff_cap_ms'      => $this->backoff_cap,
+			'tcp_keepalive'       => $this->tcp_keepalive,
+			'persistent'          => $this->persistent,
+			'max_ttl'             => $this->max_ttl,
+			'debug'               => $this->debug,
+			'measure_performance' => $this->measure_performance,
+			'tls'                 => $tls_summary,
 		);
 	}
 

@@ -34,10 +34,11 @@ define('MINCEMEAT_OBJECT_CACHE_CONFIG', [
     'persistent'        => false,
     'max_ttl'           => 2592000,
     'debug'             => false,
+    'measure_performance' => true,
 ]);
 ```
 
-Supported keys include `namespace`, `scheme`, `host`, `port`, `path`, `database`, `username`, `password`, `connect_timeout`, `read_timeout`, `max_retries`, `backoff_algorithm`, `backoff_base`, `backoff_cap`, `tcp_keepalive`, `persistent`, `max_ttl`, `tls`, and `debug`. Use `scheme => 'tls'` for TLS connections and `scheme => 'unix'` plus `path` for Unix sockets.
+Supported keys include `namespace`, `scheme`, `host`, `port`, `path`, `database`, `username`, `password`, `connect_timeout`, `read_timeout`, `max_retries`, `backoff_algorithm`, `backoff_base`, `backoff_cap`, `tcp_keepalive`, `persistent`, `max_ttl`, `tls`, `debug`, and `measure_performance`. Use `scheme => 'tls'` for TLS connections and `scheme => 'unix'` plus `path` for Unix sockets.
 
 ## Supported Topology and Consistency
 
@@ -108,8 +109,9 @@ Performance guardrails:
 composer benchmark:controlled -- 127.0.0.1 6383
 ```
 
-The controlled run measures the immutable RC2 runtime and two clean current
-runs with the same harness, runner, and Redis image. Versioned artifacts under
+The controlled run measures the immutable RC3 runtime and two clean current
+runs with the same harness, runner, and Redis image, plus a non-gating
+request-memory soak recording peak/allocated memory. Versioned artifacts under
 `build/benchmarks/` include raw samples, command/round-trip/connection counts,
 commit, CPU and runner identity, PHP INI/extensions, backend image digest, and
 the repeatability/release comparisons. Connection targets are omitted.

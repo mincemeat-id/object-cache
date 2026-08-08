@@ -52,6 +52,23 @@ class KeySpacePersistentTest extends TestCase
         $this->assertSame(hash('sha256', 'MixedCase'), $ks->group_digest('MixedCase'));
     }
 
+    public function test_group_digest_is_memoized_and_returns_identical_string()
+    {
+        $ks = $this->ks();
+
+        $first  = $ks->group_digest('options');
+        $second = $ks->group_digest('options');
+
+        // Repeated calls return the identical string (memoized, same value).
+        $this->assertSame($first, $second);
+        // The memoized value is byte-identical to a fresh hash.
+        $this->assertSame(hash('sha256', 'options'), $second);
+
+        // Different groups still produce distinct digests and are each cached.
+        $this->assertSame(hash('sha256', 'users'), $ks->group_digest('users'));
+        $this->assertNotSame($ks->group_digest('options'), $ks->group_digest('users'));
+    }
+
     public function test_key_digest_is_sha256_of_string_key()
     {
         $ks = $this->ks();

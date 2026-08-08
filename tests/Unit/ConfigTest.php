@@ -40,6 +40,7 @@ class ConfigTest extends TestCase
                 'persistent'       => false,
                 'max_ttl'          => 2592000,
                 'debug'            => false,
+                'measure_performance' => true,
             ),
             $overrides
         );
@@ -67,6 +68,7 @@ class ConfigTest extends TestCase
         $this->assertFalse($c->persistent());
         $this->assertSame(2592000, $c->max_ttl());
         $this->assertFalse($c->debug());
+        $this->assertTrue($c->measure_performance());
 
         $this->assertSame(hash('sha256', 'ns'), $c->namespace_digest());
     }
@@ -422,6 +424,19 @@ class ConfigTest extends TestCase
         new Config(array('namespace' => 'ns', 'debug' => 2));
     }
 
+    public function test_measure_performance_must_be_bool()
+    {
+        $this->expectException(ConfigException::class);
+        new Config(array('namespace' => 'ns', 'measure_performance' => 2));
+    }
+
+    public function test_measure_performance_opt_out_is_accepted()
+    {
+        $c = new Config(array('namespace' => 'ns', 'measure_performance' => false));
+
+        $this->assertFalse($c->measure_performance());
+    }
+
     public function test_from_constant_missing_throws()
     {
         // MINCEMEAT_OBJECT_CACHE_CONFIG is not defined in the test environment.
@@ -541,5 +556,6 @@ class ConfigTest extends TestCase
         $this->assertContains('max_ttl', $keys);
         $this->assertContains('tls', $keys);
         $this->assertContains('debug', $keys);
+        $this->assertContains('measure_performance', $keys);
     }
 }

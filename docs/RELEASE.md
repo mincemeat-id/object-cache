@@ -56,11 +56,12 @@ preservation before publishing a candidate. Its mixed-version phase must remain
 free of PHP diagnostics while the new companion plugin manages the older
 drop-in.
 
-The controlled performance job must upload the immutable-RC2 report, two clean
-candidate reports, a passing repeatability comparison, and a passing RC2-to-RC3
-comparison. Review the recorded commit, runner/CPU, PHP INI/extensions, backend
-image digest, warmup/sample policy, raw samples, and deterministic command counts
-before quoting a performance result or approving a candidate.
+The controlled performance job must upload the immutable-RC3 report, two clean
+candidate reports, a passing repeatability comparison, and a passing RC3-to-RC4
+comparison, plus the non-gating memory soak evidence. Review the recorded
+commit, runner/CPU, PHP INI/extensions, backend image digest, warmup/sample
+policy, raw samples, and deterministic command counts before quoting a
+performance result or approving a candidate.
 
 Full release confidence comes from CI across supported PHP versions, Redis 8, Valkey 9, single site, multisite, TCP, TLS, ACL, Unix socket, backend outages, browser flows, and WP-CLI lifecycle checks.
 

@@ -109,7 +109,7 @@ jobs:
         run: vendor/bin/phpcs --standard=PHPCompatibility -p src stubs tools mincemeat-object-cache.php --runtime-set testVersion 7.4
 
   controlled-performance:
-    name: Controlled RC2 to RC3 Performance Evidence
+    name: Controlled RC3 to RC4 Performance Evidence
     runs-on: ubuntu-24.04
     services:
       redis:
@@ -123,7 +123,7 @@ jobs:
           --health-retries 10
 
     steps:
-      - name: Checkout with immutable RC2 tag
+      - name: Checkout with immutable RC3 tag
         uses: actions/checkout@v7
         with:
           fetch-depth: 0
@@ -149,7 +149,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: rc3-controlled-performance-evidence
+          name: rc4-controlled-performance-evidence
           path: build/benchmarks/
           if-no-files-found: error
 
