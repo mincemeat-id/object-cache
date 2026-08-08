@@ -401,11 +401,16 @@ class SiteHealthTest extends TestCase
 		$cache = new ObjectCache( $key_space, $backend );
 		$GLOBALS['wp_object_cache'] = $cache;
 
+		$cache->add_non_persistent_groups( array( 'rtg1' ) );
+		$cache->set( 'rtk1', 'v1', 'rtg1' );
+		$cache->set( 'rtk2', 'v2', 'rtg1' );
+
 		$info = SiteHealth::debug_information( array() );
 
 		$this->assertArrayHasKey( 'mincemeat-object-cache', $info );
 		$fields = $info['mincemeat-object-cache']['fields'];
 
+		$this->assertSame( '2', $fields['request_tier_entries']['value'] );
 		$this->assertSame( 'persistent', $fields['cache_state']['value'] );
 		$this->assertSame( '6.3.0', $fields['phpredis_minimum']['value'] );
 		$this->assertSame( '***', $fields['database']['value'] );

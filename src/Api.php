@@ -144,6 +144,7 @@ final class Api {
 			'multisite'             => $cache ? $cache->key_space()->is_multisite() : false,
 			'global_groups'         => $cache ? array_keys( $cache->key_space()->global_groups() ) : array(),
 			'non_persistent_groups' => $cache ? self::non_persistent_group_names( $cache ) : array(),
+			'request_tier_entries'  => $cache ? $cache->request_memory_entry_count() : 0,
 			'metrics'               => self::metrics(),
 			'versions'              => self::version(),
 			'php_version'           => PHP_VERSION,

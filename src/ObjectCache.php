@@ -961,6 +961,26 @@ final class ObjectCache {
 		return $this->non_persistent_groups;
 	}
 
+	/**
+	 * Returns the number of live entries currently held in the request-local
+	 * memory tier.
+	 *
+	 * The request tier is request-scoped and unbounded by design (growth is
+	 * freed at request end; eviction is deferred to v1). This count is computed
+	 * only on demand for observability (Site Health / diagnostics) and is never
+	 * called on the hot cache path.
+	 *
+	 * @return int
+	 */
+	public function request_memory_entry_count(): int {
+		$count = 0;
+		foreach ($this->cache as $group) {
+			$count += count( $group );
+		}
+
+		return $count;
+	}
+
 	// ------------------------------------------------------------------
 	// Internals: memory tier
 	// ------------------------------------------------------------------

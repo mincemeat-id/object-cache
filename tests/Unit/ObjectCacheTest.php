@@ -366,6 +366,36 @@ class ObjectCacheTest extends TestCase
         $this->assertContains('users', $d['global_groups']);
         $this->assertArrayHasKey('metrics', $d);
         $this->assertArrayHasKey('versions', $d);
+        $this->assertArrayHasKey('request_tier_entries', $d);
+
+        unset($GLOBALS['wp_object_cache']);
+    }
+
+    public function test_request_memory_entry_count_tracks_live_entries_on_demand()
+    {
+        $this->assertSame(0, $this->cache->request_memory_entry_count());
+
+        $this->cache->set('a', 'va', 'g1');
+        $this->cache->set('b', 'vb', 'g1');
+        $this->cache->set('c', 'vc', 'g2');
+        $this->assertSame(3, $this->cache->request_memory_entry_count());
+
+        $this->cache->delete('a', 'g1');
+        $this->assertSame(2, $this->cache->request_memory_entry_count());
+
+        $this->cache->flush();
+        $this->assertSame(0, $this->cache->request_memory_entry_count());
+    }
+
+    public function test_api_diagnostics_reports_request_tier_entries()
+    {
+        $GLOBALS['wp_object_cache'] = $this->cache;
+        $this->cache->set('k1', 'v1', 'g1');
+        $this->cache->set('k2', 'v2', 'g1');
+        $this->cache->set('k3', 'v3', 'g2');
+
+        $d = Api::diagnostics();
+        $this->assertSame(3, $d['request_tier_entries']);
 
         unset($GLOBALS['wp_object_cache']);
     }

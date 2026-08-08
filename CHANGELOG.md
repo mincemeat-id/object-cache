@@ -6,6 +6,10 @@
 - Replaced the double request-memory array probe (`exists()` + index) on the read path with a single falsey-safe `memory_read()` probe across `get()`, `get_multiple()`, and the persistent read paths, preserving hit/miss accounting and cached `false` / `0` / `''` / `null` semantics.
 - Added an opt-out `measure_performance` config key (default `true`) that skips `microtime( true )` capture around backend commands while still counting `backend_calls`.
 - Added request-memory-focused before/after benchmark evidence and re-ran the controlled RC3→RC4 comparison (no command-count regression; request-memory hit latency improved).
+- Hardened memory safety: the value-envelope decoder now validates the declared payload length against the actual remaining bytes before slicing or allocating, and unit tests prove hostile/over/under-declared length fields are rejected as corrupt and that `unserialize` failures are contained with no warnings.
+- Added object-aliasing isolation tests (contract + persistent integration) proving mutating a returned object never changes the cached copy across `set()`+`get()`, `persistent_get`, and `get_multiple()`.
+- Documented the request-tier growth policy (request-scoped, unbounded by design, freed at request end, eviction deferred to v1) and surfaced the live request-tier entry count as an on-demand Site Health / diagnostics field.
+- Added close-path correctness tests for runtime-only and degraded (circuit-open) states, and archived the RC3→RC4 request-memory before/after evidence (~99 bytes/entry, no regression).
 
 ## [0.1.0-rc3] - 2026-08-07
 

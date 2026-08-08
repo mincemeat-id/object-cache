@@ -7,7 +7,7 @@
  * Version: 0.1.0-rc3
  * Drop-in Version: 0.1.0-rc3
  * Schema Version: 1
- * Build Hash: 0ecdc89eb91fe37b3b81ec24ad0c1d4b0b27bcabe197d9e73056f3f75dc7cda5
+ * Build Hash: c942bd1fbda06e7bed0e1dd96d60ffa44e1c0653ae180d64d9d5bd518fcb24e3
  *
  * @package Mincemeat\ObjectCache
  */
@@ -148,6 +148,7 @@ namespace Mincemeat\ObjectCache {
 				'multisite'             => $cache ? $cache->key_space()->is_multisite() : false,
 				'global_groups'         => $cache ? array_keys( $cache->key_space()->global_groups() ) : array(),
 				'non_persistent_groups' => $cache ? self::non_persistent_group_names( $cache ) : array(),
+				'request_tier_entries'  => $cache ? $cache->request_memory_entry_count() : 0,
 				'metrics'               => self::metrics(),
 				'versions'              => self::version(),
 				'php_version'           => PHP_VERSION,
@@ -3594,6 +3595,26 @@ namespace Mincemeat\ObjectCache {
 			return $this->non_persistent_groups;
 		}
 
+		/**
+		 * Returns the number of live entries currently held in the request-local
+		 * memory tier.
+		 *
+		 * The request tier is request-scoped and unbounded by design (growth is
+		 * freed at request end; eviction is deferred to v1). This count is computed
+		 * only on demand for observability (Site Health / diagnostics) and is never
+		 * called on the hot cache path.
+		 *
+		 * @return int
+		 */
+		public function request_memory_entry_count(): int {
+			$count = 0;
+			foreach ($this->cache as $group) {
+				$count += count( $group );
+			}
+
+			return $count;
+		}
+
 		// ------------------------------------------------------------------
 		// Internals: memory tier
 		// ------------------------------------------------------------------
@@ -5102,13 +5123,18 @@ namespace Mincemeat\ObjectCache {
 				return array( false, false, 'decode-version' );
 			}
 
-			$tag     = ord( $bytes[5] );
-			$length  = self::read_length( $bytes, 6 );
-			$payload = substr( $bytes, self::HEADER_SIZE );
+			$tag    = ord( $bytes[5] );
+			$length = self::read_length( $bytes, 6 );
 
-			if (strlen( $payload ) !== $length) {
+			// Bound the declared payload length against the bytes actually present
+			// *before* slicing the payload. A hostile length field that exceeds the
+			// real payload is rejected as corrupt here and never reaches a typed
+			// `decode_*` or an over-sized `substr`/allocation.
+			if (strlen( $bytes ) - self::HEADER_SIZE !== $length) {
 				return array( false, false, 'decode-length' );
 			}
+
+			$payload = substr( $bytes, self::HEADER_SIZE );
 
 			switch ($tag) {
 				case self::TAG_NULL:

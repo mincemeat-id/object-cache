@@ -69,7 +69,7 @@ requested-versus-effective reuse state.
 
 Mincemeat Object Cache is an object cache only. It caches values stored through the WordPress object-cache API; it is not a page cache and does not serve cached HTML.
 
-Diagnostics are available in WordPress under Tools -> Site Health -> Info. The companion plugin reports cache state, stable failure reason codes, drop-in integrity, supported features, backend product/version when safe, and classified connection context. Supplied hosts, ports, database indexes, Unix-socket paths, credentials, raw cache keys, and cached values are never copied into diagnostics. Debug error logging is opt-in: CLI emits at most once per process, while web requests require a shared APCu five-minute throttle and otherwise remain silent.
+Diagnostics are available in WordPress under Tools -> Site Health -> Info. The companion plugin reports cache state, stable failure reason codes, drop-in integrity, supported features, backend product/version when safe, and classified connection context. The "Request Tier Entries" field reports the live count of entries held in the request-local memory tier (computed only on demand), which is request-scoped and unbounded by design. Supplied hosts, ports, database indexes, Unix-socket paths, credentials, raw cache keys, and cached values are never copied into diagnostics. Debug error logging is opt-in: CLI emits at most once per process, while web requests require a shared APCu five-minute throttle and otherwise remain silent.
 
 WP-CLI command group:
 
