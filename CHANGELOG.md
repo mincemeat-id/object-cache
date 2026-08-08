@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+- Extracted the request-local memory tier into a dedicated `MemoryTier` collaborator owned by `ObjectCache`, delegating falsey-safe reads, object-cloning writes, per-key/group removal, and request-tier clearing. The public `ObjectCache` surface is unchanged and all tests remain green.
+- Moved the test-only `ValueCodec::header_inline()` fixture builder into the test support layer (`ValueEnvelopeBuilder`), so the production drop-in exposes only the public value-codec encode/decode surface.
+- Added a topology contract test asserting the `Api` diagnostics and Site Health paths share the single `Topology` classifier for standalone, cluster, sentinel, replica, and incomplete identities.
+- Documented the intentional `try { adapter } catch { degrade + return-filled }` boilerplate decision and the canonical persistent-connection identity subset used by `PhpRedisAdapter::persistent_id()`.
 - Wired the multisite `switch_blog` action so blog scope flips automatically whenever WordPress switches or restores the current blog; global groups survive the switch while non-global groups are scoped to the current blog.
 - Added a `wp_cache_supports()` parity regression confirming the six advertised features (`add_multiple`, `set_multiple`, `get_multiple`, `delete_multiple`, `flush_runtime`, `flush_group`) are the only ones reported.
 - Added contract coverage for `get_multiple()` `$force` semantics (bypasses request memory, reads the backend, repopulates memory), suspended `add_multiple()` / `wp_cache_add()` behavior, and the `WP_Object_Cache` alias guard so a co-resident cache is never clobbered.

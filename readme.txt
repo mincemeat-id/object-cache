@@ -4,7 +4,7 @@ Tags: cache, object cache, redis, valkey, performance
 Requires at least: 6.9
 Tested up to: 7.0
 Requires PHP: 7.4
-Stable tag: 0.1.0-rc3
+Stable tag: 0.1.0-rc4
 License: GPL-3.0-or-later
 License URI: https://www.gnu.org/licenses/gpl-3.0.html
 
@@ -56,6 +56,9 @@ No. Object-cache writes are best effort. PhpRedis can retry after connection tro
 == Changelog ==
 
 = Unreleased =
+* Extracted the request-local memory tier into a dedicated `MemoryTier` collaborator so hot-path and memory behavior live in one well-tested place; the public `ObjectCache` surface is unchanged.
+* Moved the test-only value-envelope fixture builder out of the runtime codec into the test support layer, so the production drop-in exposes only the public encode/decode surface.
+* Added a topology contract test proving the `Api` and Site Health diagnostics share the single `Topology` classifier.
 * Wired the multisite `switch_blog` action so blog scope flips automatically on switch/restore; global groups survive the switch while non-global groups are scoped to the current blog.
 * Added a `wp_cache_supports()` parity regression confirming the six advertised features are the only ones reported.
 * Added contract coverage for `get_multiple()` `$force` semantics, suspended `add_multiple()` / `wp_cache_add()` behavior, and the `WP_Object_Cache` alias guard.
