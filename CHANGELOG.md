@@ -19,6 +19,7 @@
 - Added object-aliasing isolation tests (contract + persistent integration) proving mutating a returned object never changes the cached copy across `set()`+`get()`, `persistent_get`, and `get_multiple()`.
 - Documented the request-tier growth policy (request-scoped, unbounded by design, freed at request end, eviction deferred to v1) and surfaced the live request-tier entry count as an on-demand Site Health / diagnostics field.
 - Added close-path correctness tests for runtime-only and degraded (circuit-open) states, and archived the RC3→RC4 request-memory before/after evidence (~99 bytes/entry, no regression).
+- Registered the immutable `0.1.0-rc3` drop-in checksum in the lifecycle ownership registry and updated the packaged lifecycle upgrade/rollback E2E testing for RC3 → RC4.
 
 ## [0.1.0-rc3] - 2026-08-07
 
