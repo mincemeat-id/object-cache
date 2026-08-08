@@ -5,8 +5,8 @@ Audience: maintainers, contributors, release engineers, and AI agents.
 
 ## Current Status
 
-The implementation is public-testing release-candidate quality. RC2 hardening
-is in progress; release-facing behavior and validation changes are documented
+The implementation is public-testing release-candidate quality. RC4 work is
+in progress; release-facing behavior and validation changes are documented
 directly in this guide, the design document, release guide, and changelog.
 
 The maintained validation surface includes Composer metadata, PHPCS, PHPStan level 8, PHPUnit, PCOV coverage thresholds, generated artifact parity, deterministic package builds, browser/WP-CLI E2E tests, benchmark guardrails, and a Redis/Valkey CI matrix.
@@ -79,9 +79,15 @@ the new (or restored) blog.
 The request-local memory tier is **request-scoped and unbounded by design**.
 There is no configured capacity limit and no eviction in RC4: every value cached
 in request memory lives until the request ends, at which point the enclosing
-`ObjectCache` instance (and its `$cache` array) is released and the memory is
-freed with the request. This mirrors WordPress core's own non-persistent object
-cache and keeps the hot path free of capacity checks.
+`ObjectCache` instance (and its `MemoryTier` `$cache` array) is released and the
+memory is freed with the request. This mirrors WordPress core's own
+non-persistent object cache and keeps the hot path free of capacity checks.
+
+The tier is owned by a dedicated `MemoryTier` collaborator. `ObjectCache` keeps
+all WordPress-facing behavior and delegates falsey-safe reads, object-cloning
+writes, per-key/group removal, and request-tier clearing to it, so hot-path and
+memory changes land in one small, well-tested place without changing the public
+`ObjectCache` surface.
 
 Growth is observable so operators can diagnose unexpectedly large request
 memory. The live entry count is reported as `request_tier_entries` in
@@ -89,6 +95,29 @@ memory. The live entry count is reported as `request_tier_entries` in
 Health debug information. It is computed **only on demand** (Site Health /
 diagnostics) and is never evaluated on the hot cache path. Automatic eviction or
 a memory governor is explicitly **deferred to v1** and must not be added in RC4.
+
+### Defensive degrade boilerplate (kept by design)
+
+The persistent operations in `ObjectCache` repeat the same defensive shape —
+`try { adapter } catch { degrade + return a filled result }` — around each
+backend call. This verbosity is intentional and is **not** to be collapsed into
+a macro or wrapped helper. Keeping the raise handled inline at each call site
+makes the circuit-breaker and fallback semantics locally visible and auditable:
+each operation chooses its own degrade behavior (e.g. return a memory-set
+result for `set`, return `false` for `add`, perform an in-memory delta for
+`incr`) without introducing an abstraction that would obscure which specific
+degrade path runs for which operation. Do not force a macro over this pattern.
+
+### Persistent connection identity is a canonical subset
+
+`PhpRedisAdapter::persistent_id()` derives a non-reversible pool identity from a
+**canonical, explicit subset** of connection-affecting config values (transport,
+host/port/path, database, namespace digest, ACL digest, TLS digest, retry/backoff
+settings). This is deliberate: only the values that actually affect the opened
+connection participate, so two configs that resolve to the same identity reuse
+the same pool entry. When a future config key would change the connection
+identity, it must be **added to the canonical subset deliberately** after review
+so pooled-connection isolation is never silently weakened.
 
 ## Repository Map
 

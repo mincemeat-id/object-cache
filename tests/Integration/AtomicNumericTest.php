@@ -17,6 +17,7 @@ namespace Mincemeat\ObjectCache\Tests\Integration;
 
 use Mincemeat\ObjectCache\LuaScripts;
 use Mincemeat\ObjectCache\Tests\Numeric\NumericContractCases;
+use Mincemeat\ObjectCache\Tests\Support\ValueEnvelopeBuilder;
 use Mincemeat\ObjectCache\ValueCodec;
 
 /**
@@ -306,9 +307,9 @@ class AtomicNumericTest extends IntegrationTestCase
         $grp_tok = $this->backend->group_token('options');
 
         $cases = array(
-            'boolean' => ValueCodec::header_inline(ValueCodec::TAG_BOOL, "\x02"),
-            'integer' => ValueCodec::header_inline(ValueCodec::TAG_INT, '12x'),
-            'null'    => ValueCodec::header_inline(ValueCodec::TAG_NULL, "\x00"),
+            'boolean' => ValueEnvelopeBuilder::inline(ValueCodec::TAG_BOOL, "\x02"),
+            'integer' => ValueEnvelopeBuilder::inline(ValueCodec::TAG_INT, '12x'),
+            'null'    => ValueEnvelopeBuilder::inline(ValueCodec::TAG_NULL, "\x00"),
         );
 
         foreach ($cases as $key => $encoded) {

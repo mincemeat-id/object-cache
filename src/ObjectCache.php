@@ -27,11 +27,11 @@ final class ObjectCache {
 	public const STATE_DEGRADED     = 'degraded';
 
 	/**
-	 * Request-local cache, keyed by normalized group then storage identifier.
+	 * Request-local memory tier owned by this cache.
 	 *
-	 * @var array<string,array<string,mixed>>
+	 * @var MemoryTier
 	 */
-	private $cache = array();
+	private $memory;
 
 	/**
 	 * Registered non-persistent groups, keyed by name for O(1) lookup.
@@ -120,6 +120,7 @@ final class ObjectCache {
 		$multisite = function_exists( 'is_multisite' ) ? is_multisite() : false;
 		$blog_id   = function_exists( 'get_current_blog_id' ) ? (int) get_current_blog_id() : 1;
 
+		$this->memory    = new MemoryTier();
 		$this->key_space = $key_space ?? new KeySpace( $multisite, $blog_id );
 
 		if ($backend !== null) {
@@ -588,7 +589,7 @@ final class ObjectCache {
 			return false;
 		}
 
-		unset( $this->cache[ $group ][ $storage_id ] );
+		$this->memory->remove( $storage_id, $group );
 
 		return true;
 	}
@@ -646,7 +647,7 @@ final class ObjectCache {
 			foreach ($valid_keys as $key) {
 				$storage_id = $storage_ids[ $key ];
 				if ($was_in_memory[ $key ]) {
-					unset( $this->cache[ $group ][ $storage_id ] );
+					$this->memory->remove( $storage_id, $group );
 					$out[ $key ] = true;
 				} else {
 					$out[ $key ] = false;
@@ -657,7 +658,7 @@ final class ObjectCache {
 
 		foreach ($valid_keys as $idx => $key) {
 			$storage_id = $storage_ids[ $key ];
-			unset( $this->cache[ $group ][ $storage_id ] );
+			$this->memory->remove( $storage_id, $group );
 			$out[ $key ] = $pipeline_results[ $idx ] || $was_in_memory[ $key ];
 		}
 
@@ -708,7 +709,7 @@ final class ObjectCache {
 			$this->measure_end( $start );
 
 			if ($this->sync_state()) {
-				$this->cache = array();
+				$this->memory->clear();
 
 				if ($ok && function_exists( 'do_action' )) {
 					do_action( 'mincemeat_object_cache_flushed' );
@@ -718,7 +719,7 @@ final class ObjectCache {
 			}
 		}
 
-		$this->cache = array();
+		$this->memory->clear();
 
 		return true;
 	}
@@ -729,7 +730,7 @@ final class ObjectCache {
 	 * @return bool True on success.
 	 */
 	public function flush_runtime(): bool {
-		$this->cache = array();
+		$this->memory->clear();
 
 		return true;
 	}
@@ -753,7 +754,7 @@ final class ObjectCache {
 			$this->measure_end( $start );
 
 			if ($this->sync_state()) {
-				unset( $this->cache[ $group ] );
+				$this->memory->remove_group( $group );
 
 				if ($ok && function_exists( 'do_action' )) {
 					do_action( 'mincemeat_object_cache_group_flushed', $group );
@@ -763,7 +764,7 @@ final class ObjectCache {
 			}
 		}
 
-		unset( $this->cache[ $group ] );
+		$this->memory->remove_group( $group );
 
 		return true;
 	}
@@ -820,9 +821,9 @@ final class ObjectCache {
 			_deprecated_function( __METHOD__, '3.5.0', 'WP_Object_Cache::switch_to_blog()' );
 		}
 
-		foreach (array_keys( $this->cache ) as $group) {
+		foreach (array_keys( $this->memory->groups() ) as $group) {
 			if ( ! $this->key_space->is_global_group( $group )) {
-				unset( $this->cache[ $group ] );
+				$this->memory->remove_group( $group );
 			}
 		}
 	}
@@ -885,7 +886,7 @@ final class ObjectCache {
 		echo '<ul>';
 
 		$kilobyte = defined( 'KB_IN_BYTES' ) ? KB_IN_BYTES : 1024;
-		foreach ($this->cache as $group => $cache) {
+		foreach ($this->memory->groups() as $group => $cache) {
 			$label = function_exists( 'esc_html' ) ? esc_html( $group ) : htmlspecialchars( $group, ENT_QUOTES, 'UTF-8' );
 			echo '<li><strong>Group:</strong> ' . $label . ' - ( ' . number_format( strlen( serialize( $cache ) ) / $kilobyte, 2 ) . 'k )</li>';
 		}
@@ -973,12 +974,7 @@ final class ObjectCache {
 	 * @return int
 	 */
 	public function request_memory_entry_count(): int {
-		$count = 0;
-		foreach ($this->cache as $group) {
-			$count += count( $group );
-		}
-
-		return $count;
+		return $this->memory->entry_count();
 	}
 
 	// ------------------------------------------------------------------
@@ -989,8 +985,7 @@ final class ObjectCache {
 	 * Whether a storage identifier exists in a group.
 	 */
 	private function exists( string $storage_id, string $group ): bool {
-		return isset( $this->cache[ $group ] )
-			&& ( isset( $this->cache[ $group ][ $storage_id ] ) || array_key_exists( $storage_id, $this->cache[ $group ] ) );
+		return $this->memory->exists( $storage_id, $group );
 	}
 
 	/**
@@ -1006,15 +1001,7 @@ final class ObjectCache {
 	 * @return array{0:bool,1:mixed} array( $found, $value ).
 	 */
 	private function memory_read( string $storage_id, string $group ): array {
-		if (isset( $this->cache[ $group ][ $storage_id ] )) {
-			return array( true, $this->cache[ $group ][ $storage_id ] );
-		}
-
-		if (isset( $this->cache[ $group ] ) && array_key_exists( $storage_id, $this->cache[ $group ] )) {
-			return array( true, $this->cache[ $group ][ $storage_id ] );
-		}
-
-		return array( false, false );
+		return $this->memory->read( $storage_id, $group );
 	}
 
 	/**
@@ -1034,13 +1021,7 @@ final class ObjectCache {
 	 * @return bool
 	 */
 	private function set_in_memory( string $storage_id, string $group, $data ): bool {
-		if (is_object( $data )) {
-			$data = clone $data;
-		}
-
-		$this->cache[ $group ][ $storage_id ] = $data;
-
-		return true;
+		return $this->memory->set( $storage_id, $group, $data );
 	}
 
 	/**
@@ -1173,7 +1154,7 @@ final class ObjectCache {
 		}
 
 		// Backend miss or corrupt: treat as miss, remove stale memory entry.
-		unset( $this->cache[ $group ][ $storage_id ] );
+		$this->memory->remove( $storage_id, $group );
 		$found         = false;
 		$this->cache_misses += 1;
 
@@ -1420,7 +1401,7 @@ final class ObjectCache {
 
 		if ( ! $this->sync_state()) {
 			if ($was_in_memory) {
-				unset( $this->cache[ $group ][ $storage_id ] );
+				$this->memory->remove( $storage_id, $group );
 
 				return true;
 			}
@@ -1428,7 +1409,7 @@ final class ObjectCache {
 			return false;
 		}
 
-		unset( $this->cache[ $group ][ $storage_id ] );
+		$this->memory->remove( $storage_id, $group );
 
 		return $deleted > 0 || $was_in_memory;
 	}
@@ -1483,13 +1464,15 @@ final class ObjectCache {
 			return $this->persistent_delta( $key, $offset, $group, $storage_id );
 		}
 
-		if ( ! $this->exists( $storage_id, $group )) {
+		list($found, $value) = $this->memory_read( $storage_id, $group );
+
+		if ( ! $found) {
 			return false;
 		}
 
-		$current = $this->apply_integer_delta( $this->cache[ $group ][ $storage_id ], $offset );
+		$current = $this->apply_integer_delta( $value, $offset );
 
-		$this->cache[ $group ][ $storage_id ] = $current;
+		$this->memory->set( $storage_id, $group, $current );
 
 		return $current;
 	}
@@ -1515,9 +1498,11 @@ final class ObjectCache {
 		if ( ! $this->sync_state()) {
 			// Backend degraded: fall back to in-memory delta if the value
 			// is already loaded. This preserves coherent runtime behavior.
-			if ($this->exists( $storage_id, $group )) {
-				$current = $this->apply_integer_delta( $this->cache[ $group ][ $storage_id ], $offset );
-				$this->cache[ $group ][ $storage_id ] = $current;
+			list($found, $value) = $this->memory_read( $storage_id, $group );
+
+			if ($found) {
+				$current = $this->apply_integer_delta( $value, $offset );
+				$this->memory->set( $storage_id, $group, $current );
 
 				return $current;
 			}
@@ -1526,13 +1511,13 @@ final class ObjectCache {
 		}
 
 		if ($code === LuaScripts::RESULT_OK && $new_value !== null) {
-			$this->cache[ $group ][ $storage_id ] = $new_value;
+			$this->memory->set( $storage_id, $group, $new_value );
 
 			return $new_value;
 		}
 
 		// Missing or invalid: remove stale memory entry.
-		unset( $this->cache[ $group ][ $storage_id ] );
+		$this->memory->remove( $storage_id, $group );
 
 		return false;
 	}

@@ -18,6 +18,7 @@ use Mincemeat\ObjectCache\Lifecycle;
 use Mincemeat\ObjectCache\ObjectCache;
 use Mincemeat\ObjectCache\PhpRedisAdapter;
 use Mincemeat\ObjectCache\SiteHealth;
+use Mincemeat\ObjectCache\Topology;
 use PHPUnit\Framework\TestCase;
 
 /**
@@ -320,6 +321,50 @@ class SiteHealthTest extends TestCase
 			'direct replica' => array( 'standalone', 'replica', Api::TOPOLOGY_UNSUPPORTED, 'critical' ),
 			'unverified proxy' => array( 'unknown', 'unknown', Api::TOPOLOGY_UNVERIFIED, 'recommended' ),
 		);
+	}
+
+	/**
+	 * P4-5: Api and Site Health must share the single topology classifier.
+	 *
+	 * `Api::topology_diagnostics()` delegates to `Topology::classify()`, and
+	 * Site Health consumes those same `Api::diagnostics()` fields. This contract
+	 * assertion proves the two public/operator surfaces produce identical
+	 * classification for representative standalone, cluster, sentinel, replica,
+	 * and incomplete identities, so no private mode/role re-implementation can
+	 * drift between them.
+	 *
+	 * @dataProvider topology_provider
+	 */
+	public function test_api_and_sitehealth_share_single_topology_classifier( string $mode, string $role, string $expected_status, string $expected_health )
+	{
+		$identity = array(
+			'product' => 'redis',
+			'version' => '8.0.0',
+			'mode'    => $mode,
+			'role'    => $role,
+		);
+
+		$key_space = new KeySpace( false, 1 );
+		$adapter   = $this->createMock( PhpRedisAdapter::class );
+		$adapter->method( 'server_info' )->willReturn( $identity );
+		$backend = new Backend( $key_space, $adapter );
+		$backend->initialize( new Config( array( 'namespace' => 'topology-contract' ) ) );
+		$GLOBALS['wp_object_cache'] = new ObjectCache( $key_space, $backend );
+
+		// The single classifier, applied directly to the same identity.
+		$single = Topology::classify( $identity );
+
+		// The Api diagnostics path must agree with the single classifier.
+		$api_diag = Api::diagnostics();
+		$this->assertSame( $single['topology_status'], $api_diag['topology_status'] );
+		$this->assertSame( $single['topology_mode'], $api_diag['topology_mode'] );
+		$this->assertSame( $single['topology_role'], $api_diag['topology_role'] );
+
+		// Site Health must consume the identical Api fields (not re-classify).
+		$result = SiteHealth::test_topology();
+		$this->assertSame( $expected_health, $result['status'] );
+
+		unset( $GLOBALS['wp_object_cache'] );
 	}
 
 	/** @dataProvider connection_reuse_provider */

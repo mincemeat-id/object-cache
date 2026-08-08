@@ -4,7 +4,7 @@ Audience: maintainers, release engineers, and AI coding agents.
 
 ## Versioning
 
-Mincemeat Object Cache uses ZeroVer while the public API and operational behavior settle. Public testing releases use WordPress-compatible version strings such as `0.1.0-rc3`.
+Mincemeat Object Cache uses ZeroVer while the public API and operational behavior settle. Public testing releases use WordPress-compatible version strings such as `0.1.0-rc4`.
 
 For a release candidate:
 
@@ -89,13 +89,13 @@ The package build is deterministic. Rebuilding from the same source should produ
 After all checks pass and the release commit is pushed:
 
 ```bash
-git tag 0.1.0-rc3
-git push origin 0.1.0-rc3
-gh release create 0.1.0-rc3 \
+git tag 0.1.0-rc4
+git push origin 0.1.0-rc4
+gh release create 0.1.0-rc4 \
   mincemeat-object-cache.zip \
   mincemeat-object-cache.zip.sha256 \
   manifest.json \
-  --title "Mincemeat Object Cache 0.1.0-rc3" \
+  --title "Mincemeat Object Cache 0.1.0-rc4" \
   --notes-file release-notes.md \
   --prerelease
 ```

@@ -188,7 +188,10 @@ The runtime must follow WordPress object-cache behavior:
 - The request-local memory tier is request-scoped and unbounded by design; growth
   is freed at request end and automatic eviction is deferred to v1. The live
   entry count is observable on demand (Site Health / diagnostics), never on the
-  hot path.
+  hot path. The tier is owned by a dedicated `MemoryTier` collaborator that
+  holds the request-scoped `$cache` array and the falsey-safe read/write
+  semantics; `ObjectCache` delegates to it and keeps the public surface
+  unchanged.
 - Multiple operations preserve WordPress input shape and result semantics.
 - Numeric operations preserve WordPress behavior for missing and non-numeric values.
 - Flush operations are scoped to the operation being requested.

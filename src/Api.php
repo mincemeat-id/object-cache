@@ -22,7 +22,7 @@ use Redis;
 final class Api {
 
 	/** Implementation version. */
-	public const IMPLEMENTATION_VERSION = '0.1.0-rc3';
+	public const IMPLEMENTATION_VERSION = '0.1.0-rc4';
 
 	/** Value envelope schema version. */
 	public const SCHEMA_VERSION = '1';

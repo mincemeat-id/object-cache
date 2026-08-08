@@ -778,6 +778,7 @@ class ObjectCacheContractTest extends TestCase
     {
         $key_space_src    = dirname(__FILE__, 3) . '/src/KeySpace.php';
         $object_cache_src = dirname(__FILE__, 3) . '/src/ObjectCache.php';
+        $memory_tier_src  = dirname(__FILE__, 3) . '/src/MemoryTier.php';
         $functions_src    = dirname(__FILE__, 3) . '/src/functions.php';
 
         // Probe 1: WP_Object_Cache already defined -> the alias must NOT be created.
@@ -788,11 +789,12 @@ class WP_Object_Cache {
 require $argv[1];
 require $argv[2];
 require $argv[3];
+require $argv[4];
 $o = new WP_Object_Cache();
 echo get_class($o) . ':' . $o->marker;
 PHP;
 
-        $defined_out = $this->runPhpProbe($probe_defined, array($key_space_src, $object_cache_src, $functions_src));
+        $defined_out = $this->runPhpProbe($probe_defined, array($key_space_src, $object_cache_src, $memory_tier_src, $functions_src));
         $this->assertSame('WP_Object_Cache:predefined', $defined_out);
 
         // Probe 2: fresh process without WP_Object_Cache -> the alias IS created.
@@ -800,12 +802,13 @@ PHP;
 require $argv[1];
 require $argv[2];
 require $argv[3];
+require $argv[4];
 echo (class_exists('WP_Object_Cache') ? 'exits' : 'missing');
 echo ':';
 echo get_class(new WP_Object_Cache());
 PHP;
 
-        $fresh_out = $this->runPhpProbe($probe_fresh, array($key_space_src, $object_cache_src, $functions_src));
+        $fresh_out = $this->runPhpProbe($probe_fresh, array($key_space_src, $object_cache_src, $memory_tier_src, $functions_src));
         $this->assertStringStartsWith('exits:', $fresh_out);
         $this->assertSame('Mincemeat\\ObjectCache\\ObjectCache', substr($fresh_out, 6));
     }
