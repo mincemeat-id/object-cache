@@ -55,6 +55,13 @@ No. Object-cache writes are best effort. PhpRedis can retry after connection tro
 
 == Changelog ==
 
+= Unreleased =
+* Wired the multisite `switch_blog` action so blog scope flips automatically on switch/restore; global groups survive the switch while non-global groups are scoped to the current blog.
+* Added a `wp_cache_supports()` parity regression confirming the six advertised features are the only ones reported.
+* Added contract coverage for `get_multiple()` `$force` semantics, suspended `add_multiple()` / `wp_cache_add()` behavior, and the `WP_Object_Cache` alias guard.
+* Broadened third-party interop fixtures with a page-builder admin/post-save path and a caching-adjacent `get_multiple()` / `set_multiple()`-heavy fixture, asserting no PHP diagnostics and populated hit/miss counters.
+* Re-verified the numeric contract matrix with no drift after the Phase 1 hot-path changes.
+
 = 0.1.0-rc3 =
 * Updated core matrix validation to WordPress 6.9.5 and 7.0.3 security releases with scheduled WordPress 7.1 RC monitoring.
 * Updated third-party compatibility smoke fixtures to WooCommerce 11.0.0, Yoast SEO 28.2, EDD 3.6.9, and Query Monitor 4.0.7 interop testing.

@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+- Wired the multisite `switch_blog` action so blog scope flips automatically whenever WordPress switches or restores the current blog; global groups survive the switch while non-global groups are scoped to the current blog.
+- Added a `wp_cache_supports()` parity regression confirming the six advertised features (`add_multiple`, `set_multiple`, `get_multiple`, `delete_multiple`, `flush_runtime`, `flush_group`) are the only ones reported.
+- Added contract coverage for `get_multiple()` `$force` semantics (bypasses request memory, reads the backend, repopulates memory), suspended `add_multiple()` / `wp_cache_add()` behavior, and the `WP_Object_Cache` alias guard so a co-resident cache is never clobbered.
+- Broadened third-party interop fixtures with a page-builder admin/post-save path and a caching-adjacent `get_multiple()` / `set_multiple()`-heavy fixture, asserting no PHP diagnostics and populated hit/miss counters.
+- Re-verified the numeric contract matrix with no drift after the Phase 1 hot-path changes.
 - Memoized `KeySpace::group_digest()` per request so repeated key derivation hashes each group once, and cleaned up `item_key()` string assembly (`implode`) without changing the wire format.
 - Replaced the double request-memory array probe (`exists()` + index) on the read path with a single falsey-safe `memory_read()` probe across `get()`, `get_multiple()`, and the persistent read paths, preserving hit/miss accounting and cached `false` / `0` / `''` / `null` semantics.
 - Added an opt-out `measure_performance` config key (default `true`) that skips `microtime( true )` capture around backend commands while still counting `backend_calls`.
