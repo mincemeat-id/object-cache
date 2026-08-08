@@ -181,7 +181,7 @@ jobs:
           if-no-files-found: ignore
 
   lifecycle-e2e:
-    name: Packaged RC2 Upgrade and Rollback E2E
+    name: Packaged RC3 Upgrade and Rollback E2E
     runs-on: ubuntu-latest
 
     steps:

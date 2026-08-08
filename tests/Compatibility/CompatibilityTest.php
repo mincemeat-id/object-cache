@@ -352,7 +352,78 @@ class CompatibilityTest extends IntegrationTestCase
     }
 
     // ----------------------------------------------------------------
-    // 5. Shared Compatibility
+    // 5. Page Builder & Caching-Adjacent Plugins (P3-5)
+    // ----------------------------------------------------------------
+
+    /**
+     * P3-5 fixture: a page-builder (Elementor-style) admin/post-save path that
+     * invalidates and re-writes per-post style data, then the frontend render
+     * path reads it back. Asserts no diagnostics and populated counters.
+     */
+    public function test_page_builder_admin_post_save_path()
+    {
+        $post_id = 901;
+        $css = '.e-901{color:#333;}.e-901 p{line-height:1.6;}';
+
+        // A deliberate miss first populates the miss counter.
+        $this->assertFalse($this->cache->get("elementor_data_{$post_id}", 'posts'));
+
+        // Post-save: builder writes the freshly rendered style data.
+        $this->assertTrue($this->cache->set("elementor_data_{$post_id}", $css, 'posts', 86400));
+
+        // Frontend render reads the style data back.
+        $found = null;
+        $this->assertSame($css, $this->cache->get("elementor_data_{$post_id}", 'posts', false, $found));
+        $this->assertTrue($found);
+
+        // No PHP diagnostics were emitted; hit/miss counters are populated.
+        $this->assertEmpty($this->logged_messages);
+        $this->assertGreaterThan(0, $this->cache->cache_hits);
+        $this->assertGreaterThan(0, $this->cache->cache_misses);
+    }
+
+    /**
+     * P3-5 fixture: a caching-adjacent plugin that batches fragment reads and
+     * writes through `set_multiple()` / `get_multiple()` / `delete_multiple()`.
+     */
+    public function test_caching_plugin_heavy_get_set_multiple_path()
+    {
+        $entries = array();
+        for ($i = 0; $i < 40; $i++) {
+            $entries[ "frag_{$i}" ] = array('html' => "<div>fragment {$i}</div>", 'ts' => time());
+        }
+
+        // Batch write.
+        $this->assertSame(
+            array_fill_keys(array_keys($entries), true),
+            $this->cache->set_multiple($entries, 'fragments')
+        );
+
+        // Batch read back.
+        $got = $this->cache->get_multiple(array_keys($entries), 'fragments');
+        foreach ($entries as $k => $v) {
+            $this->assertSame($v, $got[ $k ], "fragment {$k} round-trip");
+        }
+
+        // Partial batch read includes a miss.
+        $partial = $this->cache->get_multiple(array('frag_0', 'frag_1', 'missing'), 'fragments');
+        $this->assertSame($entries['frag_0'], $partial['frag_0']);
+        $this->assertSame($entries['frag_1'], $partial['frag_1']);
+        $this->assertFalse($partial['missing']);
+
+        // Batch delete.
+        $this->assertSame(
+            array('frag_0' => true, 'frag_1' => true),
+            $this->cache->delete_multiple(array('frag_0', 'frag_1'), 'fragments')
+        );
+
+        $this->assertEmpty($this->logged_messages);
+        $this->assertGreaterThan(0, $this->cache->cache_hits);
+        $this->assertGreaterThan(0, $this->cache->cache_misses);
+    }
+
+    // ----------------------------------------------------------------
+    // 6. Shared Compatibility
     // ----------------------------------------------------------------
 
     public function test_shared_backend_outage_degradation()
@@ -465,6 +536,48 @@ class CompatibilityTest extends IntegrationTestCase
         $this->assertFalse($cache->get('global_key', 'shared_global'));
 
         $be->close();
+    }
+
+    /**
+     * P3-1: the wired `switch_blog` action (via the `wp_cache_switch_to_blog`
+     * facade) flips scope on a persistent multisite cache, preserving global
+     * groups and restoring the prior blog scope.
+     */
+    public function test_multisite_switch_blog_action_persistent()
+    {
+        $ks = new KeySpace(true, 1);
+        $be = new Backend($ks);
+        $be->initialize($this->config);
+        $cache = new ObjectCache($ks, $be);
+        $cache->add_global_groups(array('global_shared'));
+
+        $prev = $GLOBALS['wp_object_cache'] ?? null;
+        $GLOBALS['wp_object_cache'] = $cache;
+
+        try {
+            // Blog 1 writes.
+            $cache->set('iso_k', 'blog1', 'options');
+            $cache->set('glob_k', 'shared', 'global_shared');
+
+            // Fire the wired switch_blog callback (what the action does).
+            wp_cache_switch_to_blog(2);
+            $this->assertFalse($cache->get('iso_k', 'options'));
+            $this->assertSame('shared', $cache->get('glob_k', 'global_shared'));
+
+            $cache->set('iso_k', 'blog2', 'options');
+            $this->assertSame('blog2', $cache->get('iso_k', 'options'));
+
+            // restore_current_blog() returns to the prior scope.
+            wp_cache_switch_to_blog(1);
+            $this->assertSame('blog1', $cache->get('iso_k', 'options'));
+        } finally {
+            if (null === $prev) {
+                unset($GLOBALS['wp_object_cache']);
+            } else {
+                $GLOBALS['wp_object_cache'] = $prev;
+            }
+            $be->close();
+        }
     }
 
     public function test_shared_plugin_update_stale_data()

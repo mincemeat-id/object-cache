@@ -11,6 +11,7 @@ declare(strict_types=1);
 
 namespace Mincemeat\ObjectCache\Tests\Unit;
 
+use Mincemeat\ObjectCache\Tests\Support\ValueEnvelopeBuilder;
 use Mincemeat\ObjectCache\ValueCodec;
 use Mincemeat\ObjectCache\ValueCodecException;
 use PHPUnit\Framework\TestCase;
@@ -170,7 +171,7 @@ class ValueCodecTest extends TestCase
         // __PHP_Incomplete_Class instance. The codec must round-trip the
         // payload without a fatal and report a hit.
         $payload = 'O:3:"Foo":1:{s:1:"x";i:5;}';
-        $encoded = ValueCodec::header_inline(ValueCodec::TAG_SERIALIZED, $payload);
+        $encoded = ValueEnvelopeBuilder::inline(ValueCodec::TAG_SERIALIZED, $payload);
 
         [$found, $decoded, $err] = ValueCodec::decode($encoded);
 
@@ -325,7 +326,7 @@ class ValueCodecTest extends TestCase
             $rows[] = str_repeat('v', 32) . $i;
         }
         $payload = serialize($rows);
-        $encoded = ValueCodec::header_inline(ValueCodec::TAG_SERIALIZED, $payload);
+        $encoded = ValueEnvelopeBuilder::inline(ValueCodec::TAG_SERIALIZED, $payload);
 
         $this->assertSame(strlen($payload), unpack('N', substr($encoded, 6, 4))[1]);
 
@@ -359,7 +360,7 @@ class ValueCodecTest extends TestCase
             $value = array('nested' => $value);
         }
         $payload = serialize($value);
-        $encoded = ValueCodec::header_inline(ValueCodec::TAG_SERIALIZED, $payload);
+        $encoded = ValueEnvelopeBuilder::inline(ValueCodec::TAG_SERIALIZED, $payload);
 
         $warnings = array();
         set_error_handler(
@@ -385,7 +386,7 @@ class ValueCodecTest extends TestCase
         // Truncated / malformed serialized payload must be rejected as
         // decode-serialized-failed without leaking a PHP warning.
         $payload = 'O:3:"Foo":2:{s:1:"x";';
-        $encoded = ValueCodec::header_inline(ValueCodec::TAG_SERIALIZED, $payload);
+        $encoded = ValueEnvelopeBuilder::inline(ValueCodec::TAG_SERIALIZED, $payload);
 
         $warnings = array();
         set_error_handler(
@@ -492,7 +493,7 @@ class ValueCodecTest extends TestCase
     {
         // TRUE serialization of `false` is 'b:0;'.
         $payload = 'b:0;';
-        $encoded = ValueCodec::header_inline(ValueCodec::TAG_SERIALIZED, $payload);
+        $encoded = ValueEnvelopeBuilder::inline(ValueCodec::TAG_SERIALIZED, $payload);
 
         [$found, $val, $err] = ValueCodec::decode($encoded);
 

@@ -332,6 +332,35 @@ class PersistentCacheTest extends IntegrationTestCase
         $this->assertTrue($found);
     }
 
+    /**
+     * P3-3: `get_multiple( $keys, $group, $force = true )` must bypass the
+     * request-memory tier, read the backend, and repopulate request memory
+     * afterwards.
+     */
+    public function test_get_multiple_force_bypasses_memory_and_repopulates()
+    {
+        $this->cache->set('k1', 'v1', 'options');
+        $this->cache->set('k2', 'v2', 'options');
+
+        // First read populates request memory.
+        $this->assertSame(array('k1' => 'v1', 'k2' => 'v2'), $this->cache->get_multiple(array('k1', 'k2'), 'options'));
+
+        // Mutate the backend directly so the memory tier now holds stale data.
+        $ns_tok = $this->backend->namespace_token();
+        $grp_tok = $this->backend->group_token('options');
+        $ik1     = $this->cache->key_space()->item_key($ns_tok, $grp_tok, 'options', 'k1');
+        $this->backend->set_unconditional($ik1, ValueCodec::encode('v1-EDIT'));
+
+        // Force=true must bypass stale memory and read the fresh backend value.
+        $forced = $this->cache->get_multiple(array('k1', 'k2'), 'options', true);
+        $this->assertSame(array('k1' => 'v1-EDIT', 'k2' => 'v2'), $forced);
+
+        // The force read repopulates request memory: a non-forced read now
+        // returns the fresh backend value without another backend round-trip.
+        $cached = $this->cache->get_multiple(array('k1', 'k2'), 'options', false);
+        $this->assertSame(array('k1' => 'v1-EDIT', 'k2' => 'v2'), $cached);
+    }
+
     public function test_namespace_isolation()
     {
         $this->cache->set('k', 'from-ns-a', 'options');

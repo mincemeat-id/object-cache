@@ -4,10 +4,10 @@
  * Mincemeat Object Cache Drop-In
  *
  * Owner: mincemeat-object-cache
- * Version: 0.1.0-rc3
- * Drop-in Version: 0.1.0-rc3
+ * Version: 0.1.0-rc4
+ * Drop-in Version: 0.1.0-rc4
  * Schema Version: 1
- * Build Hash: c942bd1fbda06e7bed0e1dd96d60ffa44e1c0653ae180d64d9d5bd518fcb24e3
+ * Build Hash: 24645ba5a8d4e86753ea424463b72f883468c2ebdf0f648533361ceae04eb3e7
  *
  * @package Mincemeat\ObjectCache
  */
@@ -26,7 +26,7 @@ namespace Mincemeat\ObjectCache {
 	final class Api {
 
 		/** Implementation version. */
-		public const IMPLEMENTATION_VERSION = '0.1.0-rc3';
+		public const IMPLEMENTATION_VERSION = '0.1.0-rc4';
 
 		/** Value envelope schema version. */
 		public const SCHEMA_VERSION = '1';
@@ -2646,6 +2646,134 @@ namespace Mincemeat\ObjectCache {
 		}
 	}
 
+	// --- MemoryTier.php ---
+	/**
+	 * Request-local cache storage keyed by normalized group then storage id.
+	 *
+	 * @internal This class is an implementation detail of `ObjectCache`.
+	 */
+	final class MemoryTier {
+
+		/**
+		 * Request-local cache, keyed by normalized group then storage identifier.
+		 *
+		 * @var array<string,array<string,mixed>>
+		 */
+		private $cache = array();
+
+		/**
+		 * Stores a value in request memory, cloning objects.
+		 *
+		 * @param string $storage_id
+		 * @param string $group
+		 * @param mixed  $data
+		 * @return bool
+		 */
+		public function set( string $storage_id, string $group, $data ): bool {
+			if (is_object( $data )) {
+				$data = clone $data;
+			}
+
+			$this->cache[ $group ][ $storage_id ] = $data;
+
+			return true;
+		}
+
+		/**
+		 * Single falsey-safe request-memory read.
+		 *
+		 * Returns `array( $found, $value )` using the same `isset() ||
+		 * array_key_exists()` semantics as `exists()` but in a single probe, so a
+		 * cached falsey value (`false`, `0`, `''`, `null`) is a true hit and no
+		 * second array index is performed on the hot read path.
+		 *
+		 * @param string $storage_id
+		 * @param string $group
+		 * @return array{0:bool,1:mixed} array( $found, $value ).
+		 */
+		public function read( string $storage_id, string $group ): array {
+			if (isset( $this->cache[ $group ][ $storage_id ] )) {
+				return array( true, $this->cache[ $group ][ $storage_id ] );
+			}
+
+			if (isset( $this->cache[ $group ] ) && array_key_exists( $storage_id, $this->cache[ $group ] )) {
+				return array( true, $this->cache[ $group ][ $storage_id ] );
+			}
+
+			return array( false, false );
+		}
+
+		/**
+		 * Whether a storage identifier exists in a group.
+		 *
+		 * @param string $storage_id
+		 * @param string $group
+		 * @return bool
+		 */
+		public function exists( string $storage_id, string $group ): bool {
+			return isset( $this->cache[ $group ] )
+				&& ( isset( $this->cache[ $group ][ $storage_id ] ) || array_key_exists( $storage_id, $this->cache[ $group ] ) );
+		}
+
+		/**
+		 * Removes a single storage identifier from a group.
+		 *
+		 * @param string $storage_id
+		 * @param string $group
+		 * @return void
+		 */
+		public function remove( string $storage_id, string $group ): void {
+			unset( $this->cache[ $group ][ $storage_id ] );
+		}
+
+		/**
+		 * Removes an entire group from the request tier.
+		 *
+		 * @param string $group
+		 * @return void
+		 */
+		public function remove_group( string $group ): void {
+			unset( $this->cache[ $group ] );
+		}
+
+		/**
+		 * Clears the entire request tier.
+		 *
+		 * @return void
+		 */
+		public function clear(): void {
+			$this->cache = array();
+		}
+
+		/**
+		 * Returns the number of live entries held in the request tier.
+		 *
+		 * Computed only on demand for observability; never called on the hot path.
+		 *
+		 * @return int
+		 */
+		public function entry_count(): int {
+			$count = 0;
+			foreach ($this->cache as $group) {
+				$count += count( $group );
+			}
+
+			return $count;
+		}
+
+		/**
+		 * Returns the raw groups map for diagnostics and legacy iteration.
+		 *
+		 * Exposed for `ObjectCache::stats()` and `reset()`, which need the raw
+		 * per-group arrays (to serialize sizes and to clear non-global groups).
+		 *
+		 * @return array<string,array<string,mixed>>
+		 */
+		public function groups(): array {
+			return $this->cache;
+		}
+	}
+
 	// --- ObjectCache.php ---
 	/**
 	 * Object cache with a request-local memory tier and optional persistent backend.
@@ -2661,11 +2789,11 @@ namespace Mincemeat\ObjectCache {
 		public const STATE_DEGRADED     = 'degraded';
 
 		/**
-		 * Request-local cache, keyed by normalized group then storage identifier.
+		 * Request-local memory tier owned by this cache.
 		 *
-		 * @var array<string,array<string,mixed>>
+		 * @var MemoryTier
 		 */
-		private $cache = array();
+		private $memory;
 
 		/**
 		 * Registered non-persistent groups, keyed by name for O(1) lookup.
@@ -2754,6 +2882,7 @@ namespace Mincemeat\ObjectCache {
 			$multisite = function_exists( 'is_multisite' ) ? is_multisite() : false;
 			$blog_id   = function_exists( 'get_current_blog_id' ) ? (int) get_current_blog_id() : 1;
 
+			$this->memory    = new MemoryTier();
 			$this->key_space = $key_space ?? new KeySpace( $multisite, $blog_id );
 
 			if ($backend !== null) {
@@ -3222,7 +3351,7 @@ namespace Mincemeat\ObjectCache {
 				return false;
 			}
 
-			unset( $this->cache[ $group ][ $storage_id ] );
+			$this->memory->remove( $storage_id, $group );
 
 			return true;
 		}
@@ -3280,7 +3409,7 @@ namespace Mincemeat\ObjectCache {
 				foreach ($valid_keys as $key) {
 					$storage_id = $storage_ids[ $key ];
 					if ($was_in_memory[ $key ]) {
-						unset( $this->cache[ $group ][ $storage_id ] );
+						$this->memory->remove( $storage_id, $group );
 						$out[ $key ] = true;
 					} else {
 						$out[ $key ] = false;
@@ -3291,7 +3420,7 @@ namespace Mincemeat\ObjectCache {
 
 			foreach ($valid_keys as $idx => $key) {
 				$storage_id = $storage_ids[ $key ];
-				unset( $this->cache[ $group ][ $storage_id ] );
+				$this->memory->remove( $storage_id, $group );
 				$out[ $key ] = $pipeline_results[ $idx ] || $was_in_memory[ $key ];
 			}
 
@@ -3342,7 +3471,7 @@ namespace Mincemeat\ObjectCache {
 				$this->measure_end( $start );
 
 				if ($this->sync_state()) {
-					$this->cache = array();
+					$this->memory->clear();
 
 					if ($ok && function_exists( 'do_action' )) {
 						do_action( 'mincemeat_object_cache_flushed' );
@@ -3352,7 +3481,7 @@ namespace Mincemeat\ObjectCache {
 				}
 			}
 
-			$this->cache = array();
+			$this->memory->clear();
 
 			return true;
 		}
@@ -3363,7 +3492,7 @@ namespace Mincemeat\ObjectCache {
 		 * @return bool True on success.
 		 */
 		public function flush_runtime(): bool {
-			$this->cache = array();
+			$this->memory->clear();
 
 			return true;
 		}
@@ -3387,7 +3516,7 @@ namespace Mincemeat\ObjectCache {
 				$this->measure_end( $start );
 
 				if ($this->sync_state()) {
-					unset( $this->cache[ $group ] );
+					$this->memory->remove_group( $group );
 
 					if ($ok && function_exists( 'do_action' )) {
 						do_action( 'mincemeat_object_cache_group_flushed', $group );
@@ -3397,7 +3526,7 @@ namespace Mincemeat\ObjectCache {
 				}
 			}
 
-			unset( $this->cache[ $group ] );
+			$this->memory->remove_group( $group );
 
 			return true;
 		}
@@ -3454,9 +3583,9 @@ namespace Mincemeat\ObjectCache {
 				_deprecated_function( __METHOD__, '3.5.0', 'WP_Object_Cache::switch_to_blog()' );
 			}
 
-			foreach (array_keys( $this->cache ) as $group) {
+			foreach (array_keys( $this->memory->groups() ) as $group) {
 				if ( ! $this->key_space->is_global_group( $group )) {
-					unset( $this->cache[ $group ] );
+					$this->memory->remove_group( $group );
 				}
 			}
 		}
@@ -3519,7 +3648,7 @@ namespace Mincemeat\ObjectCache {
 			echo '<ul>';
 
 			$kilobyte = defined( 'KB_IN_BYTES' ) ? KB_IN_BYTES : 1024;
-			foreach ($this->cache as $group => $cache) {
+			foreach ($this->memory->groups() as $group => $cache) {
 				$label = function_exists( 'esc_html' ) ? esc_html( $group ) : htmlspecialchars( $group, ENT_QUOTES, 'UTF-8' );
 				echo '<li><strong>Group:</strong> ' . $label . ' - ( ' . number_format( strlen( serialize( $cache ) ) / $kilobyte, 2 ) . 'k )</li>';
 			}
@@ -3607,12 +3736,7 @@ namespace Mincemeat\ObjectCache {
 		 * @return int
 		 */
 		public function request_memory_entry_count(): int {
-			$count = 0;
-			foreach ($this->cache as $group) {
-				$count += count( $group );
-			}
-
-			return $count;
+			return $this->memory->entry_count();
 		}
 
 		// ------------------------------------------------------------------
@@ -3623,8 +3747,7 @@ namespace Mincemeat\ObjectCache {
 		 * Whether a storage identifier exists in a group.
 		 */
 		private function exists( string $storage_id, string $group ): bool {
-			return isset( $this->cache[ $group ] )
-				&& ( isset( $this->cache[ $group ][ $storage_id ] ) || array_key_exists( $storage_id, $this->cache[ $group ] ) );
+			return $this->memory->exists( $storage_id, $group );
 		}
 
 		/**
@@ -3640,15 +3763,7 @@ namespace Mincemeat\ObjectCache {
 		 * @return array{0:bool,1:mixed} array( $found, $value ).
 		 */
 		private function memory_read( string $storage_id, string $group ): array {
-			if (isset( $this->cache[ $group ][ $storage_id ] )) {
-				return array( true, $this->cache[ $group ][ $storage_id ] );
-			}
-
-			if (isset( $this->cache[ $group ] ) && array_key_exists( $storage_id, $this->cache[ $group ] )) {
-				return array( true, $this->cache[ $group ][ $storage_id ] );
-			}
-
-			return array( false, false );
+			return $this->memory->read( $storage_id, $group );
 		}
 
 		/**
@@ -3668,13 +3783,7 @@ namespace Mincemeat\ObjectCache {
 		 * @return bool
 		 */
 		private function set_in_memory( string $storage_id, string $group, $data ): bool {
-			if (is_object( $data )) {
-				$data = clone $data;
-			}
-
-			$this->cache[ $group ][ $storage_id ] = $data;
-
-			return true;
+			return $this->memory->set( $storage_id, $group, $data );
 		}
 
 		/**
@@ -3807,7 +3916,7 @@ namespace Mincemeat\ObjectCache {
 			}
 
 			// Backend miss or corrupt: treat as miss, remove stale memory entry.
-			unset( $this->cache[ $group ][ $storage_id ] );
+			$this->memory->remove( $storage_id, $group );
 			$found         = false;
 			$this->cache_misses += 1;
 
@@ -4054,7 +4163,7 @@ namespace Mincemeat\ObjectCache {
 
 			if ( ! $this->sync_state()) {
 				if ($was_in_memory) {
-					unset( $this->cache[ $group ][ $storage_id ] );
+					$this->memory->remove( $storage_id, $group );
 
 					return true;
 				}
@@ -4062,7 +4171,7 @@ namespace Mincemeat\ObjectCache {
 				return false;
 			}
 
-			unset( $this->cache[ $group ][ $storage_id ] );
+			$this->memory->remove( $storage_id, $group );
 
 			return $deleted > 0 || $was_in_memory;
 		}
@@ -4117,13 +4226,15 @@ namespace Mincemeat\ObjectCache {
 				return $this->persistent_delta( $key, $offset, $group, $storage_id );
 			}
 
-			if ( ! $this->exists( $storage_id, $group )) {
+			list($found, $value) = $this->memory_read( $storage_id, $group );
+
+			if ( ! $found) {
 				return false;
 			}
 
-			$current = $this->apply_integer_delta( $this->cache[ $group ][ $storage_id ], $offset );
+			$current = $this->apply_integer_delta( $value, $offset );
 
-			$this->cache[ $group ][ $storage_id ] = $current;
+			$this->memory->set( $storage_id, $group, $current );
 
 			return $current;
 		}
@@ -4149,9 +4260,11 @@ namespace Mincemeat\ObjectCache {
 			if ( ! $this->sync_state()) {
 				// Backend degraded: fall back to in-memory delta if the value
 				// is already loaded. This preserves coherent runtime behavior.
-				if ($this->exists( $storage_id, $group )) {
-					$current = $this->apply_integer_delta( $this->cache[ $group ][ $storage_id ], $offset );
-					$this->cache[ $group ][ $storage_id ] = $current;
+				list($found, $value) = $this->memory_read( $storage_id, $group );
+
+				if ($found) {
+					$current = $this->apply_integer_delta( $value, $offset );
+					$this->memory->set( $storage_id, $group, $current );
 
 					return $current;
 				}
@@ -4160,13 +4273,13 @@ namespace Mincemeat\ObjectCache {
 			}
 
 			if ($code === LuaScripts::RESULT_OK && $new_value !== null) {
-				$this->cache[ $group ][ $storage_id ] = $new_value;
+				$this->memory->set( $storage_id, $group, $new_value );
 
 				return $new_value;
 			}
 
 			// Missing or invalid: remove stale memory entry.
-			unset( $this->cache[ $group ][ $storage_id ] );
+			$this->memory->remove( $storage_id, $group );
 
 			return false;
 		}
@@ -5048,19 +5161,6 @@ namespace Mincemeat\ObjectCache {
 		}
 
 		/**
-		 * Builds a raw envelope from a pre-serialized payload. Useful for fixtures
-		 * and tests that need to construct specific envelopes (including corrupt
-		 * ones) without going through encode().
-		 *
-		 * @param int    $tag     Type tag.
-		 * @param string $payload Raw payload bytes.
-		 * @return string
-		 */
-		public static function header_inline( int $tag, string $payload ): string {
-			return self::header( $tag, strlen( $payload ) ) . $payload;
-		}
-
-		/**
 		 * Encodes a value into the versioned envelope.
 		 *
 		 * @param mixed $value The value to encode.
@@ -5375,6 +5475,14 @@ namespace {
 			}
 
 			$GLOBALS['wp_object_cache'] = new ObjectCache( $key_space, $backend );
+
+			// Wire the multisite `switch_blog` action so blog scope flips
+			// automatically (and independently of any direct core call) whenever
+			// WordPress switches or restores the current blog. Duplicate registrations
+			// are deduplicated by WordPress' hook system, so repeat init is safe.
+			if ( function_exists( 'add_action' ) ) {
+				add_action( 'switch_blog', 'wp_cache_switch_to_blog', 10, 1 );
+			}
 		}
 	}
 

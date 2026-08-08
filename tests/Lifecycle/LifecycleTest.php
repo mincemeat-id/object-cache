@@ -127,6 +127,10 @@ namespace Mincemeat\ObjectCache\Tests\Lifecycle {
 				'8f4951a1be6bd0642bfc273a7dc8b7e4d6a19af7fe30a7125d8ca6fbf4b5cdd8',
 				$hashes['0.1.0-rc2']
 			);
+			$this->assertSame(
+				'd8933fd7633440607cc59ab5790c23bdec757b03bd687fd3f69ec0d66e47085b',
+				$hashes['0.1.0-rc3']
+			);
 		}
 
 		public function test_get_dropin_state_recognizes_stale_release_hashes()
@@ -135,6 +139,7 @@ namespace Mincemeat\ObjectCache\Tests\Lifecycle {
 
 			$rc1_content = shell_exec('git show 0.1.0-rc1:stubs/object-cache.php');
 			$rc2_content = shell_exec('git show 0.1.0-rc2:stubs/object-cache.php');
+			$rc3_content = shell_exec('git show 0.1.0-rc3:stubs/object-cache.php');
 
 			if ( ! is_string( $rc1_content ) || trim( $rc1_content ) === '' ) {
 				$rc1_content = null;
@@ -142,8 +147,11 @@ namespace Mincemeat\ObjectCache\Tests\Lifecycle {
 			if ( ! is_string( $rc2_content ) || trim( $rc2_content ) === '' ) {
 				$rc2_content = null;
 			}
+			if ( ! is_string( $rc3_content ) || trim( $rc3_content ) === '' ) {
+				$rc3_content = null;
+			}
 
-			if ( $rc1_content === null && $rc2_content === null ) {
+			if ( $rc1_content === null && $rc2_content === null && $rc3_content === null ) {
 				$this->markTestSkipped('Release tag stubs not accessible via git.');
 				return;
 			}
@@ -166,6 +174,18 @@ namespace Mincemeat\ObjectCache\Tests\Lifecycle {
 				$source_hash = @hash_file('sha256', $source);
 				$rc2_hash = '8f4951a1be6bd0642bfc273a7dc8b7e4d6a19af7fe30a7125d8ca6fbf4b5cdd8';
 				if ($source_hash !== $rc2_hash) {
+					$this->assertSame(Lifecycle::STATE_OWNED_STALE, Lifecycle::get_dropin_state());
+				} else {
+					$this->assertSame(Lifecycle::STATE_OWNED_CURRENT, Lifecycle::get_dropin_state());
+				}
+			}
+
+			if ($rc3_content !== null) {
+				file_put_contents($target, $rc3_content);
+				$source = dirname(__FILE__, 3) . '/stubs/object-cache.php';
+				$source_hash = @hash_file('sha256', $source);
+				$rc3_hash = 'd8933fd7633440607cc59ab5790c23bdec757b03bd687fd3f69ec0d66e47085b';
+				if ($source_hash !== $rc3_hash) {
 					$this->assertSame(Lifecycle::STATE_OWNED_STALE, Lifecycle::get_dropin_state());
 				} else {
 					$this->assertSame(Lifecycle::STATE_OWNED_CURRENT, Lifecycle::get_dropin_state());

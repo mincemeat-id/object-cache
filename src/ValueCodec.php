@@ -46,19 +46,6 @@ final class ValueCodec {
 	}
 
 	/**
-	 * Builds a raw envelope from a pre-serialized payload. Useful for fixtures
-	 * and tests that need to construct specific envelopes (including corrupt
-	 * ones) without going through encode().
-	 *
-	 * @param int    $tag     Type tag.
-	 * @param string $payload Raw payload bytes.
-	 * @return string
-	 */
-	public static function header_inline( int $tag, string $payload ): string {
-		return self::header( $tag, strlen( $payload ) ) . $payload;
-	}
-
-	/**
 	 * Encodes a value into the versioned envelope.
 	 *
 	 * @param mixed $value The value to encode.

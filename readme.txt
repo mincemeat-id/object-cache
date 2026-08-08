@@ -4,7 +4,7 @@ Tags: cache, object cache, redis, valkey, performance
 Requires at least: 6.9
 Tested up to: 7.0
 Requires PHP: 7.4
-Stable tag: 0.1.0-rc3
+Stable tag: 0.1.0-rc4
 License: GPL-3.0-or-later
 License URI: https://www.gnu.org/licenses/gpl-3.0.html
 
@@ -54,6 +54,16 @@ Version 1 supports one direct standalone writable primary. Server-side replicas 
 No. Object-cache writes are best effort. PhpRedis can retry after connection trouble, so a write may have committed even when the request observes a timeout and switches to request memory. Mincemeat does not promise durable writes, replication acknowledgement, or cross-request read-after-write consistency.
 
 == Changelog ==
+
+= Unreleased =
+* Extracted the request-local memory tier into a dedicated `MemoryTier` collaborator so hot-path and memory behavior live in one well-tested place; the public `ObjectCache` surface is unchanged.
+* Moved the test-only value-envelope fixture builder out of the runtime codec into the test support layer, so the production drop-in exposes only the public encode/decode surface.
+* Added a topology contract test proving the `Api` and Site Health diagnostics share the single `Topology` classifier.
+* Wired the multisite `switch_blog` action so blog scope flips automatically on switch/restore; global groups survive the switch while non-global groups are scoped to the current blog.
+* Added a `wp_cache_supports()` parity regression confirming the six advertised features are the only ones reported.
+* Added contract coverage for `get_multiple()` `$force` semantics, suspended `add_multiple()` / `wp_cache_add()` behavior, and the `WP_Object_Cache` alias guard.
+* Broadened third-party interop fixtures with a page-builder admin/post-save path and a caching-adjacent `get_multiple()` / `set_multiple()`-heavy fixture, asserting no PHP diagnostics and populated hit/miss counters.
+* Re-verified the numeric contract matrix with no drift after the Phase 1 hot-path changes.
 
 = 0.1.0-rc3 =
 * Updated core matrix validation to WordPress 6.9.5 and 7.0.3 security releases with scheduled WordPress 7.1 RC monitoring.
