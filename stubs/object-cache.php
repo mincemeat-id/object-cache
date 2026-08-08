@@ -7,7 +7,7 @@
  * Version: 0.1.0-rc3
  * Drop-in Version: 0.1.0-rc3
  * Schema Version: 1
- * Build Hash: c942bd1fbda06e7bed0e1dd96d60ffa44e1c0653ae180d64d9d5bd518fcb24e3
+ * Build Hash: a7ddff15ce0932df6ed29a344366e5b874cdf1033dba5e3d26a0fc1b7c7e97ae
  *
  * @package Mincemeat\ObjectCache
  */
@@ -5375,6 +5375,14 @@ namespace {
 			}
 
 			$GLOBALS['wp_object_cache'] = new ObjectCache( $key_space, $backend );
+
+			// Wire the multisite `switch_blog` action so blog scope flips
+			// automatically (and independently of any direct core call) whenever
+			// WordPress switches or restores the current blog. Duplicate registrations
+			// are deduplicated by WordPress' hook system, so repeat init is safe.
+			if ( function_exists( 'add_action' ) ) {
+				add_action( 'switch_blog', 'wp_cache_switch_to_blog', 10, 1 );
+			}
 		}
 	}
 

@@ -540,19 +540,37 @@ class ObjectCacheContractTest extends TestCase
 
         $this->assertSame(array('a' => false, 'b' => false), $found);
 
+        // The suspended `add_multiple` must not touch the backend: the value
+        // must not be retrievable afterwards, proving nothing was written.
+        $this->assertFalse($this->cache->get('a', 'group1'));
+
+        // The single-key facade is equally blocked while suspended.
+        $this->assertFalse(wp_cache_add('z', 'v', 'group1'));
+        $this->assertFalse($this->cache->get('z', 'group1'));
+
         // set is not affected by suspend.
         $this->assertSame(array('a' => true, 'b' => true), $this->cache->set_multiple(array('a' => 1, 'b' => 2), 'group1'));
     }
 
     public function test_capabilities_reports_six_features()
     {
-        $this->assertTrue(wp_cache_supports('add_multiple'));
-        $this->assertTrue(wp_cache_supports('set_multiple'));
-        $this->assertTrue(wp_cache_supports('get_multiple'));
-        $this->assertTrue(wp_cache_supports('delete_multiple'));
-        $this->assertTrue(wp_cache_supports('flush_runtime'));
-        $this->assertTrue(wp_cache_supports('flush_group'));
-        $this->assertFalse(wp_cache_supports('nonexistent_feature'));
+        $supported = array(
+            'add_multiple',
+            'set_multiple',
+            'get_multiple',
+            'delete_multiple',
+            'flush_runtime',
+            'flush_group',
+        );
+        foreach ($supported as $feature) {
+            $this->assertTrue(wp_cache_supports($feature), "Feature {$feature} must be advertised");
+        }
+
+        // Parity regression (P3-2): wp_cache_supports() must return true exactly
+        // for the implemented set and false for anything else.
+        foreach (array('foo', 'nonexistent_feature', 'get', 'set', 'flush', 'multi', '') as $unsupported) {
+            $this->assertFalse(wp_cache_supports($unsupported), "{$unsupported} must not be advertised");
+        }
     }
 
     public function test_wp_cache_flush_group_facade()
@@ -704,6 +722,126 @@ class ObjectCacheContractTest extends TestCase
         // Switch back to Blog 1
         $cache->switch_to_blog(1);
         $this->assertSame('blog1_val', $cache->get('blog_item', 'local-grp'));
+    }
+
+    /**
+     * P3-1: the drop-in wires the multisite `switch_blog` action automatically and
+     * the wired callback flips blog scope with global-group preservation and a
+     * clean restore to the prior scope.
+     */
+    public function test_switch_blog_action_is_registered_and_flips_scope()
+    {
+        // Provide a real `add_action` so `wp_cache_init()` can register the
+        // multisite `switch_blog` hook (the bootstrap does not define one).
+        if (!function_exists('add_action')) {
+            eval('function add_action($hook, $callback, $priority = 10, $accepted_args = 1) { if (!isset($GLOBALS["__test_wp_actions"])) { $GLOBALS["__test_wp_actions"] = array(); } $GLOBALS["__test_wp_actions"][$hook][] = array("callback" => $callback, "accepted_args" => $accepted_args); }');
+        }
+        $GLOBALS['__test_wp_actions'] = array();
+
+        wp_cache_init();
+
+        // The drop-in must register the switch_blog action automatically.
+        $this->assertArrayHasKey('switch_blog', $GLOBALS['__test_wp_actions']);
+        $callbacks = array();
+        foreach ($GLOBALS['__test_wp_actions']['switch_blog'] as $entry) {
+            $callbacks[] = $entry['callback'];
+        }
+        $this->assertContains('wp_cache_switch_to_blog', $callbacks);
+
+        // Prove the wired callback actually flips blog scope on a multisite cache.
+        $ks = new \Mincemeat\ObjectCache\KeySpace(true, 1);
+        $cache = new ObjectCache($ks);
+        $cache->add_global_groups(array('global-grp'));
+        $GLOBALS['wp_object_cache'] = $cache;
+
+        $cache->set('local_k', 'b1', 'local-grp');
+        $cache->set('global_k', 'gv', 'global-grp');
+
+        // Simulate `switch_blog` firing: scope moves to blog 2, global survives.
+        wp_cache_switch_to_blog(2);
+        $this->assertFalse($cache->get('local_k', 'local-grp'));
+        $this->assertSame('gv', $cache->get('global_k', 'global-grp'));
+
+        $cache->set('local_k', 'b2', 'local-grp');
+        $this->assertSame('b2', $cache->get('local_k', 'local-grp'));
+
+        // Simulate `restore_current_blog()`: scope returns to blog 1.
+        wp_cache_switch_to_blog(1);
+        $this->assertSame('b1', $cache->get('local_k', 'local-grp'));
+    }
+
+    /**
+     * P3-6: the `WP_Object_Cache` class alias is only registered when the class is
+     * not already defined, so a co-resident cache or plugin is never clobbered.
+     */
+    public function test_wp_object_cache_alias_guard()
+    {
+        $key_space_src    = dirname(__FILE__, 3) . '/src/KeySpace.php';
+        $object_cache_src = dirname(__FILE__, 3) . '/src/ObjectCache.php';
+        $functions_src    = dirname(__FILE__, 3) . '/src/functions.php';
+
+        // Probe 1: WP_Object_Cache already defined -> the alias must NOT be created.
+        $probe_defined = <<<'PHP'
+class WP_Object_Cache {
+    public $marker = 'predefined';
+}
+require $argv[1];
+require $argv[2];
+require $argv[3];
+$o = new WP_Object_Cache();
+echo get_class($o) . ':' . $o->marker;
+PHP;
+
+        $defined_out = $this->runPhpProbe($probe_defined, array($key_space_src, $object_cache_src, $functions_src));
+        $this->assertSame('WP_Object_Cache:predefined', $defined_out);
+
+        // Probe 2: fresh process without WP_Object_Cache -> the alias IS created.
+        $probe_fresh = <<<'PHP'
+require $argv[1];
+require $argv[2];
+require $argv[3];
+echo (class_exists('WP_Object_Cache') ? 'exits' : 'missing');
+echo ':';
+echo get_class(new WP_Object_Cache());
+PHP;
+
+        $fresh_out = $this->runPhpProbe($probe_fresh, array($key_space_src, $object_cache_src, $functions_src));
+        $this->assertStringStartsWith('exits:', $fresh_out);
+        $this->assertSame('Mincemeat\\ObjectCache\\ObjectCache', substr($fresh_out, 6));
+    }
+
+    /**
+     * Runs a small self-contained PHP probe in a subprocess and returns stdout.
+     *
+     * @param string   $code PHP code (may reference $argv[1..n]).
+     * @param string[] $args Additional argv arguments (paths).
+     * @return string
+     */
+    private function runPhpProbe(string $code, array $args): string
+    {
+        $cmd = escapeshellarg(PHP_BINARY) . ' -r ' . escapeshellarg($code);
+        foreach ($args as $arg) {
+            $cmd .= ' ' . escapeshellarg($arg);
+        }
+
+        $descriptors = array(
+            0 => array('pipe', 'r'),
+            1 => array('pipe', 'w'),
+            2 => array('pipe', 'w'),
+        );
+        $process = proc_open($cmd, $descriptors, $pipes);
+        $this->assertIsResource($process);
+
+        fclose($pipes[0]);
+        $stdout = stream_get_contents($pipes[1]);
+        fclose($pipes[1]);
+        $stderr = stream_get_contents($pipes[2]);
+        fclose($pipes[2]);
+        $status = proc_close($process);
+
+        $this->assertSame(0, $status, 'PHP probe failed: ' . $stderr);
+
+        return $stdout;
     }
 
     /* ----------------------------------------------------------------

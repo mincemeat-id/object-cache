@@ -68,6 +68,12 @@ core-shaped `isset()` behavior, and `stats()` output. The magic properties are
 read-only views over `KeySpace`, which remains the source of truth for group and
 multisite scope decisions.
 
+On multisite, `wp_cache_init()` wires the core `switch_blog` action to
+`wp_cache_switch_to_blog()` so blog scope flips automatically whenever WordPress
+switches or restores the current blog, without callers invoking the facade
+manually. Global groups survive the switch while non-global groups are scoped to
+the new (or restored) blog.
+
 ### Request-tier growth policy
 
 The request-local memory tier is **request-scoped and unbounded by design**.

@@ -181,6 +181,9 @@ The runtime must follow WordPress object-cache behavior:
 - `false`, `0`, empty strings, empty arrays, and `null` are valid cached values.
 - Global groups are shared across multisite blogs.
 - Non-global groups are scoped by blog ID on multisite.
+- On multisite the drop-in wires the `switch_blog` action so blog scope flips
+  automatically; global groups survive the switch while non-global groups are
+  scoped to the current (switched or restored) blog.
 - Non-persistent groups remain request-local.
 - The request-local memory tier is request-scoped and unbounded by design; growth
   is freed at request end and automatic eviction is deferred to v1. The live

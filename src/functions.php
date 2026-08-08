@@ -40,6 +40,14 @@ if ( ! function_exists( 'wp_cache_init' )) {
 		}
 
 		$GLOBALS['wp_object_cache'] = new ObjectCache( $key_space, $backend );
+
+		// Wire the multisite `switch_blog` action so blog scope flips
+		// automatically (and independently of any direct core call) whenever
+		// WordPress switches or restores the current blog. Duplicate registrations
+		// are deduplicated by WordPress' hook system, so repeat init is safe.
+		if ( function_exists( 'add_action' ) ) {
+			add_action( 'switch_blog', 'wp_cache_switch_to_blog', 10, 1 );
+		}
 	}
 }
 
