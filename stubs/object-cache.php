@@ -7,7 +7,7 @@
  * Version: 0.1.0-rc3
  * Drop-in Version: 0.1.0-rc3
  * Schema Version: 1
- * Build Hash: a12539a5d0a97504f45547b3eb0e171acee4ac20f91562539cba2935827ccd77
+ * Build Hash: 0ecdc89eb91fe37b3b81ec24ad0c1d4b0b27bcabe197d9e73056f3f75dc7cda5
  *
  * @package Mincemeat\ObjectCache
  */
@@ -1241,6 +1241,7 @@ namespace Mincemeat\ObjectCache {
 		public const REASON_MAX_TTL         = 'config-max-ttl';
 		public const REASON_TLS             = 'config-tls';
 		public const REASON_DEBUG           = 'config-debug';
+		public const REASON_MEASURE_PERF    = 'config-measure-performance';
 
 		/** Schemes. */
 		public const SCHEME_TCP  = 'tcp';
@@ -1287,25 +1288,26 @@ namespace Mincemeat\ObjectCache {
 		 * @var array<string,mixed>
 		 */
 		private const KNOWN_KEYS = array(
-			'namespace'         => null,
-			'scheme'            => self::SCHEME_TCP,
-			'host'              => '127.0.0.1',
-			'port'              => 6379,
-			'path'              => null,
-			'database'          => 0,
-			'username'          => null,
-			'password'          => null,
-			'connect_timeout'   => 0.25,
-			'read_timeout'      => 0.25,
-			'max_retries'       => self::DEFAULT_MAX_RETRIES,
-			'backoff_algorithm' => self::DEFAULT_BACKOFF_ALGORITHM,
-			'backoff_base'      => self::DEFAULT_BACKOFF_BASE,
-			'backoff_cap'       => self::DEFAULT_BACKOFF_CAP,
-			'tcp_keepalive'     => true,
-			'persistent'        => false,
-			'max_ttl'           => self::DEFAULT_MAX_TTL,
-			'tls'               => array(),
-			'debug'             => false,
+			'namespace'           => null,
+			'scheme'              => self::SCHEME_TCP,
+			'host'                => '127.0.0.1',
+			'port'                => 6379,
+			'path'                => null,
+			'database'            => 0,
+			'username'            => null,
+			'password'            => null,
+			'connect_timeout'     => 0.25,
+			'read_timeout'        => 0.25,
+			'max_retries'         => self::DEFAULT_MAX_RETRIES,
+			'backoff_algorithm'   => self::DEFAULT_BACKOFF_ALGORITHM,
+			'backoff_base'        => self::DEFAULT_BACKOFF_BASE,
+			'backoff_cap'         => self::DEFAULT_BACKOFF_CAP,
+			'tcp_keepalive'       => true,
+			'persistent'          => false,
+			'max_ttl'             => self::DEFAULT_MAX_TTL,
+			'tls'                 => array(),
+			'debug'               => false,
+			'measure_performance' => true,
 		);
 
 		/** @var string */
@@ -1364,6 +1366,9 @@ namespace Mincemeat\ObjectCache {
 
 		/** @var bool */
 		private $debug;
+
+		/** @var bool */
+		private $measure_performance;
 
 		/** @var string */
 		private $namespace_digest;
@@ -1446,6 +1451,10 @@ namespace Mincemeat\ObjectCache {
 			$debug = $input['debug'] ?? self::KNOWN_KEYS['debug'];
 			$this->validate_bool( $debug, self::REASON_DEBUG );
 			$this->debug = (bool) $debug;
+
+			$measure_performance = $input['measure_performance'] ?? self::KNOWN_KEYS['measure_performance'];
+			$this->validate_bool( $measure_performance, self::REASON_MEASURE_PERF );
+			$this->measure_performance = (bool) $measure_performance;
 
 			$this->namespace_digest = hash( 'sha256', $this->namespace );
 		}
@@ -1566,6 +1575,19 @@ namespace Mincemeat\ObjectCache {
 		}
 
 		/**
+		 * Whether request-scoped backend timing instrumentation is enabled.
+		 *
+		 * Defaults to true. When false, the runtime skips the `microtime( true )`
+		 * capture around backend commands while still accumulating the cheap
+		 * `backend_calls` counter.
+		 *
+		 * @return bool
+		 */
+		public function measure_performance(): bool {
+			return $this->measure_performance;
+		}
+
+		/**
 		 * Redacted diagnostics suitable for Site Health. Includes only safe
 		 * identifiers; never the source namespace, username, password, DSN, or
 		 * TLS key material paths.
@@ -1588,23 +1610,24 @@ namespace Mincemeat\ObjectCache {
 			}
 
 			return array(
-				'scheme'            => $this->scheme,
-				'host'              => $this->scheme === self::SCHEME_UNIX ? '' : 'configured',
-				'port'              => $this->scheme === self::SCHEME_UNIX ? null : '***',
-				'path'              => $this->scheme === self::SCHEME_UNIX ? 'configured' : null,
-				'database'          => '***',
-				'namespace_digest'  => substr( $this->namespace_digest, 0, 16 ),
-				'connect_timeout'   => $this->connect_timeout,
-				'read_timeout'      => $this->read_timeout,
-				'max_retries'       => $this->max_retries,
-				'backoff_algorithm' => $this->backoff_algorithm,
-				'backoff_base_ms'   => $this->backoff_base,
-				'backoff_cap_ms'    => $this->backoff_cap,
-				'tcp_keepalive'     => $this->tcp_keepalive,
-				'persistent'        => $this->persistent,
-				'max_ttl'           => $this->max_ttl,
-				'debug'             => $this->debug,
-				'tls'               => $tls_summary,
+				'scheme'              => $this->scheme,
+				'host'                => $this->scheme === self::SCHEME_UNIX ? '' : 'configured',
+				'port'                => $this->scheme === self::SCHEME_UNIX ? null : '***',
+				'path'                => $this->scheme === self::SCHEME_UNIX ? 'configured' : null,
+				'database'            => '***',
+				'namespace_digest'    => substr( $this->namespace_digest, 0, 16 ),
+				'connect_timeout'     => $this->connect_timeout,
+				'read_timeout'        => $this->read_timeout,
+				'max_retries'         => $this->max_retries,
+				'backoff_algorithm'   => $this->backoff_algorithm,
+				'backoff_base_ms'     => $this->backoff_base,
+				'backoff_cap_ms'      => $this->backoff_cap,
+				'tcp_keepalive'       => $this->tcp_keepalive,
+				'persistent'          => $this->persistent,
+				'max_ttl'             => $this->max_ttl,
+				'debug'               => $this->debug,
+				'measure_performance' => $this->measure_performance,
+				'tls'                 => $tls_summary,
 			);
 		}
 
@@ -1934,6 +1957,17 @@ namespace Mincemeat\ObjectCache {
 		private $namespace_digest = '';
 
 		/**
+		 * Request-scoped memoized group digests, keyed by group name.
+		 *
+		 * The same normalized group name is hashed once per request instead of on
+		 * every `item_key()` / `group_control_key()` call. Output bytes are
+		 * identical to `hash('sha256', $group)`.
+		 *
+		 * @var array<string,string>
+		 */
+		private $group_digests = array();
+
+		/**
 		 * Constructor.
 		 *
 		 * @param bool   $multisite Whether multisite is active.
@@ -2114,16 +2148,26 @@ namespace Mincemeat\ObjectCache {
 		}
 
 		/**
-		 * SHA-256 digest of a group name (hex, lowercase, 64 chars).
+		 * SHA-256 digest of a group name (hex, lowercase, 64 chars), memoized.
 		 *
 		 * Group identity is case-sensitive and never normalized by removing
-		 * characters; the digest is taken over the normalized group string.
+		 * characters; the digest is taken over the normalized group string. The
+		 * result is cached per request for the group name so repeated calls on the
+		 * hot path (item/group control key derivation) hash once instead of on
+		 * every invocation.
 		 *
 		 * @param string $group Normalized group name.
 		 * @return string
 		 */
 		public function group_digest( string $group ): string {
-			return hash( 'sha256', $group );
+			if (isset( $this->group_digests[ $group ] )) {
+				return $this->group_digests[ $group ];
+			}
+
+			$digest                                 = hash( 'sha256', $group );
+			$this->group_digests[ $group ]          = $digest;
+
+			return $digest;
 		}
 
 		/**
@@ -2197,14 +2241,19 @@ namespace Mincemeat\ObjectCache {
 		 * @return string
 		 */
 		public function item_key( string $ns_token, string $group_token, string $group, $key ): string {
-			return self::SCHEMA_MARKER
-				. ':' . $this->namespace_digest
-				. ':' . self::ITEM_MARKER
-				. ':' . $ns_token
-				. ':' . $this->group_digest( $group )
-				. ':' . $group_token
-				. ':' . $this->scope_for( $group )
-				. ':' . $this->key_digest( $key );
+			return implode(
+				':',
+				array(
+					self::SCHEMA_MARKER,
+					$this->namespace_digest,
+					self::ITEM_MARKER,
+					$ns_token,
+					$this->group_digest( $group ),
+					$group_token,
+					$this->scope_for( $group ),
+					$this->key_digest( $key ),
+				)
+			);
 		}
 
 		/**
@@ -2677,6 +2726,17 @@ namespace Mincemeat\ObjectCache {
 		private $state = self::STATE_RUNTIME_ONLY;
 
 		/**
+		 * Whether request-scoped backend timing instrumentation is enabled.
+		 *
+		 * Resolved from the attached backend's Config; defaults to true when no
+		 * backend (or no config) is present. Skips `microtime( true )` capture
+		 * when false while still counting `backend_calls`.
+		 *
+		 * @var bool
+		 */
+		private $measure_performance = true;
+
+		/**
 		 * Stable reason code for the current state.
 		 *
 		 * @var string
@@ -2699,10 +2759,21 @@ namespace Mincemeat\ObjectCache {
 				$this->backend = $backend;
 				$this->state   = $backend->state();
 				$this->reason  = $backend->reason();
+				$this->resolve_measure_performance();
 				if ($this->state !== self::STATE_PERSISTENT && $this->reason !== Backend::REASON_NO_BACKEND) {
 					$this->errors = 1;
 				}
 			}
+		}
+
+		/**
+		 * Resolves the `measure_performance` flag from the attached backend config.
+		 *
+		 * @return void
+		 */
+		private function resolve_measure_performance(): void {
+			$config = $this->backend !== null ? $this->backend->config() : null;
+			$this->measure_performance = $config !== null ? $config->measure_performance() : true;
 		}
 
 		/**
@@ -2745,6 +2816,7 @@ namespace Mincemeat\ObjectCache {
 			$this->backend = $backend;
 			$this->state   = $backend->state();
 			$this->reason  = $backend->reason();
+			$this->resolve_measure_performance();
 			if ($this->state !== self::STATE_PERSISTENT && $this->reason !== Backend::REASON_NO_BACKEND) {
 				$this->errors = 1;
 			}
@@ -2849,9 +2921,9 @@ namespace Mincemeat\ObjectCache {
 			}
 
 			$this->backend_calls += 1;
-			$start = microtime( true );
+			$start = $this->measure_start();
 			$pipeline_results = $this->backend()->set_conditional_pipeline( $entries );
-			$this->backend_time += ( microtime( true ) - $start ) * 1000000;
+			$this->measure_end( $start );
 
 			if ( ! $this->sync_state()) {
 				foreach ($valid_keys as $key) {
@@ -2882,9 +2954,9 @@ namespace Mincemeat\ObjectCache {
 
 			if (count( $failed_backend_keys ) > 0) {
 				$this->backend_calls += 1;
-				$start = microtime( true );
+				$start = $this->measure_start();
 				$raw_values = $this->backend()->mget( $failed_backend_keys );
-				$this->backend_time += ( microtime( true ) - $start ) * 1000000;
+				$this->measure_end( $start );
 
 				if ($this->sync_state()) {
 					foreach ($failed_keys as $idx => $key) {
@@ -3014,9 +3086,9 @@ namespace Mincemeat\ObjectCache {
 			}
 
 			$this->backend_calls += 1;
-			$start = microtime( true );
+			$start = $this->measure_start();
 			$pipeline_results = $this->backend()->set_pipeline( $entries );
-			$this->backend_time += ( microtime( true ) - $start ) * 1000000;
+			$this->measure_end( $start );
 
 			if ( ! $this->sync_state()) {
 				foreach ($valid_keys as $key) {
@@ -3060,10 +3132,15 @@ namespace Mincemeat\ObjectCache {
 
 			$should_force = $force && $this->is_persistent_group( $group );
 
-			if ( ! $should_force && $this->exists( $storage_id, $group )) {
-				$found       = true;
+			if ( ! $should_force) {
+				list($found, $value) = $this->memory_read( $storage_id, $group );
+			} else {
+				$found = false;
+				$value = false;
+			}
+
+			if ($found) {
 				$this->cache_hits += 1;
-				$value       = $this->cache[ $group ][ $storage_id ];
 
 				return is_object( $value ) ? clone $value : $value;
 			}
@@ -3098,7 +3175,23 @@ namespace Mincemeat\ObjectCache {
 			$values = array();
 
 			foreach ($keys as $key) {
-				$values[ $key ] = $this->get( $key, $group, $force );
+				if ( ! $this->key_space->is_valid_key( $key )) {
+					$values[ $key ] = false;
+					continue;
+				}
+
+				$storage_id = $this->key_space->storage_id( $key, $group );
+				list($vfound, $value) = $this->memory_read( $storage_id, $group );
+
+				if ($vfound) {
+					$this->cache_hits += 1;
+					$values[ $key ] = is_object( $value ) ? clone $value : $value;
+
+					continue;
+				}
+
+				$this->cache_misses += 1;
+				$values[ $key ] = false;
 			}
 
 			return $values;
@@ -3178,9 +3271,9 @@ namespace Mincemeat\ObjectCache {
 			}
 
 			$this->backend_calls += 1;
-			$start = microtime( true );
+			$start = $this->measure_start();
 			$pipeline_results = $this->backend()->del_pipeline( $backend_keys );
-			$this->backend_time += ( microtime( true ) - $start ) * 1000000;
+			$this->measure_end( $start );
 
 			if ( ! $this->sync_state()) {
 				foreach ($valid_keys as $key) {
@@ -3243,9 +3336,9 @@ namespace Mincemeat\ObjectCache {
 		public function flush(): bool {
 			if ($this->backend !== null && $this->backend->is_persistent()) {
 				$this->backend_calls += 1;
-				$start                = microtime( true );
+				$start = $this->measure_start();
 				$ok                   = $this->backend->replace_namespace_token();
-				$this->backend_time  += ( microtime( true ) - $start ) * 1000000;
+				$this->measure_end( $start );
 
 				if ($this->sync_state()) {
 					$this->cache = array();
@@ -3288,9 +3381,9 @@ namespace Mincemeat\ObjectCache {
 
 			if ($this->backend !== null && $this->backend->is_persistent()) {
 				$this->backend_calls += 1;
-				$start                = microtime( true );
+				$start = $this->measure_start();
 				$ok                   = $this->backend->replace_group_token( $group );
-				$this->backend_time  += ( microtime( true ) - $start ) * 1000000;
+				$this->measure_end( $start );
 
 				if ($this->sync_state()) {
 					unset( $this->cache[ $group ] );
@@ -3514,6 +3607,30 @@ namespace Mincemeat\ObjectCache {
 		}
 
 		/**
+		 * Single falsey-safe request-memory read.
+		 *
+		 * Returns `array( $found, $value )` using the same `isset() ||
+		 * array_key_exists()` semantics as `exists()` but in a single probe, so a
+		 * cached falsey value (`false`, `0`, `''`, `null`) is a true hit and no
+		 * second array index is performed on the hot read path.
+		 *
+		 * @param string $storage_id
+		 * @param string $group
+		 * @return array{0:bool,1:mixed} array( $found, $value ).
+		 */
+		private function memory_read( string $storage_id, string $group ): array {
+			if (isset( $this->cache[ $group ][ $storage_id ] )) {
+				return array( true, $this->cache[ $group ][ $storage_id ] );
+			}
+
+			if (isset( $this->cache[ $group ] ) && array_key_exists( $storage_id, $this->cache[ $group ] )) {
+				return array( true, $this->cache[ $group ][ $storage_id ] );
+			}
+
+			return array( false, false );
+		}
+
+		/**
 		 * Whether cache addition is suspended.
 		 */
 		private function is_addition_suspended(): bool {
@@ -3550,6 +3667,32 @@ namespace Mincemeat\ObjectCache {
 			}
 
 			return $this->backend;
+		}
+
+		/**
+		 * Captures the start of a backend operation when timing is enabled.
+		 *
+		 * @return float|null Microsecond epoch on the start, or null when disabled.
+		 */
+		private function measure_start(): ?float {
+			if ( ! $this->measure_performance) {
+				return null;
+			}
+
+			return microtime( true );
+		}
+
+		/**
+		 * Accumulates the elapsed microseconds of a backend operation.
+		 *
+		 * @param float|null $start The start from measure_start(), or null when disabled.
+		 */
+		private function measure_end( ?float $start ): void {
+			if ($start === null) {
+				return;
+			}
+
+			$this->backend_time += ( microtime( true ) - $start ) * 1000000;
 		}
 
 		/**
@@ -3618,9 +3761,9 @@ namespace Mincemeat\ObjectCache {
 			$item_key = $this->key_space->item_key( $ns_tok, $grp_tok, $group, $key );
 
 			$this->backend_calls += 1;
-			$start                = microtime( true );
+			$start = $this->measure_start();
 			$raw                  = $this->backend()->get( $item_key );
-			$this->backend_time  += ( microtime( true ) - $start ) * 1000000;
+			$this->measure_end( $start );
 
 			if ( ! $this->sync_state()) {
 				return $this->runtime_fallback_get( $storage_id, $group, $found );
@@ -3671,9 +3814,15 @@ namespace Mincemeat\ObjectCache {
 
 				$storage_id = $this->key_space->storage_id( $key, $group );
 
-				if ( ! $force && $this->exists( $storage_id, $group )) {
+				if ( ! $force) {
+					list($vfound, $val) = $this->memory_read( $storage_id, $group );
+				} else {
+					$vfound = false;
+					$val    = false;
+				}
+
+				if ($vfound) {
 					$this->cache_hits += 1;
-					$val            = $this->cache[ $group ][ $storage_id ];
 					$values[ $key ] = is_object( $val ) ? clone $val : $val;
 				} else {
 					$missing[]        = $key;
@@ -3694,15 +3843,15 @@ namespace Mincemeat\ObjectCache {
 			}
 
 			$this->backend_calls += 1;
-			$start                = microtime( true );
+			$start = $this->measure_start();
 			$raw_values           = $this->backend()->mget( $backend_keys );
-			$this->backend_time  += ( microtime( true ) - $start ) * 1000000;
+			$this->measure_end( $start );
 
 			if ( ! $this->sync_state()) {
 				foreach ($missing as $key) {
 					$storage_id_d = $this->key_space->storage_id( $key, $group );
-					if ($this->exists( $storage_id_d, $group )) {
-						$value          = $this->cache[ $group ][ $storage_id_d ];
+					list($vfound, $value) = $this->memory_read( $storage_id_d, $group );
+					if ($vfound) {
 						$values[ $key ] = is_object( $value ) ? clone $value : $value;
 						$this->cache_hits += 1;
 					} else {
@@ -3761,9 +3910,9 @@ namespace Mincemeat\ObjectCache {
 			$ttl_ms   = $this->resolve_ttl_ms( $expire );
 
 			$this->backend_calls += 1;
-			$start                = microtime( true );
+			$start = $this->measure_start();
 			$ok                   = $this->backend()->set_unconditional( $item_key, $encoded, $ttl_ms );
-			$this->backend_time  += ( microtime( true ) - $start ) * 1000000;
+			$this->measure_end( $start );
 
 			if ( ! $this->sync_state()) {
 				return $this->set_in_memory( $storage_id, $group, $data );
@@ -3798,9 +3947,9 @@ namespace Mincemeat\ObjectCache {
 			$ttl_ms   = $this->resolve_ttl_ms( $expire );
 
 			$this->backend_calls += 1;
-			$start                = microtime( true );
+			$start = $this->measure_start();
 			$ok                   = $this->backend()->set( $item_key, $encoded, $ttl_ms, true, false );
-			$this->backend_time  += ( microtime( true ) - $start ) * 1000000;
+			$this->measure_end( $start );
 
 			if ( ! $this->sync_state()) {
 				return $this->set_in_memory( $storage_id, $group, $data );
@@ -3844,9 +3993,9 @@ namespace Mincemeat\ObjectCache {
 			$ttl_ms   = $this->resolve_ttl_ms( $expire );
 
 			$this->backend_calls += 1;
-			$start                = microtime( true );
+			$start = $this->measure_start();
 			$ok                   = $this->backend()->set( $item_key, $encoded, $ttl_ms, false, true );
-			$this->backend_time  += ( microtime( true ) - $start ) * 1000000;
+			$this->measure_end( $start );
 
 			if ( ! $this->sync_state()) {
 				if ($this->exists( $storage_id, $group )) {
@@ -3876,9 +4025,9 @@ namespace Mincemeat\ObjectCache {
 			$item_key = $this->key_space->item_key( $ns_tok, $grp_tok, $group, $key );
 
 			$this->backend_calls += 1;
-			$start                = microtime( true );
+			$start = $this->measure_start();
 			$deleted              = $this->backend()->del( $item_key );
-			$this->backend_time  += ( microtime( true ) - $start ) * 1000000;
+			$this->measure_end( $start );
 
 			$was_in_memory = $this->exists( $storage_id, $group );
 
@@ -3907,10 +4056,11 @@ namespace Mincemeat\ObjectCache {
 		 * @return mixed|false
 		 */
 		private function runtime_fallback_get( string $storage_id, string $group, &$found ) {
-			if ($this->exists( $storage_id, $group )) {
+			list($vfound, $value) = $this->memory_read( $storage_id, $group );
+
+			if ($vfound) {
 				$found       = true;
 				$this->cache_hits += 1;
-				$value       = $this->cache[ $group ][ $storage_id ];
 
 				return is_object( $value ) ? clone $value : $value;
 			}
@@ -3971,9 +4121,9 @@ namespace Mincemeat\ObjectCache {
 			$item_key = $this->key_space->item_key( $ns_tok, $grp_tok, $group, $key );
 
 			$this->backend_calls   += 1;
-			$start                  = microtime( true );
+			$start = $this->measure_start();
 			list($code, $new_value) = $this->backend()->eval_incr( $item_key, $offset );
-			$this->backend_time    += ( microtime( true ) - $start ) * 1000000;
+			$this->measure_end( $start );
 
 			if ( ! $this->sync_state()) {
 				// Backend degraded: fall back to in-memory delta if the value

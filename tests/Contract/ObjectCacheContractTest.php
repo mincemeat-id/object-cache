@@ -621,6 +621,36 @@ class ObjectCacheContractTest extends TestCase
         $this->assertFalse($found);
     }
 
+    public function test_falsey_values_are_true_memory_hits()
+    {
+        $falsey = array(
+            'k-false' => false,
+            'k-zero'  => 0,
+            'k-empty' => '',
+            'k-null'  => null,
+        );
+
+        foreach ($falsey as $key => $value) {
+            $this->cache->set($key, $value, 'g1');
+        }
+
+        // Each falsey value is a single-probe memory hit, never a miss.
+        foreach ($falsey as $key => $value) {
+            $found = null;
+            $got   = $this->cache->get($key, 'g1', false, $found);
+            $this->assertSame($value, $got, "get({$key}) must return the cached value.");
+            $this->assertTrue($found, "get({$key}) must report a hit.");
+        }
+
+        // get_multiple surfaces the same true-hit semantics.
+        $multi = $this->cache->get_multiple(array_keys($falsey), 'g1');
+        $this->assertSame($falsey, $multi);
+
+        // cache_hits reflects all eight hits (4 get + 4 get_multiple); misses zero.
+        $this->assertSame(8, $this->cache->cache_hits);
+        $this->assertSame(0, $this->cache->cache_misses);
+    }
+
     public function test_advertised_wp_cache_supports_features_end_to_end()
     {
         $features = array('add_multiple', 'set_multiple', 'get_multiple', 'delete_multiple', 'flush_runtime', 'flush_group');

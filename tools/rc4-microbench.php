@@ -43,8 +43,8 @@ function mb_measure( callable $fn, int $n ): float {
 
 $checks = array();
 
-// 1. group_digest (current: hash every call)
-$checks['KeySpace::group_digest (current, hash each call)'] = function () use ( $key_space, $group ) {
+// 1. group_digest (RC4 P1-1: memoized per request)
+$checks['KeySpace::group_digest (memoized)'] = function () use ( $key_space, $group ) {
 	$key_space->group_digest( $group );
 };
 
@@ -53,10 +53,10 @@ $checks['KeySpace::key_digest (current, hash each call)'] = function () use ( $k
 	$key_space->key_digest( $key );
 };
 
-// 3. item_key (full derivation: group_digest + scope_for + key_digest)
+// 3. item_key (full derivation: memoized group_digest + scope_for + key_digest)
 $ns_tok = str_repeat( 'a', 32 );
 $gtok   = str_repeat( 'b', 32 );
-$checks['KeySpace::item_key (full derivation)'] = function () use ( $key_space, $ns_tok, $gtok, $group, $key ) {
+$checks['KeySpace::item_key (full derivation, RC4)'] = function () use ( $key_space, $ns_tok, $gtok, $group, $key ) {
 	$key_space->item_key( $ns_tok, $gtok, $group, $key );
 };
 
@@ -65,9 +65,9 @@ $checks['KeySpace::storage_id'] = function () use ( $key_space, $key, $group ) {
 	$key_space->storage_id( $key, $group );
 };
 
-// 5. Simulated falsey-safe memory read (current exists()+index double probe)
+// 5. Historical double-probe memory read (RC3 baseline, for comparison)
 $cache = array( 'default' => array( 'k' => 'value' ) );
-$checks['Memory read: exists()+index (current double probe)'] = function () use ( &$cache ) {
+$checks['Memory read: exists()+index (RC3 double probe)'] = function () use ( &$cache ) {
 	$sid = 'k';
 	$g   = 'default';
 	if ( isset( $cache[ $g ] ) && ( isset( $cache[ $g ][ $sid ] ) || array_key_exists( $sid, $cache[ $g ] ) ) ) {
@@ -76,8 +76,8 @@ $checks['Memory read: exists()+index (current double probe)'] = function () use 
 	return $v ?? null;
 };
 
-// 6. Simulated single-probe memory read (proposed)
-$checks['Memory read: single probe (proposed)'] = function () use ( &$cache ) {
+// 6. Simulated single-probe memory read (RC4 P1-3, matches memory_read())
+$checks['Memory read: single probe (RC4, matches memory_read)'] = function () use ( &$cache ) {
 	$sid = 'k';
 	$g   = 'default';
 	if ( isset( $cache[ $g ][ $sid ] ) ) {
@@ -112,10 +112,10 @@ foreach ( $results as $label => $ns ) {
 	printf( "  %10.1f ns/op   %s\n", $ns, $label );
 }
 
-// Before/after summary for the two proposed optimizations:
-$cur_digest = $results['KeySpace::group_digest (current, hash each call)'];
-$cur_read   = $results['Memory read: exists()+index (current double probe)'];
-$prop_read  = $results['Memory read: single probe (proposed)'];
+// Before/after summary for the two landed optimizations:
+$cur_digest = $results['KeySpace::group_digest (memoized)'];
+$cur_read   = $results['Memory read: exists()+index (RC3 double probe)'];
+$prop_read  = $results['Memory read: single probe (RC4, matches memory_read)'];
 
 echo "\nProjected per-op savings (pure PHP, request-memory bound):\n";
 printf( "  group_digest memoized: saves ~%.1f ns/op (%.1f%%)\n", $cur_digest * 0.9, 90.0 );
