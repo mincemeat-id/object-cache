@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.1.0-rc4] - 2026-08-08
+
 - Extracted the request-local memory tier into a dedicated `MemoryTier` collaborator owned by `ObjectCache`, delegating falsey-safe reads, object-cloning writes, per-key/group removal, and request-tier clearing. The public `ObjectCache` surface is unchanged and all tests remain green.
 - Moved the test-only `ValueCodec::header_inline()` fixture builder into the test support layer (`ValueEnvelopeBuilder`), so the production drop-in exposes only the public value-codec encode/decode surface.
 - Added a topology contract test asserting the `Api` diagnostics and Site Health paths share the single `Topology` classifier for standalone, cluster, sentinel, replica, and incomplete identities.
