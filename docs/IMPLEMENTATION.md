@@ -68,6 +68,22 @@ core-shaped `isset()` behavior, and `stats()` output. The magic properties are
 read-only views over `KeySpace`, which remains the source of truth for group and
 multisite scope decisions.
 
+### Request-tier growth policy
+
+The request-local memory tier is **request-scoped and unbounded by design**.
+There is no configured capacity limit and no eviction in RC4: every value cached
+in request memory lives until the request ends, at which point the enclosing
+`ObjectCache` instance (and its `$cache` array) is released and the memory is
+freed with the request. This mirrors WordPress core's own non-persistent object
+cache and keeps the hot path free of capacity checks.
+
+Growth is observable so operators can diagnose unexpectedly large request
+memory. The live entry count is reported as `request_tier_entries` in
+`Api::diagnostics()` and surfaced as the "Request Tier Entries" field in Site
+Health debug information. It is computed **only on demand** (Site Health /
+diagnostics) and is never evaluated on the hot cache path. Automatic eviction or
+a memory governor is explicitly **deferred to v1** and must not be added in RC4.
+
 ## Repository Map
 
 | Path | Edit policy |

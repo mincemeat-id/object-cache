@@ -394,6 +394,31 @@ class PersistentCacheTest extends IntegrationTestCase
         $this->assertSame(ObjectCache::STATE_PERSISTENT, $this->cache->state());
     }
 
+    /**
+     * A Redis-backed get() (persistent_get) must return a fresh object that is
+     * never aliased to the cached copy, even after the value is re-populated
+     * into request memory (P2-1).
+     */
+    public function test_aliasing_isolation_persistent_get()
+    {
+        $obj                    = new \stdClass();
+        $obj->value             = 'original';
+        $this->assertTrue($this->cache->set('alias-persistent', $obj, 'options'));
+
+        // Force a read past the runtime tier so persistent_get decodes from the
+        // backend and re-populates request memory.
+        $retrieved = $this->cache->get('alias-persistent', 'options', true);
+        $this->assertInstanceOf(\stdClass::class, $retrieved);
+        $this->assertSame('original', $retrieved->value);
+
+        $retrieved->value = 'mutated';
+
+        // A subsequent read (served from request memory) must be the cached
+        // copy, not the mutated object decoded earlier.
+        $again = $this->cache->get('alias-persistent', 'options', true);
+        $this->assertSame('original', $again->value, 'persistent_get must not alias the cached object.');
+    }
+
     public function test_server_info_detected()
     {
         $info = $this->cache->server_info();

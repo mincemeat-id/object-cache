@@ -705,5 +705,111 @@ class ObjectCacheContractTest extends TestCase
         $cache->switch_to_blog(1);
         $this->assertSame('blog1_val', $cache->get('blog_item', 'local-grp'));
     }
+
+    /* ----------------------------------------------------------------
+     * Phase 2 — object-aliasing isolation (P2-1)
+     * ---------------------------------------------------------------- */
+
+    /**
+     * Mutating a returned object must never change the cached copy across the
+     * non-persistent set() + get() path.
+     */
+    public function test_aliasing_isolation_set_get()
+    {
+        $obj           = new MutableCacheTarget();
+        $obj->value    = 'original';
+        $this->assertTrue($this->cache->set('alias-set', $obj, 'g-alias'));
+
+        $retrieved = $this->cache->get('alias-set', 'g-alias');
+        $this->assertInstanceOf(MutableCacheTarget::class, $retrieved);
+        $this->assertSame('original', $retrieved->value);
+
+        // Mutating the returned object must not affect the cached copy.
+        $retrieved->value = 'mutated';
+        $again = $this->cache->get('alias-set', 'g-alias');
+        $this->assertSame('original', $again->value, 'Cached object must be isolated from mutation.');
+    }
+
+    /**
+     * Mutating a returned object must never change the cached copy across the
+     * non-persistent get_multiple() path.
+     */
+    public function test_aliasing_isolation_get_multiple()
+    {
+        $obj           = new MutableCacheTarget();
+        $obj->value    = 'original';
+        $this->assertTrue($this->cache->set('alias-multi', $obj, 'g-alias'));
+
+        $values = $this->cache->get_multiple(array('alias-multi'), 'g-alias');
+        $this->assertArrayHasKey('alias-multi', $values);
+        $this->assertInstanceOf(MutableCacheTarget::class, $values['alias-multi']);
+        $this->assertSame('original', $values['alias-multi']->value);
+
+        $values['alias-multi']->value = 'mutated';
+        $again = $this->cache->get('alias-multi', 'g-alias');
+        $this->assertSame('original', $again->value, 'get_multiple must not alias the cached object.');
+    }
+
+    /* ----------------------------------------------------------------
+     * Phase 2 — close-path correctness (P2-5)
+     * ---------------------------------------------------------------- */
+
+    /**
+     * The runtime-only path (no adapter) must close without exception.
+     */
+    public function test_close_runtime_only_no_adapter()
+    {
+        $cache = new ObjectCache();
+        $this->assertSame(ObjectCache::STATE_RUNTIME_ONLY, $cache->state());
+
+        $this->assertTrue($cache->close());
+    }
+
+    /**
+     * The degraded path (close after a mid-request circuit-open) must close
+     * without exception and without leaking a connection.
+     */
+    public function test_close_degraded_no_exception_or_leak()
+    {
+        $ks = new \Mincemeat\ObjectCache\KeySpace(false, 1);
+
+        $adapter = $this->createMock(\Mincemeat\ObjectCache\PhpRedisAdapter::class);
+        $adapter->expects($this->once())
+            ->method('close');
+        // A mid-request backend command failure opens the circuit (degraded).
+        $adapter->method('get')->willThrowException(new \RedisException('command failed mid-request'));
+
+        $backend = new \Mincemeat\ObjectCache\Backend($ks, $adapter);
+        $backend->initialize(
+            new \Mincemeat\ObjectCache\Config(array(
+                'namespace' => 'close-degraded-test',
+                'scheme'    => 'tcp',
+                'host'      => '127.0.0.1',
+                'port'      => 6379,
+            ))
+        );
+
+        $cache = new ObjectCache($ks, $backend);
+        $this->assertSame(ObjectCache::STATE_PERSISTENT, $cache->state());
+
+        // Trigger a backend read that fails and opens the circuit.
+        $found = null;
+        $cache->get('k', 'g', false, $found);
+        $this->assertSame(ObjectCache::STATE_DEGRADED, $cache->state());
+
+        // Closing a degraded cache must not throw and must still release the
+        // underlying adapter connection exactly once.
+        $this->assertTrue($cache->close());
+    }
+}
+
+/**
+ * A small mutable test object with a public property, used to prove that
+ * object-aliasing isolation holds across every cache entry/exit path.
+ */
+class MutableCacheTarget
+{
+    /** @var string */
+    public $value = '';
 }
 

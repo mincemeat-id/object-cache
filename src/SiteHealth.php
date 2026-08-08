@@ -700,6 +700,12 @@ final class SiteHealth {
 			'value' => $metrics_str,
 		);
 
+		$fields['request_tier_entries'] = array(
+			'label' => __( 'Request Tier Entries', 'mincemeat-object-cache' ),
+			'value' => (string) ( $diagnostics['request_tier_entries'] ?? 0 ),
+			'debug' => __( 'Number of live entries currently held in the request-local memory tier. The request tier is request-scoped and unbounded by design; growth is freed at request end and eviction is deferred to v1.', 'mincemeat-object-cache' ),
+		);
+
 		$fields['last_error'] = array(
 			'label' => __( 'Last Error Message', 'mincemeat-object-cache' ),
 			'value' => ! empty( $diagnostics['last_error'] ) ? $diagnostics['last_error'] : __( 'none', 'mincemeat-object-cache' ),

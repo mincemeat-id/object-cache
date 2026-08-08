@@ -182,6 +182,10 @@ The runtime must follow WordPress object-cache behavior:
 - Global groups are shared across multisite blogs.
 - Non-global groups are scoped by blog ID on multisite.
 - Non-persistent groups remain request-local.
+- The request-local memory tier is request-scoped and unbounded by design; growth
+  is freed at request end and automatic eviction is deferred to v1. The live
+  entry count is observable on demand (Site Health / diagnostics), never on the
+  hot path.
 - Multiple operations preserve WordPress input shape and result semantics.
 - Numeric operations preserve WordPress behavior for missing and non-numeric values.
 - Flush operations are scoped to the operation being requested.

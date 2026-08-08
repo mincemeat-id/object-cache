@@ -263,6 +263,148 @@ class ValueCodecTest extends TestCase
         $this->assertSame('decode-length', $err);
     }
 
+    public function test_decode_declared_length_exceeding_payload_returns_miss()
+    {
+        // A hostile length field that claims more bytes than the envelope
+        // actually carries must be rejected as corrupt (decode-length) before
+        // any typed decode_* or over-sized read is attempted.
+        $over = array(
+            'int'       => array(ValueCodec::TAG_INT, '7'),
+            'double'    => array(ValueCodec::TAG_DOUBLE, '12345678'),
+            'string'    => array(ValueCodec::TAG_STRING, 'payload'),
+            'serialized'=> array(ValueCodec::TAG_SERIALIZED, 'b:1;'),
+            'bool'      => array(ValueCodec::TAG_BOOL, "\x01"),
+        );
+
+        foreach ($over as $name => $case) {
+            list($tag, $payload) = $case;
+            // Declared length = real payload length + 1000.
+            $bad = 'MCOC' . chr(ValueCodec::VERSION) . chr($tag)
+                . pack('N', strlen($payload) + 1000) . $payload;
+
+            [$found, $val, $err] = ValueCodec::decode($bad);
+
+            $this->assertFalse($found, "Over-declared length for tag {$name} must be a miss.");
+            $this->assertSame('decode-length', $err, "Over-declared length for tag {$name} must be corrupt, got {$err}.");
+        }
+    }
+
+    public function test_decode_declared_length_less_than_payload_returns_miss()
+    {
+        // Length field under-declares the real payload; still corrupt.
+        $bad = 'MCOC' . chr(ValueCodec::VERSION) . chr(ValueCodec::TAG_STRING)
+            . pack('N', 2) . 'hello';
+
+        [$found, $val, $err] = ValueCodec::decode($bad);
+
+        $this->assertFalse($found);
+        $this->assertSame('decode-length', $err);
+    }
+
+    public function test_decode_max_declared_length_rejected_without_allocation()
+    {
+        // A length field claiming the full 32-bit range must be rejected before
+        // any allocation proportional to the declared length.
+        $bad = 'MCOC' . chr(ValueCodec::VERSION) . chr(ValueCodec::TAG_SERIALIZED)
+            . pack('N', 0xFFFFFFFF) . 'b:0;';
+
+        [$found, $val, $err] = ValueCodec::decode($bad);
+
+        $this->assertFalse($found);
+        $this->assertSame('decode-length', $err);
+    }
+
+    /**
+     * A large-but-bounded serialized payload must decode without unbounded
+     * allocation and without leaking a PHP warning (P2-3).
+     */
+    public function test_decode_large_bounded_serialized_payload_no_warning()
+    {
+        $rows = array();
+        for ($i = 0; $i < 2000; $i++) {
+            $rows[] = str_repeat('v', 32) . $i;
+        }
+        $payload = serialize($rows);
+        $encoded = ValueCodec::header_inline(ValueCodec::TAG_SERIALIZED, $payload);
+
+        $this->assertSame(strlen($payload), unpack('N', substr($encoded, 6, 4))[1]);
+
+        $warnings = array();
+        set_error_handler(
+            static function ($severity, $message) use (&$warnings) {
+                $warnings[] = $message;
+                return true;
+            }
+        );
+        try {
+            [$found, $value, $err] = ValueCodec::decode($encoded);
+        } finally {
+            restore_error_handler();
+        }
+
+        $this->assertTrue($found);
+        $this->assertNull($err);
+        $this->assertSame($rows, $value);
+        $this->assertSame(array(), $warnings, 'Decoding a large bounded payload must not emit warnings.');
+    }
+
+    /**
+     * A deeply nested serialized payload must decode without unbounded
+     * allocation (P2-3).
+     */
+    public function test_decode_deeply_nested_serialized_payload_no_warning()
+    {
+        $value = 'leaf';
+        for ($i = 0; $i < 256; $i++) {
+            $value = array('nested' => $value);
+        }
+        $payload = serialize($value);
+        $encoded = ValueCodec::header_inline(ValueCodec::TAG_SERIALIZED, $payload);
+
+        $warnings = array();
+        set_error_handler(
+            static function ($severity, $message) use (&$warnings) {
+                $warnings[] = $message;
+                return true;
+            }
+        );
+        try {
+            [$found, $decoded, $err] = ValueCodec::decode($encoded);
+        } finally {
+            restore_error_handler();
+        }
+
+        $this->assertTrue($found);
+        $this->assertNull($err);
+        $this->assertSame($value, $decoded);
+        $this->assertSame(array(), $warnings, 'Decoding a deeply nested payload must not emit warnings.');
+    }
+
+    public function test_decode_malformed_serialized_no_warning_leak()
+    {
+        // Truncated / malformed serialized payload must be rejected as
+        // decode-serialized-failed without leaking a PHP warning.
+        $payload = 'O:3:"Foo":2:{s:1:"x";';
+        $encoded = ValueCodec::header_inline(ValueCodec::TAG_SERIALIZED, $payload);
+
+        $warnings = array();
+        set_error_handler(
+            static function ($severity, $message) use (&$warnings) {
+                $warnings[] = $message;
+                return true;
+            }
+        );
+        try {
+            [$found, $val, $err] = ValueCodec::decode($encoded);
+        } finally {
+            restore_error_handler();
+        }
+
+        $this->assertFalse($found);
+        $this->assertSame('decode-serialized-failed', $err);
+        $this->assertSame(array(), $warnings, 'Malformed serialized payload must not leak a PHP warning.');
+    }
+
     public function test_decode_unknown_tag_returns_miss()
     {
         // Magic+version+unknown_tag+length=0.

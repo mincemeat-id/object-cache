@@ -121,13 +121,18 @@ final class ValueCodec {
 			return array( false, false, 'decode-version' );
 		}
 
-		$tag     = ord( $bytes[5] );
-		$length  = self::read_length( $bytes, 6 );
-		$payload = substr( $bytes, self::HEADER_SIZE );
+		$tag    = ord( $bytes[5] );
+		$length = self::read_length( $bytes, 6 );
 
-		if (strlen( $payload ) !== $length) {
+		// Bound the declared payload length against the bytes actually present
+		// *before* slicing the payload. A hostile length field that exceeds the
+		// real payload is rejected as corrupt here and never reaches a typed
+		// `decode_*` or an over-sized `substr`/allocation.
+		if (strlen( $bytes ) - self::HEADER_SIZE !== $length) {
 			return array( false, false, 'decode-length' );
 		}
+
+		$payload = substr( $bytes, self::HEADER_SIZE );
 
 		switch ($tag) {
 			case self::TAG_NULL:
