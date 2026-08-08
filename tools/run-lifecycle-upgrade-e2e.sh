@@ -7,11 +7,11 @@ WORDPRESS_VERSION=${MINCEMEAT_E2E_WORDPRESS_VERSION:-7.0.3}
 E2E_PORT=${MINCEMEAT_E2E_PORT:-8091}
 ADMIN_PASSWORD=${MINCEMEAT_E2E_ADMIN_PASSWORD:-admin-e2e-only}
 KEEP_ENV=${MINCEMEAT_E2E_KEEP_ENV:-0}
-RC2_TAG=0.1.0-rc2
+RC3_TAG=0.1.0-rc3
 TEMP_DIR=$(mktemp -d "${TMPDIR:-/tmp}/mincemeat-lifecycle-e2e.XXXXXX")
 ACTIVE_PLUGIN_DIR="$TEMP_DIR/active-plugin"
-RC2_SOURCE_DIR="$TEMP_DIR/rc2-source"
-RC2_PACKAGE="$TEMP_DIR/rc2.zip"
+RC3_SOURCE_DIR="$TEMP_DIR/rc3-source"
+RC3_PACKAGE="$TEMP_DIR/rc3.zip"
 CANDIDATE_PACKAGE="$TEMP_DIR/candidate.zip"
 
 compose() {
@@ -62,22 +62,22 @@ dropin_hash() {
 
 trap cleanup EXIT
 
-git -C "$ROOT_DIR" rev-parse --verify "refs/tags/$RC2_TAG" >/dev/null \
-	|| fail "Required immutable tag $RC2_TAG is unavailable."
+git -C "$ROOT_DIR" rev-parse --verify "refs/tags/$RC3_TAG" >/dev/null \
+	|| fail "Required immutable tag $RC3_TAG is unavailable."
 
-mkdir -p "$RC2_SOURCE_DIR" "$ACTIVE_PLUGIN_DIR"
-git -C "$ROOT_DIR" archive "$RC2_TAG" | tar -x -C "$RC2_SOURCE_DIR"
+mkdir -p "$RC3_SOURCE_DIR" "$ACTIVE_PLUGIN_DIR"
+git -C "$ROOT_DIR" archive "$RC3_TAG" | tar -x -C "$RC3_SOURCE_DIR"
 (
-	cd "$RC2_SOURCE_DIR"
+	cd "$RC3_SOURCE_DIR"
 	php tools/build-package.php >/dev/null
 )
-cp "$RC2_SOURCE_DIR/mincemeat-object-cache.zip" "$RC2_PACKAGE"
+cp "$RC3_SOURCE_DIR/mincemeat-object-cache.zip" "$RC3_PACKAGE"
 
 php "$ROOT_DIR/tools/build-package.php" >/dev/null
 cp "$ROOT_DIR/mincemeat-object-cache.zip" "$CANDIDATE_PACKAGE"
 
-install_package_files "$RC2_PACKAGE"
-RC2_HASH=$(tr -d '[:space:]' < "$ACTIVE_PLUGIN_DIR/stubs/object-cache.php.sha256")
+install_package_files "$RC3_PACKAGE"
+RC3_HASH=$(tr -d '[:space:]' < "$ACTIVE_PLUGIN_DIR/stubs/object-cache.php.sha256")
 
 compose down --volumes --remove-orphans >/dev/null 2>&1 || true
 compose up -d --build database redis wordpress
@@ -100,15 +100,15 @@ wp core install \
 	--admin_email=admin@example.test \
 	--skip-email >/dev/null
 
-printf 'Installing the packaged RC2 drop-in...\n'
+printf 'Installing the packaged RC3 drop-in...\n'
 wp plugin activate mincemeat-object-cache >/dev/null
-test "$(dropin_hash)" = "$RC2_HASH" || fail 'RC2 package did not install its exact drop-in.'
+test "$(dropin_hash)" = "$RC3_HASH" || fail 'RC3 package did not install its exact drop-in.'
 wp mincemeat-cache status | grep -F 'Drop-in Status: owned-current' >/dev/null
 
 printf 'Replacing companion files with the candidate package...\n'
 install_package_files "$CANDIDATE_PACKAGE"
 CANDIDATE_HASH=$(tr -d '[:space:]' < "$ACTIVE_PLUGIN_DIR/stubs/object-cache.php.sha256")
-test "$CANDIDATE_HASH" != "$RC2_HASH" || fail 'Candidate and RC2 drop-ins are identical.'
+test "$CANDIDATE_HASH" != "$RC3_HASH" || fail 'Candidate and RC3 drop-ins are identical.'
 MIXED_VERSION_STATUS=$(wp mincemeat-cache status 2>&1)
 assert_no_php_diagnostics <<<"$MIXED_VERSION_STATUS"
 grep -F 'Drop-in Status: owned-stale' <<<"$MIXED_VERSION_STATUS" >/dev/null
@@ -119,14 +119,14 @@ compose exec -T wordpress sh -c '! find /var/www/html/wp-content -maxdepth 1 -na
 	|| fail 'Atomic update left a temporary drop-in behind.'
 
 printf 'Checking failed-update preservation...\n'
-compose cp "$RC2_SOURCE_DIR/stubs/object-cache.php" wordpress:/var/www/html/wp-content/object-cache.php >/dev/null
-test "$(dropin_hash)" = "$RC2_HASH" || fail 'Could not seed the trusted stale RC2 drop-in.'
+compose cp "$RC3_SOURCE_DIR/stubs/object-cache.php" wordpress:/var/www/html/wp-content/object-cache.php >/dev/null
+test "$(dropin_hash)" = "$RC3_HASH" || fail 'Could not seed the trusted stale RC3 drop-in.'
 compose exec -T wordpress chown www-data:www-data /var/www/html/wp-content/object-cache.php
 compose exec -T wordpress chmod 0555 /var/www/html/wp-content
 if wp mincemeat-cache update-dropin >/dev/null 2>&1; then
 	fail 'Update unexpectedly succeeded without writable content access.'
 fi
-test "$(dropin_hash)" = "$RC2_HASH" || fail 'Failed update changed the installed drop-in.'
+test "$(dropin_hash)" = "$RC3_HASH" || fail 'Failed update changed the installed drop-in.'
 compose exec -T wordpress chmod 0755 /var/www/html/wp-content
 wp mincemeat-cache update-dropin >/dev/null
 test "$(dropin_hash)" = "$CANDIDATE_HASH" || fail 'Recovery update did not install candidate bytes.'
@@ -145,11 +145,11 @@ test "$(dropin_hash)" = "$FOREIGN_HASH" || fail 'Foreign drop-in bytes changed.'
 compose exec -T wordpress rm /var/www/html/wp-content/object-cache.php
 wp mincemeat-cache install-dropin >/dev/null
 
-printf 'Checking deliberate candidate-to-RC2 rollback...\n'
+printf 'Checking deliberate candidate-to-RC3 rollback...\n'
 wp mincemeat-cache remove-dropin >/dev/null
-install_package_files "$RC2_PACKAGE"
+install_package_files "$RC3_PACKAGE"
 wp mincemeat-cache install-dropin >/dev/null
-test "$(dropin_hash)" = "$RC2_HASH" || fail 'Deliberate rollback did not restore RC2 bytes.'
+test "$(dropin_hash)" = "$RC3_HASH" || fail 'Deliberate rollback did not restore RC3 bytes.'
 wp mincemeat-cache status | grep -F 'Drop-in Status: owned-current' >/dev/null
 
 printf 'Checking companion deactivation cleanup...\n'
@@ -157,9 +157,9 @@ wp plugin deactivate mincemeat-object-cache >/dev/null
 compose exec -T wordpress test ! -e /var/www/html/wp-content/object-cache.php \
 	|| fail 'Deactivation left an owned drop-in installed.'
 wp plugin activate mincemeat-object-cache >/dev/null
-test "$(dropin_hash)" = "$RC2_HASH" || fail 'Reactivation did not restore RC2 bytes.'
+test "$(dropin_hash)" = "$RC3_HASH" || fail 'Reactivation did not restore RC3 bytes.'
 
 compose logs --no-color wordpress 2>&1 | assert_no_php_diagnostics
 
-printf 'Packaged RC2-to-candidate lifecycle E2E suite passed.\n'
+printf 'Packaged RC3-to-candidate lifecycle E2E suite passed.\n'
 
